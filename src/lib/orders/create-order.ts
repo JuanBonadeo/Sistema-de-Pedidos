@@ -4,11 +4,9 @@ import { headers } from "next/headers";
 
 import { actionError, type ActionResult } from "@/lib/actions";
 import { limitCreateOrder } from "@/lib/rate-limit";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-import {
-  persistOrder,
-  type CreateOrderResult,
-} from "./persist-order";
+import { persistOrder, type CreateOrderResult } from "./persist-order";
 import { CreateOrderInput } from "./schema";
 
 export async function createOrder(
@@ -24,8 +22,16 @@ export async function createOrder(
   const { success: allowed } = await limitCreateOrder(ip);
   if (!allowed) return actionError("Demasiados intentos, esperá un minuto.");
 
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return actionError("Iniciá sesión para hacer el pedido.");
+  }
+
   try {
-    return await persistOrder(parsed.data);
+    return await persistOrder(parsed.data, user.id);
   } catch (err) {
     console.error("createOrder unexpected error", err);
     return actionError("No pudimos crear el pedido. Intentá de nuevo.");

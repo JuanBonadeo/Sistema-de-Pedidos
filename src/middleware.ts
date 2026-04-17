@@ -19,9 +19,11 @@ export async function middleware(request: NextRequest) {
   const hostSlug = resolveSlugFromHost(host, rootDomain);
   const pathname = request.nextUrl.pathname;
 
-  // Subdomain → path rewrite for prod
+  // Subdomain → path rewrite for prod. Skip global routes (auth callback).
+  const isGlobalRoute = pathname === "/auth/callback";
   if (
     hostSlug &&
+    !isGlobalRoute &&
     !pathname.startsWith(`/${hostSlug}/`) &&
     pathname !== `/${hostSlug}`
   ) {

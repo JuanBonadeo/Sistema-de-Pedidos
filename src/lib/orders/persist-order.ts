@@ -10,6 +10,7 @@ export type CreateOrderResult = { order_id: string; order_number: number };
 
 export async function persistOrder(
   data: CreateOrderInput,
+  userId?: string | null,
 ): Promise<ActionResult<CreateOrderResult>> {
   const supabase = createSupabaseServiceClient();
 
@@ -110,6 +111,7 @@ export async function persistOrder(
         phone: data.customer_phone,
         name: data.customer_name,
         email: data.customer_email ?? null,
+        user_id: userId ?? null,
       },
       { onConflict: "business_id,phone" },
     )

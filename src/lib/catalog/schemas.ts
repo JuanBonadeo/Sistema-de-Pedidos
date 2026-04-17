@@ -1,0 +1,55 @@
+import { z } from "zod";
+
+export const CategoryInput = z.object({
+  name: z.string().min(1, "Requerido.").max(60),
+  slug: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(/^[a-z0-9-]+$/, "Sólo minúsculas, números y guiones."),
+  sort_order: z.number().int().min(0),
+});
+export type CategoryInput = z.infer<typeof CategoryInput>;
+
+export const ModifierInput = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(60),
+  price_delta_cents: z.number().int().min(0),
+  is_available: z.boolean(),
+  sort_order: z.number().int().min(0),
+});
+export type ModifierInput = z.infer<typeof ModifierInput>;
+
+export const ModifierGroupInput = z
+  .object({
+    id: z.string().uuid().optional(),
+    name: z.string().min(1).max(60),
+    min_selection: z.number().int().min(0),
+    max_selection: z.number().int().min(1),
+    is_required: z.boolean(),
+    sort_order: z.number().int().min(0),
+    modifiers: z.array(ModifierInput),
+  })
+  .refine((g) => g.max_selection >= g.min_selection, {
+    message: "Máximo debe ser ≥ mínimo.",
+    path: ["max_selection"],
+  });
+export type ModifierGroupInput = z.infer<typeof ModifierGroupInput>;
+
+export const ProductInput = z.object({
+  name: z.string().min(1, "Requerido.").max(80),
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/, "Sólo minúsculas, números y guiones."),
+  description: z.string().max(500).optional(),
+  price_cents: z.number().int().min(0),
+  image_url: z.string().url().nullable().optional(),
+  category_id: z.string().uuid().nullable().optional(),
+  is_available: z.boolean(),
+  is_active: z.boolean(),
+  sort_order: z.number().int().min(0),
+  modifier_groups: z.array(ModifierGroupInput),
+});
+export type ProductInput = z.infer<typeof ProductInput>;

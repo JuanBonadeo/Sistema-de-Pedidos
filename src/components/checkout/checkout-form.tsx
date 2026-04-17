@@ -79,9 +79,13 @@ type FormValues = z.infer<typeof FormSchema>;
 export function CheckoutForm({
   slug,
   zones,
+  initialName = "",
+  initialEmail = "",
 }: {
   slug: string;
   zones: DeliveryZone[];
+  initialName?: string;
+  initialEmail?: string;
 }) {
   const router = useRouter();
   const items = useCart(slug, (s) => s.items);
@@ -95,9 +99,9 @@ export function CheckoutForm({
       delivery_address: "",
       delivery_zone_id: "",
       delivery_notes: "",
-      customer_name: "",
+      customer_name: initialName,
       customer_phone: "",
-      customer_email: "",
+      customer_email: initialEmail,
     },
   });
 

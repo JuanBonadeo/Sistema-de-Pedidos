@@ -13,12 +13,7 @@ export default async function CarritoPage({
   if (!business) notFound();
 
   return (
-    <main className="bg-background mx-auto min-h-screen max-w-md px-4 pb-28">
-      <header className="flex items-center justify-between pt-5">
-        <h1 className="text-xl font-extrabold tracking-tight">
-          {business.name}
-        </h1>
-      </header>
+    <main className="bg-background mx-auto min-h-screen max-w-md px-4 pt-4 pb-28">
       <CartPageClient slug={business_slug} />
     </main>
   );

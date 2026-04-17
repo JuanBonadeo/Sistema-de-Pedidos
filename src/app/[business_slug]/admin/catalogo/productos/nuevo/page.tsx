@@ -1,12 +1,14 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
 
 import { AdminNav } from "@/components/admin/admin-nav";
-import { OrdersRealtimeBoard } from "@/components/admin/orders-realtime-board";
-import { getTodayOrders } from "@/lib/admin/orders-query";
+import { ProductForm } from "@/components/admin/catalog/product-form";
+import { getAdminCatalog } from "@/lib/admin/catalog-query";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
 
-export default async function AdminDashboardPage({
+export default async function NuevoProductoPage({
   params,
 }: {
   params: Promise<{ business_slug: string }>;
@@ -21,7 +23,7 @@ export default async function AdminDashboardPage({
   } = await supabase.auth.getUser();
   if (!user) redirect(`/${business_slug}/admin/login`);
 
-  const initialOrders = await getTodayOrders(business.id, business.timezone);
+  const { categories } = await getAdminCatalog(business.id);
 
   return (
     <div className="bg-background min-h-screen">
@@ -34,12 +36,18 @@ export default async function AdminDashboardPage({
           (user.user_metadata?.name as string | undefined)
         }
       />
-      <main className="mx-auto max-w-7xl px-4 py-6">
-        <OrdersRealtimeBoard
-          businessId={business.id}
+      <main className="mx-auto max-w-2xl px-4 py-6">
+        <Link
+          href={`/${business_slug}/admin/catalogo`}
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
+        >
+          <ChevronLeft className="size-4" /> Volver al catálogo
+        </Link>
+        <h1 className="mt-4 mb-6 text-2xl font-extrabold">Nuevo producto</h1>
+        <ProductForm
           slug={business_slug}
-          timezone={business.timezone}
-          initialOrders={initialOrders}
+          businessId={business.id}
+          categories={categories}
         />
       </main>
     </div>

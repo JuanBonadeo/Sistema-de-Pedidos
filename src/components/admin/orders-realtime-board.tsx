@@ -102,7 +102,12 @@ export function OrdersRealtimeBoard({
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
+    // Unique topic per effect run — avoids "cannot add callbacks after
+    // subscribe" when React Strict Mode double-mounts, since the client
+    // caches channels by topic.
+    const topic = `orders:${businessId}:${Math.random().toString(36).slice(2, 10)}`;
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
 
     (async () => {
       // Ensure the realtime socket authenticates with the current session,
@@ -110,12 +115,14 @@ export function OrdersRealtimeBoard({
       const {
         data: { session },
       } = await supabase.auth.getSession();
+      if (cancelled) return;
       if (session?.access_token) {
         await supabase.realtime.setAuth(session.access_token);
       }
+      if (cancelled) return;
 
       channel = supabase
-        .channel(`orders:${businessId}`)
+        .channel(topic)
         .on(
           "postgres_changes",
           {
@@ -153,6 +160,7 @@ export function OrdersRealtimeBoard({
     })();
 
     return () => {
+      cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
   }, [businessId, fetchOrder]);

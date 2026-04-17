@@ -1,0 +1,233 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+
+import { actionError, actionOk, type ActionResult } from "@/lib/actions";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
+
+import { ProductInput, type ModifierGroupInput } from "./schemas";
+
+async function getBusinessIdBySlug(slug: string): Promise<string | null> {
+  const service = createSupabaseServiceClient();
+  const { data } = await service
+    .from("businesses")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
+async function syncModifierGroups(
+  productId: string,
+  businessId: string,
+  groups: ModifierGroupInput[],
+): Promise<string | null> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data: existing } = await supabase
+    .from("modifier_groups")
+    .select("id")
+    .eq("product_id", productId);
+  const existingIds = new Set((existing ?? []).map((g) => g.id));
+  const incomingIds = new Set(
+    groups.map((g) => g.id).filter((id): id is string => !!id),
+  );
+  const toDelete = [...existingIds].filter((id) => !incomingIds.has(id));
+  if (toDelete.length > 0) {
+    const { error } = await supabase
+      .from("modifier_groups")
+      .delete()
+      .in("id", toDelete);
+    if (error) return "No pudimos borrar grupos viejos.";
+  }
+
+  for (const [idx, group] of groups.entries()) {
+    const groupPayload = {
+      business_id: businessId,
+      product_id: productId,
+      name: group.name,
+      min_selection: group.min_selection,
+      max_selection: group.max_selection,
+      is_required: group.is_required,
+      sort_order: idx,
+    };
+
+    let groupId = group.id;
+    if (groupId) {
+      const { error } = await supabase
+        .from("modifier_groups")
+        .update(groupPayload)
+        .eq("id", groupId);
+      if (error) return "No pudimos actualizar un grupo.";
+    } else {
+      const { data: inserted, error } = await supabase
+        .from("modifier_groups")
+        .insert(groupPayload)
+        .select("id")
+        .single();
+      if (error || !inserted) return "No pudimos crear un grupo.";
+      groupId = inserted.id;
+    }
+
+    // Sync modifiers inside this group
+    const { data: existingMods } = await supabase
+      .from("modifiers")
+      .select("id")
+      .eq("group_id", groupId);
+    const existingModIds = new Set((existingMods ?? []).map((m) => m.id));
+    const incomingModIds = new Set(
+      group.modifiers.map((m) => m.id).filter((id): id is string => !!id),
+    );
+    const modsToDelete = [...existingModIds].filter(
+      (id) => !incomingModIds.has(id),
+    );
+    if (modsToDelete.length > 0) {
+      const { error } = await supabase
+        .from("modifiers")
+        .delete()
+        .in("id", modsToDelete);
+      if (error) return "No pudimos borrar adicionales viejos.";
+    }
+
+    for (const [mIdx, mod] of group.modifiers.entries()) {
+      const modPayload = {
+        group_id: groupId,
+        name: mod.name,
+        price_delta_cents: mod.price_delta_cents,
+        is_available: mod.is_available,
+        sort_order: mIdx,
+      };
+      if (mod.id) {
+        const { error } = await supabase
+          .from("modifiers")
+          .update(modPayload)
+          .eq("id", mod.id);
+        if (error) return "No pudimos actualizar un adicional.";
+      } else {
+        const { error } = await supabase.from("modifiers").insert(modPayload);
+        if (error) return "No pudimos crear un adicional.";
+      }
+    }
+  }
+
+  return null;
+}
+
+export async function createProduct(
+  businessSlug: string,
+  input: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  const parsed = ProductInput.safeParse(input);
+  if (!parsed.success) return actionError("Datos inválidos.");
+
+  const businessId = await getBusinessIdBySlug(businessSlug);
+  if (!businessId) return actionError("Negocio no encontrado.");
+
+  const supabase = await createSupabaseServerClient();
+  const { modifier_groups, ...productData } = parsed.data;
+  const { data, error } = await supabase
+    .from("products")
+    .insert({ ...productData, business_id: businessId })
+    .select("id")
+    .single();
+  if (error || !data) {
+    console.error("createProduct", error);
+    return actionError(
+      error?.code === "23505"
+        ? "Ya existe un producto con ese slug."
+        : "No pudimos crear el producto.",
+    );
+  }
+  if (modifier_groups.length > 0) {
+    const err = await syncModifierGroups(data.id, businessId, modifier_groups);
+    if (err) return actionError(err);
+  }
+  revalidatePath(`/${businessSlug}/admin/catalogo`);
+  return actionOk({ id: data.id });
+}
+
+export async function updateProduct(
+  businessSlug: string,
+  id: string,
+  input: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  const parsed = ProductInput.safeParse(input);
+  if (!parsed.success) return actionError("Datos inválidos.");
+
+  const businessId = await getBusinessIdBySlug(businessSlug);
+  if (!businessId) return actionError("Negocio no encontrado.");
+
+  const supabase = await createSupabaseServerClient();
+  const { modifier_groups, ...productData } = parsed.data;
+  const { error } = await supabase
+    .from("products")
+    .update(productData)
+    .eq("id", id);
+  if (error) {
+    console.error("updateProduct", error);
+    return actionError(
+      error.code === "23505"
+        ? "Ya existe un producto con ese slug."
+        : "No pudimos actualizar el producto.",
+    );
+  }
+  const err = await syncModifierGroups(id, businessId, modifier_groups);
+  if (err) return actionError(err);
+  revalidatePath(`/${businessSlug}/admin/catalogo`);
+  revalidatePath(`/${businessSlug}/menu`);
+  return actionOk({ id });
+}
+
+export async function deleteProduct(
+  businessSlug: string,
+  id: string,
+): Promise<ActionResult<null>> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("products").delete().eq("id", id);
+  if (error) {
+    console.error("deleteProduct", error);
+    return actionError("No pudimos borrar el producto.");
+  }
+  revalidatePath(`/${businessSlug}/admin/catalogo`);
+  revalidatePath(`/${businessSlug}/menu`);
+  return actionOk(null);
+}
+
+export async function toggleProductAvailability(
+  businessSlug: string,
+  id: string,
+  isAvailable: boolean,
+): Promise<ActionResult<{ is_available: boolean }>> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("products")
+    .update({ is_available: isAvailable })
+    .eq("id", id);
+  if (error) {
+    console.error("toggleProductAvailability", error);
+    return actionError("No pudimos actualizar.");
+  }
+  revalidatePath(`/${businessSlug}/admin/catalogo`);
+  revalidatePath(`/${businessSlug}/menu`);
+  return actionOk({ is_available: isAvailable });
+}
+
+export async function toggleProductActive(
+  businessSlug: string,
+  id: string,
+  isActive: boolean,
+): Promise<ActionResult<{ is_active: boolean }>> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("products")
+    .update({ is_active: isActive })
+    .eq("id", id);
+  if (error) {
+    console.error("toggleProductActive", error);
+    return actionError("No pudimos actualizar.");
+  }
+  revalidatePath(`/${businessSlug}/admin/catalogo`);
+  revalidatePath(`/${businessSlug}/menu`);
+  return actionOk({ is_active: isActive });
+}

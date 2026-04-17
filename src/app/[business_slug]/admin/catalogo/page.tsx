@@ -1,12 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 
 import { AdminNav } from "@/components/admin/admin-nav";
-import { OrdersRealtimeBoard } from "@/components/admin/orders-realtime-board";
-import { getTodayOrders } from "@/lib/admin/orders-query";
+import { CatalogClient } from "@/components/admin/catalog/catalog-client";
+import { getAdminCatalog } from "@/lib/admin/catalog-query";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
 
-export default async function AdminDashboardPage({
+export default async function CatalogPage({
   params,
 }: {
   params: Promise<{ business_slug: string }>;
@@ -21,7 +21,7 @@ export default async function AdminDashboardPage({
   } = await supabase.auth.getUser();
   if (!user) redirect(`/${business_slug}/admin/login`);
 
-  const initialOrders = await getTodayOrders(business.id, business.timezone);
+  const { categories, products } = await getAdminCatalog(business.id);
 
   return (
     <div className="bg-background min-h-screen">
@@ -34,12 +34,11 @@ export default async function AdminDashboardPage({
           (user.user_metadata?.name as string | undefined)
         }
       />
-      <main className="mx-auto max-w-7xl px-4 py-6">
-        <OrdersRealtimeBoard
-          businessId={business.id}
+      <main className="mx-auto max-w-4xl px-4 py-6">
+        <CatalogClient
           slug={business_slug}
-          timezone={business.timezone}
-          initialOrders={initialOrders}
+          categories={categories}
+          products={products}
         />
       </main>
     </div>

@@ -53,6 +53,10 @@ export default async function OrderDetailPage({
         slug={business_slug}
         businessName={business.name}
         userEmail={user.email ?? ""}
+        userName={
+          (user.user_metadata?.full_name as string | undefined) ??
+          (user.user_metadata?.name as string | undefined)
+        }
       />
       <main className="mx-auto max-w-2xl px-4 py-6">
         <Link

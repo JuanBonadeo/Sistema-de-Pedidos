@@ -10,6 +10,7 @@ import {
   Menu,
   Package,
   ShoppingBag,
+  Users,
   X,
 } from "lucide-react";
 
@@ -23,8 +24,8 @@ type NavItem = {
   match: (pathname: string) => boolean;
 };
 
-function buildNav(slug: string): NavItem[] {
-  return [
+function buildNav(slug: string, showUsers: boolean): NavItem[] {
+  const items: NavItem[] = [
     {
       href: `/${slug}/admin`,
       label: "Pedidos",
@@ -46,6 +47,15 @@ function buildNav(slug: string): NavItem[] {
       match: (p) => p.startsWith(`/${slug}/admin/reportes`),
     },
   ];
+  if (showUsers) {
+    items.push({
+      href: `/${slug}/admin/usuarios`,
+      label: "Usuarios",
+      icon: <Users className="size-4" />,
+      match: (p) => p.startsWith(`/${slug}/admin/usuarios`),
+    });
+  }
+  return items;
 }
 
 export function AdminSidebar({
@@ -54,12 +64,14 @@ export function AdminSidebar({
   userEmail,
   userName,
   isPlatformAdmin = false,
+  canManageUsers = false,
 }: {
   slug: string;
   businessName: string;
   userEmail: string;
   userName?: string | null;
   isPlatformAdmin?: boolean;
+  canManageUsers?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -118,7 +130,11 @@ export function AdminSidebar({
         </header>
 
         <nav className="flex-1 space-y-1 px-3 py-2">
-          <SidebarNavItems slug={slug} onNavigate={() => setOpen(false)} />
+          <SidebarNavItems
+            slug={slug}
+            showUsers={canManageUsers}
+            onNavigate={() => setOpen(false)}
+          />
           {isPlatformAdmin && (
             <Link
               href="/super"
@@ -163,13 +179,15 @@ export function AdminSidebar({
 
 function SidebarNavItems({
   slug,
+  showUsers,
   onNavigate,
 }: {
   slug: string;
+  showUsers: boolean;
   onNavigate: () => void;
 }) {
   const pathname = usePathname();
-  const items = buildNav(slug);
+  const items = buildNav(slug, showUsers);
   return (
     <>
       {items.map((item, idx) => {

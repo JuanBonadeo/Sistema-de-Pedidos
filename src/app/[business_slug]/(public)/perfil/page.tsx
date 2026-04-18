@@ -1,11 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 
-import { CheckoutForm } from "@/components/checkout/checkout-form";
-import { getMenu } from "@/lib/menu";
+import { ProfileScreen } from "@/components/public/profile-screen";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
 
-export default async function CheckoutPage({
+export default async function PerfilPage({
   params,
 }: {
   params: Promise<{ business_slug: string }>;
@@ -19,24 +18,25 @@ export default async function CheckoutPage({
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    const next = encodeURIComponent(`/${business_slug}/checkout`);
+    const next = encodeURIComponent(`/${business_slug}/perfil`);
     redirect(`/${business_slug}/login?next=${next}`);
   }
 
-  const menu = await getMenu(business.id);
+  const fullName =
+    (user.user_metadata?.full_name as string | undefined) ??
+    (user.user_metadata?.name as string | undefined) ??
+    user.email?.split("@")[0] ??
+    "";
+  const parts = fullName.trim().split(/\s+/);
+  const firstName = parts[0] ?? "";
+  const lastName = parts.slice(1).join(" ");
 
   return (
-    <CheckoutForm
+    <ProfileScreen
       slug={business_slug}
-      businessName={business.name}
-      businessAddress={business.address}
-      zones={menu.zones}
-      initialName={
-        (user.user_metadata?.full_name as string | undefined) ??
-        (user.user_metadata?.name as string | undefined) ??
-        ""
-      }
-      initialEmail={user.email ?? ""}
+      firstName={firstName}
+      lastName={lastName}
+      email={user.email ?? ""}
     />
   );
 }

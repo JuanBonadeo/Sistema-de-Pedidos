@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 
 import { MenuClient } from "@/components/menu/menu-client";
+import { computeIsOpen } from "@/lib/business-hours";
 import { getMenu } from "@/lib/menu";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
 
 export default async function MenuPage({
@@ -13,17 +15,41 @@ export default async function MenuPage({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  const menu = await getMenu(business.id);
+  const [menu, supabase] = await Promise.all([
+    getMenu(business.id),
+    createSupabaseServerClient(),
+  ]);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const isOpen = computeIsOpen(menu.hours, business.timezone);
+  const tagline =
+    (business.settings as { tagline?: string } | null)?.tagline ??
+    business.address ??
+    null;
 
   return (
-    <main className="bg-background mx-auto min-h-screen max-w-md px-4 pt-4 pb-28">
-      {menu.categories.length === 0 ? (
-        <p className="text-muted-foreground py-10 text-center">
-          Este negocio todavía no cargó su menú.
-        </p>
-      ) : (
-        <MenuClient slug={business_slug} categories={menu.categories} />
-      )}
-    </main>
+    <MenuClient
+      slug={business_slug}
+      businessName={business.name}
+      tagline={tagline}
+      heroImageUrl={business.logo_url}
+      categories={menu.categories}
+      zones={menu.zones}
+      hours={menu.hours}
+      timezone={business.timezone}
+      isOpenInitial={isOpen}
+      user={
+        user
+          ? {
+              name:
+                (user.user_metadata?.full_name as string | undefined) ??
+                (user.user_metadata?.name as string | undefined),
+              email: user.email ?? "",
+            }
+          : null
+      }
+    />
   );
 }

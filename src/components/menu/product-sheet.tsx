@@ -1,37 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
-import { Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/textarea";
+import { I, ImageTile } from "@/components/delivery/primitives";
 import { formatCurrency } from "@/lib/currency";
-import type { MenuModifier, MenuProduct } from "@/lib/menu";
+import type { MenuProduct } from "@/lib/menu";
 import { useCart, type CartModifier } from "@/stores/cart";
 
 type Selection = Record<string, string[]>;
 
 function initialSelection(product: MenuProduct): Selection {
   const sel: Selection = {};
-  for (const g of product.modifier_groups) sel[g.id] = [];
+  for (const g of product.modifier_groups) {
+    if (g.is_required && g.min_selection === 1 && g.max_selection === 1 && g.modifiers[0]) {
+      sel[g.id] = [g.modifiers[0].id];
+    } else {
+      sel[g.id] = [];
+    }
+  }
   return sel;
 }
 
 function validate(product: MenuProduct, selection: Selection): string | null {
   for (const g of product.modifier_groups) {
     const count = selection[g.id]?.length ?? 0;
-    if (count < g.min_selection) return `Elegí al menos ${g.min_selection} en "${g.name}".`;
-    if (count > g.max_selection) return `Podés elegir hasta ${g.max_selection} en "${g.name}".`;
+    if (count < g.min_selection)
+      return `Elegí al menos ${g.min_selection} en "${g.name}".`;
+    if (count > g.max_selection)
+      return `Podés elegir hasta ${g.max_selection} en "${g.name}".`;
   }
   return null;
 }
@@ -50,13 +47,11 @@ export function ProductSheet({
   const addItem = useCart(slug, (s) => s.addItem);
   const [selection, setSelection] = useState<Selection>({});
   const [quantity, setQuantity] = useState(1);
-  const [notes, setNotes] = useState("");
 
   useEffect(() => {
     if (product) {
       setSelection(initialSelection(product));
       setQuantity(1);
-      setNotes("");
     }
   }, [product?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -74,7 +69,7 @@ export function ProductSheet({
     return (product.price_cents + modsTotal) * quantity;
   }, [product, selection, quantity]);
 
-  if (!product) return null;
+  if (!open || !product) return null;
 
   const handleAdd = () => {
     const error = validate(product, selection);
@@ -98,197 +93,325 @@ export function ProductSheet({
       product_name: product.name,
       unit_price_cents: product.price_cents,
       quantity,
-      notes: notes.trim() || undefined,
       image_url: product.image_url,
       modifiers,
     });
     onOpenChange(false);
   };
 
+  const canAdd = validate(product, selection) === null;
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="bottom"
-        className="max-h-[90vh] overflow-y-auto rounded-t-2xl p-0"
+    <div
+      onClick={() => onOpenChange(false)}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 60,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-end",
+        background: "rgba(0,0,0,0.38)",
+        animation: "d-fade-in 200ms",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--bg)",
+          borderRadius: "18px 18px 0 0",
+          maxHeight: "92vh",
+          display: "flex",
+          flexDirection: "column",
+          animation: "d-sheet-up 260ms cubic-bezier(.2,.8,.2,1)",
+          maxWidth: 520,
+          width: "100%",
+          margin: "0 auto",
+        }}
       >
-        {product.image_url && (
-          <div className="relative h-48 w-full">
-            <Image
+        <div style={{ padding: "8px 0 0", display: "flex", justifyContent: "center" }}>
+          <div
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 4,
+              background: "var(--hairline-2)",
+            }}
+          />
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
+          <div style={{ position: "relative" }}>
+            <ImageTile
               src={product.image_url}
               alt={product.name}
-              fill
-              sizes="500px"
-              priority
-              className="object-cover"
+              tone="#D9C9A8"
+              radius={0}
+              sizes="520px"
+              style={{ height: 200, marginTop: 10 }}
             />
-          </div>
-        )}
-        <div className="px-4 pt-4 pb-28">
-          <SheetHeader className="p-0 text-left">
-            <SheetTitle className="text-2xl">{product.name}</SheetTitle>
-          </SheetHeader>
-          {product.description && (
-            <p className="text-muted-foreground mt-1 text-sm">
-              {product.description}
-            </p>
-          )}
-
-          {product.modifier_groups.map((group) => (
-            <ModifierGroupSection
-              key={group.id}
-              groupId={group.id}
-              name={group.name}
-              required={group.is_required}
-              min={group.min_selection}
-              max={group.max_selection}
-              modifiers={group.modifiers}
-              value={selection[group.id] ?? []}
-              onChange={(next) =>
-                setSelection((prev) => ({ ...prev, [group.id]: next }))
-              }
-            />
-          ))}
-
-          <div className="mt-6">
-            <Label htmlFor="notes">Aclaraciones</Label>
-            <Textarea
-              id="notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ej. sin cebolla"
-              className="mt-2"
-              maxLength={200}
-            />
-          </div>
-        </div>
-
-        <div className="bg-background sticky bottom-0 flex items-center gap-3 border-t px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Button
-              size="icon-sm"
-              variant="outline"
-              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              aria-label="Menos"
+            <button
+              onClick={() => onOpenChange(false)}
+              aria-label="Cerrar"
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                width: 34,
+                height: 34,
+                borderRadius: 99,
+                border: "none",
+                background: "rgba(255,255,255,0.92)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
             >
-              <Minus />
-            </Button>
-            <span className="w-6 text-center font-semibold">{quantity}</span>
-            <Button
-              size="icon-sm"
-              variant="outline"
-              onClick={() => setQuantity((q) => Math.min(99, q + 1))}
-              aria-label="Más"
-            >
-              <Plus />
-            </Button>
+              {I.close("var(--ink)", 16)}
+            </button>
           </div>
-          <Button
-            size="lg"
-            className="flex-1"
-            onClick={handleAdd}
-            disabled={!product.is_available}
-          >
-            Agregar · {formatCurrency(lineTotal)}
-          </Button>
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-}
 
-function ModifierGroupSection({
-  groupId,
-  name,
-  required,
-  min,
-  max,
-  modifiers,
-  value,
-  onChange,
-}: {
-  groupId: string;
-  name: string;
-  required: boolean;
-  min: number;
-  max: number;
-  modifiers: MenuModifier[];
-  value: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const isSingle = max === 1 && min === 1;
-  return (
-    <section className="mt-6">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">{name}</h3>
-        <span className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
-          {required ? "Obligatorio" : "Opcional"}
-        </span>
-      </div>
-
-      {isSingle ? (
-        <RadioGroup
-          value={value[0] ?? ""}
-          onValueChange={(v) => onChange([v])}
-          className="mt-3 grid gap-2"
-        >
-          {modifiers.map((m) => (
-            <Label
-              key={m.id}
-              htmlFor={`${groupId}-${m.id}`}
-              className="bg-card flex cursor-pointer items-center justify-between rounded-lg border px-3 py-3"
+          <div style={{ padding: "16px 16px 8px" }}>
+            <div
+              className="d-display"
+              style={{
+                fontSize: 26,
+                lineHeight: 1.1,
+                color: "var(--ink)",
+              }}
             >
-              <span className="flex items-center gap-3">
-                <RadioGroupItem
-                  value={m.id}
-                  id={`${groupId}-${m.id}`}
-                  disabled={!m.is_available}
-                />
-                <span className="text-sm font-medium">{m.name}</span>
-              </span>
-              <span className="text-muted-foreground text-sm">
-                {m.price_delta_cents > 0
-                  ? `+${formatCurrency(m.price_delta_cents)}`
-                  : ""}
-              </span>
-            </Label>
-          ))}
-        </RadioGroup>
-      ) : (
-        <div className="mt-3 grid gap-2">
-          {modifiers.map((m) => {
-            const checked = value.includes(m.id);
-            const atMax = !checked && value.length >= max;
-            return (
-              <label
-                key={m.id}
-                className="bg-card flex cursor-pointer items-center justify-between rounded-lg border px-3 py-3"
+              {product.name}
+            </div>
+            {product.description && (
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--ink-2)",
+                  marginTop: 6,
+                  lineHeight: 1.4,
+                }}
               >
-                <span className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    className="size-4"
-                    checked={checked}
-                    disabled={!m.is_available || atMax}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        onChange([...value, m.id]);
-                      } else {
-                        onChange(value.filter((id) => id !== m.id));
-                      }
+                {product.description}
+              </div>
+            )}
+            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 10 }}>
+              {formatCurrency(product.price_cents)}
+            </div>
+          </div>
+
+          {product.modifier_groups.map((g) => {
+            const isMulti = g.max_selection > 1 || g.min_selection === 0;
+            return (
+              <div
+                key={g.id}
+                style={{
+                  borderTop: "8px solid #F3EEE4",
+                  padding: "14px 16px 8px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 10,
+                  }}
+                >
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>
+                    {g.name}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      padding: "3px 7px",
+                      borderRadius: 4,
+                      background: g.is_required ? "var(--ink)" : "#EEE8DC",
+                      color: g.is_required ? "#fff" : "#8A7B5E",
                     }}
-                  />
-                  <span className="text-sm font-medium">{m.name}</span>
-                </span>
-                <span className="text-muted-foreground text-sm">
-                  {m.price_delta_cents > 0
-                    ? `+${formatCurrency(m.price_delta_cents)}`
-                    : ""}
-                </span>
-              </label>
+                  >
+                    {g.is_required ? "Obligatorio" : "Opcional"}
+                  </span>
+                </div>
+                {g.modifiers.map((o) => {
+                  const current = selection[g.id] ?? [];
+                  const selected = current.includes(o.id);
+                  const atMax = !selected && current.length >= g.max_selection;
+                  const disabled = !o.is_available || atMax;
+                  return (
+                    <button
+                      key={o.id}
+                      disabled={disabled}
+                      onClick={() => {
+                        setSelection((prev) => {
+                          const cur = prev[g.id] ?? [];
+                          if (isMulti) {
+                            return {
+                              ...prev,
+                              [g.id]: cur.includes(o.id)
+                                ? cur.filter((x) => x !== o.id)
+                                : [...cur, o.id],
+                            };
+                          }
+                          return { ...prev, [g.id]: [o.id] };
+                        });
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "12px 0",
+                        background: "none",
+                        border: "none",
+                        borderBottom: "1px solid var(--hairline)",
+                        cursor: disabled ? "not-allowed" : "pointer",
+                        textAlign: "left",
+                        opacity: disabled && !atMax ? 0.5 : 1,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 20,
+                          height: 20,
+                          flexShrink: 0,
+                          borderRadius: isMulti ? 4 : 99,
+                          border: `1.6px solid ${selected ? "var(--accent)" : "var(--hairline-2)"}`,
+                          background: selected ? "var(--accent)" : "#fff",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginRight: 12,
+                        }}
+                      >
+                        {selected &&
+                          (isMulti ? (
+                            I.check("#fff", 12)
+                          ) : (
+                            <span
+                              style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: 99,
+                                background: "#fff",
+                              }}
+                            />
+                          ))}
+                      </div>
+                      <span
+                        style={{
+                          flex: 1,
+                          fontSize: 14,
+                          color: "var(--ink)",
+                        }}
+                      >
+                        {o.name}
+                      </span>
+                      {o.price_delta_cents > 0 && (
+                        <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
+                          +{formatCurrency(o.price_delta_cents)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             );
           })}
+
+          <div style={{ height: 24 }} />
         </div>
-      )}
-    </section>
+
+        <div
+          style={{
+            padding: "12px 16px 22px",
+            borderTop: "1px solid var(--hairline)",
+            background: "var(--bg)",
+            display: "flex",
+            gap: 12,
+            alignItems: "center",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              height: 48,
+              borderRadius: 99,
+              border: "1px solid var(--hairline-2)",
+              background: "#fff",
+            }}
+          >
+            <button
+              onClick={() => setQuantity(Math.max(1, quantity - 1))}
+              aria-label="Menos"
+              style={{
+                width: 44,
+                height: 46,
+                border: "none",
+                background: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {I.minus("var(--ink)", 18)}
+            </button>
+            <span
+              style={{
+                minWidth: 20,
+                textAlign: "center",
+                fontWeight: 600,
+                fontSize: 15,
+              }}
+            >
+              {quantity}
+            </span>
+            <button
+              onClick={() => setQuantity(Math.min(99, quantity + 1))}
+              aria-label="Más"
+              style={{
+                width: 44,
+                height: 46,
+                border: "none",
+                background: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {I.plus("var(--ink)", 18)}
+            </button>
+          </div>
+          <button
+            disabled={!canAdd || !product.is_available}
+            onClick={handleAdd}
+            style={{
+              flex: 1,
+              height: 48,
+              borderRadius: 99,
+              background: canAdd && product.is_available ? "var(--accent)" : "#D8CFC0",
+              color: "#fff",
+              border: "none",
+              cursor: canAdd && product.is_available ? "pointer" : "not-allowed",
+              fontSize: 15,
+              fontWeight: 600,
+              letterSpacing: -0.1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0 18px",
+            }}
+          >
+            <span>Agregar</span>
+            <span>{formatCurrency(lineTotal)}</span>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

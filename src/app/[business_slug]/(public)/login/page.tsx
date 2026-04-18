@@ -1,6 +1,7 @@
-import Image from "next/image";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { I } from "@/components/delivery/primitives";
 import { LoginWithGoogleButton } from "@/components/public/login-button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
@@ -29,32 +30,101 @@ export default async function CustomerLoginPage({
   if (user) redirect(safeNext);
 
   return (
-    <main className="bg-background mx-auto flex min-h-screen max-w-md flex-col justify-center gap-8 px-6 py-10">
-      <header className="flex flex-col items-center gap-4 text-center">
-        {business.logo_url && (
-          <div className="relative size-16 overflow-hidden rounded-full">
-            <Image
-              src={business.logo_url}
-              alt={business.name}
-              fill
-              sizes="64px"
-              className="object-cover"
-            />
+    <div
+      style={{
+        maxWidth: 520,
+        margin: "0 auto",
+        minHeight: "100vh",
+        background: "var(--bg)",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div
+        style={{
+          paddingTop: 16,
+          paddingBottom: 8,
+          paddingLeft: 8,
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <Link
+          href={`/${business_slug}/menu`}
+          aria-label="Cerrar"
+          style={{
+            width: 40,
+            height: 40,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {I.close("var(--ink)", 20)}
+        </Link>
+      </div>
+
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          padding: "24px 28px 40px",
+        }}
+      >
+        <div style={{ marginTop: 40 }}>
+          <div
+            className="d-display"
+            style={{
+              fontSize: 44,
+              lineHeight: 1.0,
+              color: "var(--ink)",
+            }}
+          >
+            Ingresá
           </div>
-        )}
-        <div>
-          <h1 className="text-2xl font-extrabold">{business.name}</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Entrá con tu cuenta para hacer el pedido.
-          </p>
+          <div
+            style={{
+              fontSize: 15,
+              color: "var(--ink-2)",
+              marginTop: 12,
+              lineHeight: 1.4,
+              maxWidth: 280,
+            }}
+          >
+            Para guardar tus direcciones y seguir tus pedidos en {business.name}.
+          </div>
         </div>
-      </header>
 
-      <LoginWithGoogleButton nextPath={safeNext} />
+        <div>
+          <LoginWithGoogleButton nextPath={safeNext} />
 
-      <p className="text-muted-foreground text-center text-xs">
-        Al continuar aceptás los términos y la política de privacidad.
-      </p>
-    </main>
+          <div
+            style={{
+              textAlign: "center",
+              fontSize: 12,
+              color: "var(--ink-3)",
+              marginTop: 20,
+              lineHeight: 1.5,
+            }}
+          >
+            Al continuar aceptás los{" "}
+            <span
+              style={{ color: "var(--ink-2)", textDecoration: "underline" }}
+            >
+              Términos
+            </span>{" "}
+            y la{" "}
+            <span
+              style={{ color: "var(--ink-2)", textDecoration: "underline" }}
+            >
+              Privacidad
+            </span>
+            .
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

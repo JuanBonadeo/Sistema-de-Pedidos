@@ -1,11 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { Minus, Plus, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
-import { buttonVariants } from "@/components/ui/button";
-import { CartSummary } from "@/components/cart/cart-summary";
+import { I, ImageTile } from "@/components/delivery/primitives";
 import { formatCurrency } from "@/lib/currency";
 import {
   cartItemSubtotal,
@@ -13,126 +11,414 @@ import {
   useCart,
 } from "@/stores/cart";
 
-export function CartPageClient({ slug }: { slug: string }) {
+export function CartPageClient({
+  slug,
+  businessName,
+  deliveryFeeCents,
+  minOrderCents,
+}: {
+  slug: string;
+  businessName: string;
+  deliveryFeeCents: number;
+  minOrderCents: number;
+}) {
+  const router = useRouter();
   const items = useCart(slug, (s) => s.items);
   const updateQuantity = useCart(slug, (s) => s.updateQuantity);
-  const removeItem = useCart(slug, (s) => s.removeItem);
 
-  if (items.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-        <p className="text-muted-foreground">Tu carrito está vacío.</p>
-        <Link href={`/${slug}/menu`} className={buttonVariants({ size: "lg" })}>
-          Ver menú
-        </Link>
-      </div>
-    );
-  }
-
-  const subtotalCents = cartTotal(items);
+  const subtotal = cartTotal(items);
+  const isEmpty = items.length === 0;
+  const underMin = !isEmpty && minOrderCents > 0 && subtotal < minOrderCents;
+  const missing = Math.max(0, minOrderCents - subtotal);
+  const total = subtotal + (isEmpty ? 0 : deliveryFeeCents);
 
   return (
-    <>
-      <h2 className="mt-4 text-xl font-bold">Tu carrito</h2>
+    <div
+      style={{
+        maxWidth: 520,
+        margin: "0 auto",
+        minHeight: "100vh",
+        background: "var(--bg)",
+        display: "flex",
+        flexDirection: "column",
+        paddingBottom: isEmpty ? 0 : 110,
+      }}
+    >
+      <div
+        style={{
+          paddingTop: 16,
+          paddingBottom: 10,
+          paddingLeft: 8,
+          paddingRight: 8,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          borderBottom: "1px solid var(--hairline)",
+        }}
+      >
+        <button
+          onClick={() => router.push(`/${slug}/menu`)}
+          aria-label="Volver"
+          style={{
+            width: 40,
+            height: 40,
+            border: "none",
+            background: "none",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {I.chevLeft("var(--ink)", 22)}
+        </button>
+        <div>
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: 600,
+              color: "var(--ink)",
+              letterSpacing: -0.1,
+            }}
+          >
+            Mi pedido
+          </div>
+          <div style={{ fontSize: 12, color: "var(--ink-3)" }}>{businessName}</div>
+        </div>
+      </div>
 
-      <ul className="mt-4 grid gap-3">
-        {items.map((item) => {
-          const lineSubtotal = cartItemSubtotal(item);
-          const modsLabel = item.modifiers
-            .map((m) => m.name.toUpperCase())
-            .join(", ");
-          return (
-            <li
-              key={item.id}
-              className="bg-card flex gap-3 rounded-xl p-3 shadow-[0_1px_3px_rgba(19,27,46,0.04)]"
-            >
-              <div className="relative size-16 shrink-0 overflow-hidden rounded-lg">
-                {item.image_url && (
-                  <Image
-                    src={item.image_url}
-                    alt={item.product_name}
-                    fill
-                    sizes="64px"
-                    className="object-cover"
-                  />
-                )}
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col justify-between">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate font-semibold">
-                      {item.product_name}
-                    </h3>
-                    {modsLabel && (
-                      <p className="text-muted-foreground mt-0.5 truncate text-xs font-medium tracking-wider">
-                        {modsLabel}
-                      </p>
-                    )}
-                    {item.notes && (
-                      <p className="text-muted-foreground mt-0.5 line-clamp-1 text-xs italic">
-                        {item.notes}
-                      </p>
-                    )}
+      {isEmpty ? (
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 32,
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: 99,
+              background: "#F1EBDF",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 16,
+            }}
+          >
+            {I.bag("var(--ink-3)", 28)}
+          </div>
+          <div
+            className="d-display"
+            style={{
+              fontSize: 22,
+              color: "var(--ink)",
+              marginBottom: 6,
+            }}
+          >
+            Todavía no agregaste nada
+          </div>
+          <div
+            style={{
+              fontSize: 13,
+              color: "var(--ink-2)",
+              maxWidth: 240,
+              lineHeight: 1.4,
+            }}
+          >
+            Volvé al menú y elegí lo que se te antoje.
+          </div>
+          <Link
+            href={`/${slug}/menu`}
+            style={{
+              marginTop: 24,
+              height: 44,
+              padding: "0 20px",
+              borderRadius: 99,
+              background: "var(--ink)",
+              color: "#fff",
+              fontSize: 14,
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              textDecoration: "none",
+            }}
+          >
+            Ver menú
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div style={{ flex: 1 }}>
+            {items.map((it) => (
+              <div
+                key={it.id}
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  padding: "14px 16px",
+                  borderBottom: "1px solid var(--hairline)",
+                }}
+              >
+                <ImageTile
+                  src={it.image_url}
+                  alt={it.product_name}
+                  tone="#D9C9A8"
+                  sizes="56px"
+                  style={{ width: 56, height: 56, flexShrink: 0 }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
+                    {it.product_name}
                   </div>
-                  <button
-                    onClick={() => removeItem(item.id)}
-                    aria-label="Eliminar"
-                    className="text-muted-foreground hover:text-foreground p-1"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <div className="bg-muted flex items-center rounded-md">
-                    <button
-                      onClick={() =>
-                        updateQuantity(item.id, item.quantity - 1)
-                      }
-                      className="px-2 py-1"
-                      aria-label="Menos"
+                  {it.modifiers.length > 0 && (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "var(--ink-3)",
+                        marginTop: 2,
+                        textTransform: "uppercase",
+                        letterSpacing: 0.4,
+                      }}
                     >
-                      <Minus className="size-3.5" />
+                      {it.modifiers.map((m) => m.name).join(" · ")}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>
+                    {formatCurrency(
+                      it.unit_price_cents +
+                        it.modifiers.reduce((a, m) => a + m.price_delta_cents, 0),
+                    )}{" "}
+                    c/u
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      marginTop: 8,
+                      height: 30,
+                      border: "1px solid var(--hairline-2)",
+                      borderRadius: 99,
+                      width: "fit-content",
+                      background: "#fff",
+                    }}
+                  >
+                    <button
+                      onClick={() => updateQuantity(it.id, it.quantity - 1)}
+                      aria-label="Menos"
+                      style={{
+                        width: 32,
+                        height: 28,
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {I.minus("var(--ink)", 14)}
                     </button>
-                    <span className="w-6 text-center text-sm font-semibold">
-                      {item.quantity}
+                    <span
+                      style={{
+                        minWidth: 18,
+                        textAlign: "center",
+                        fontSize: 13,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {it.quantity}
                     </span>
                     <button
-                      onClick={() =>
-                        updateQuantity(item.id, Math.min(99, item.quantity + 1))
-                      }
-                      className="px-2 py-1"
+                      onClick={() => updateQuantity(it.id, it.quantity + 1)}
                       aria-label="Más"
+                      style={{
+                        width: 32,
+                        height: 28,
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
                     >
-                      <Plus className="size-3.5" />
+                      {I.plus("var(--ink)", 14)}
                     </button>
                   </div>
-                  <span className="text-primary font-bold">
-                    {formatCurrency(lineSubtotal)}
-                  </span>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
+                  {formatCurrency(cartItemSubtotal(it))}
                 </div>
               </div>
-            </li>
-          );
-        })}
-      </ul>
+            ))}
 
-      <div className="mt-6">
-        <CartSummary
-          subtotalCents={subtotalCents}
-          deliveryFeeCents={null}
-          deliveryFeeLabel="Ingresá tu dirección"
-          totalCents={subtotalCents}
-        />
-      </div>
+            <Link
+              href={`/${slug}/menu`}
+              style={{
+                width: "100%",
+                padding: "14px 16px",
+                background: "none",
+                borderBottom: "1px solid var(--hairline)",
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                color: "var(--accent)",
+                fontSize: 14,
+                fontWeight: 500,
+                textDecoration: "none",
+              }}
+            >
+              {I.plus("var(--accent)", 16)} Agregar más
+            </Link>
 
-      <div className="bg-background fixed inset-x-0 bottom-0 mx-auto max-w-md border-t px-4 py-3">
-        <Link
-          href={`/${slug}/checkout`}
-          className={buttonVariants({ size: "lg" }) + " w-full"}
-        >
-          Ir a pagar
-        </Link>
-      </div>
-    </>
+            <div style={{ padding: "16px 16px 20px" }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                  color: "var(--ink-3)",
+                  marginBottom: 10,
+                }}
+              >
+                Resumen
+              </div>
+              <Row label="Subtotal" value={formatCurrency(subtotal)} />
+              <Row
+                label="Envío"
+                value={formatCurrency(deliveryFeeCents)}
+                muted
+              />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  paddingTop: 10,
+                  marginTop: 6,
+                  borderTop: "1px solid var(--hairline)",
+                }}
+              >
+                <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>
+                  Total
+                </span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: "var(--ink)" }}>
+                  {formatCurrency(total)}
+                </span>
+              </div>
+            </div>
+
+            {underMin && (
+              <div
+                style={{
+                  margin: "0 16px 16px",
+                  padding: "12px 14px",
+                  borderRadius: 10,
+                  background: "#F6EEE4",
+                  border: "1px solid #EADFCB",
+                  fontSize: 13,
+                  color: "#6D5838",
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                  Te faltan {formatCurrency(missing)} para el pedido mínimo
+                </div>
+                <div
+                  style={{
+                    height: 6,
+                    background: "#EADFCB",
+                    borderRadius: 99,
+                    overflow: "hidden",
+                    marginTop: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.min(100, (subtotal / minOrderCents) * 100)}%`,
+                      background: "var(--accent)",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div
+            style={{
+              position: "fixed",
+              left: 12,
+              right: 12,
+              bottom: 20,
+              zIndex: 20,
+              maxWidth: 496,
+              margin: "0 auto",
+            }}
+          >
+            <Link
+              href={underMin ? "#" : `/${slug}/checkout`}
+              onClick={(e) => underMin && e.preventDefault()}
+              aria-disabled={underMin}
+              style={{
+                width: "100%",
+                height: 56,
+                borderRadius: 14,
+                background: underMin ? "#D8CFC0" : "var(--accent)",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0 18px",
+                fontSize: 15,
+                fontWeight: 600,
+                letterSpacing: -0.1,
+                textDecoration: "none",
+                cursor: underMin ? "not-allowed" : "pointer",
+              }}
+            >
+              <span>
+                {underMin
+                  ? `Faltan ${formatCurrency(missing)}`
+                  : "Ir a pagar"}
+              </span>
+              <span>{formatCurrency(total)}</span>
+            </Link>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  muted,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        fontSize: 14,
+        color: muted ? "var(--ink-2)" : "var(--ink)",
+        padding: "4px 0",
+      }}
+    >
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
   );
 }

@@ -1,60 +1,121 @@
-import Image from "next/image";
-import { Plus } from "lucide-react";
-
+import { I, ImageTile } from "@/components/delivery/primitives";
 import { formatCurrency } from "@/lib/currency";
 import type { MenuProduct } from "@/lib/menu";
 
 export function ProductCard({
   product,
+  cartQty,
+  disabled,
   onSelect,
 }: {
   product: MenuProduct;
+  cartQty: number;
+  disabled?: boolean;
   onSelect: (product: MenuProduct) => void;
 }) {
+  const soldOut = !product.is_available;
+  const interactive = !soldOut && !disabled;
   return (
     <button
       type="button"
-      onClick={() => product.is_available && onSelect(product)}
-      disabled={!product.is_available}
-      className="bg-card flex w-full items-center gap-3 rounded-xl p-3 text-left shadow-[0_1px_3px_rgba(19,27,46,0.04)] transition active:scale-[0.99] disabled:opacity-60"
+      onClick={() => interactive && onSelect(product)}
+      disabled={!interactive}
+      style={{
+        width: "100%",
+        display: "flex",
+        gap: 12,
+        padding: "14px 16px",
+        background: "none",
+        border: "none",
+        borderBottom: "1px solid var(--hairline)",
+        cursor: interactive ? "pointer" : "not-allowed",
+        textAlign: "left",
+        opacity: soldOut ? 0.55 : 1,
+      }}
     >
-      <div className="min-w-0 flex-1">
-        <h3 className="text-foreground truncate font-semibold">
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 15,
+            fontWeight: 600,
+            color: "var(--ink)",
+            letterSpacing: -0.1,
+            marginBottom: 3,
+            textDecoration: soldOut ? "line-through" : "none",
+          }}
+        >
           {product.name}
-        </h3>
+        </div>
         {product.description && (
-          <p className="text-muted-foreground mt-0.5 line-clamp-2 text-sm">
+          <div
+            style={{
+              fontSize: 13,
+              color: "var(--ink-2)",
+              lineHeight: 1.35,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              marginBottom: 8,
+            }}
+          >
             {product.description}
-          </p>
+          </div>
         )}
-        <div className="mt-2 flex items-center gap-2">
-          <span className="font-semibold">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
             {formatCurrency(product.price_cents)}
           </span>
-          {!product.is_available && (
-            <span className="bg-muted text-muted-foreground rounded-md px-2 py-0.5 text-xs font-medium">
-              No disponible
+          {soldOut && (
+            <span
+              style={{
+                fontSize: 11,
+                padding: "2px 7px",
+                borderRadius: 4,
+                background: "#EEE8DC",
+                color: "#8A7B5E",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: 0.3,
+              }}
+            >
+              Sin stock
             </span>
           )}
         </div>
       </div>
-      <div className="relative size-20 shrink-0 overflow-hidden rounded-lg">
-        {product.image_url && (
-          <Image
-            src={product.image_url}
-            alt={product.name}
-            fill
-            sizes="80px"
-            className="object-cover"
-          />
-        )}
-        {product.is_available && (
-          <span
-            aria-hidden
-            className="bg-primary text-primary-foreground absolute right-1 bottom-1 flex size-7 items-center justify-center rounded-md"
+      <div style={{ position: "relative", flexShrink: 0 }}>
+        <ImageTile
+          src={product.image_url}
+          alt={product.name}
+          tone="#D9C9A8"
+          sizes="88px"
+          style={{ width: 88, height: 88 }}
+        />
+        {interactive && (
+          <div
+            style={{
+              position: "absolute",
+              right: -6,
+              bottom: -6,
+              width: 32,
+              height: 32,
+              borderRadius: 99,
+              background: "#fff",
+              border: "1px solid var(--hairline-2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
-            <Plus className="size-4" />
-          </span>
+            {cartQty > 0 ? (
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>
+                {cartQty}
+              </span>
+            ) : (
+              I.plus("var(--ink)", 16)
+            )}
+          </div>
         )}
       </div>
     </button>

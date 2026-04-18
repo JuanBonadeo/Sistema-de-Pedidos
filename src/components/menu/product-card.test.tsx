@@ -20,7 +20,7 @@ const product: MenuProduct = {
 
 describe("<ProductCard />", () => {
   it("renders name, description and formatted price", () => {
-    render(<ProductCard product={product} onSelect={() => {}} />);
+    render(<ProductCard product={product} cartQty={0} onSelect={() => {}} />);
     expect(screen.getByText("Pizza Muzzarella")).toBeInTheDocument();
     expect(screen.getByText("Con salsa.")).toBeInTheDocument();
     expect(screen.getByText(/\$\s?10\.000/)).toBeInTheDocument();
@@ -28,20 +28,21 @@ describe("<ProductCard />", () => {
 
   it("calls onSelect when clicked", async () => {
     const onSelect = vi.fn();
-    render(<ProductCard product={product} onSelect={onSelect} />);
+    render(<ProductCard product={product} cartQty={0} onSelect={onSelect} />);
     await userEvent.click(screen.getByText("Pizza Muzzarella"));
     expect(onSelect).toHaveBeenCalledWith(product);
   });
 
-  it("shows unavailable badge and disables click when not available", async () => {
+  it("shows sold-out badge and disables click when not available", async () => {
     const onSelect = vi.fn();
     render(
       <ProductCard
         product={{ ...product, is_available: false }}
+        cartQty={0}
         onSelect={onSelect}
       />,
     );
-    expect(screen.getByText("No disponible")).toBeInTheDocument();
+    expect(screen.getByText("Sin stock")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Pizza Muzzarella"));
     expect(onSelect).not.toHaveBeenCalled();
   });

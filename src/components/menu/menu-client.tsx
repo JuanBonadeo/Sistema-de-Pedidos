@@ -1,57 +1,386 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { MenuCategory, MenuProduct } from "@/lib/menu";
+import { I, ImageTile, StatusDot } from "@/components/delivery/primitives";
+import { computeIsOpen, type BusinessHour } from "@/lib/business-hours";
+import { formatCurrency } from "@/lib/currency";
+import type { DeliveryZone, MenuCategory, MenuProduct } from "@/lib/menu";
+import { cartCount, cartTotal, useCart } from "@/stores/cart";
 
-import { CartFab } from "./cart-fab";
 import { ProductCard } from "./product-card";
 import { ProductSheet } from "./product-sheet";
 
 export function MenuClient({
   slug,
+  businessName,
+  tagline,
+  heroImageUrl,
   categories,
+  zones,
+  hours,
+  timezone,
+  isOpenInitial,
+  user,
 }: {
   slug: string;
+  businessName: string;
+  tagline: string | null;
+  heroImageUrl: string | null;
   categories: MenuCategory[];
+  zones: DeliveryZone[];
+  hours: BusinessHour[];
+  timezone: string;
+  isOpenInitial: boolean;
+  user: { name?: string; email: string } | null;
 }) {
   const [active, setActive] = useState(categories[0]?.id ?? "");
   const [selected, setSelected] = useState<MenuProduct | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  const [isOpen, setIsOpen] = useState(isOpenInitial);
+  useEffect(() => {
+    const tick = () => setIsOpen(computeIsOpen(hours, timezone));
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [hours, timezone]);
 
   const activeCategory = useMemo(
     () => categories.find((c) => c.id === active) ?? categories[0],
     [active, categories],
   );
 
+  const items = useCart(slug, (s) => s.items);
+  const count = cartCount(items);
+  const total = cartTotal(items);
+
+  const cartByProduct = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const it of items) {
+      m.set(it.product_id, (m.get(it.product_id) ?? 0) + it.quantity);
+    }
+    return m;
+  }, [items]);
+
+  const primaryZone = zones[0];
+  const fee = primaryZone?.delivery_fee_cents ?? 0;
+  const min = primaryZone?.min_order_cents ?? 0;
+  const eta = primaryZone?.estimated_minutes
+    ? `${primaryZone.estimated_minutes} min`
+    : "30–45 min";
+
   const handleSelect = (product: MenuProduct) => {
     setSelected(product);
     setSheetOpen(true);
   };
 
+  const initials = user
+    ? (user.name ?? user.email)
+        .split(/\s+|[@.]/)
+        .filter(Boolean)
+        .slice(0, 1)
+        .map((s) => s[0]?.toUpperCase() ?? "")
+        .join("")
+    : "";
+  const firstName = user
+    ? (user.name ?? user.email.split("@")[0]).split(" ")[0]
+    : "Cuenta";
+
   return (
-    <>
-      <div className="bg-background sticky top-0 z-10 -mx-4 border-b px-4 pt-2 pb-3">
-        <Tabs value={active} onValueChange={setActive}>
-          <TabsList className="flex w-full overflow-x-auto">
-            {categories.map((c) => (
-              <TabsTrigger key={c.id} value={c.id} className="shrink-0">
-                {c.name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+    <div
+      style={{
+        maxWidth: 520,
+        margin: "0 auto",
+        minHeight: "100vh",
+        paddingBottom: count > 0 ? 110 : 24,
+        background: "var(--bg)",
+      }}
+    >
+      {/* Hero */}
+      <div style={{ position: "relative" }}>
+        <ImageTile
+          src={heroImageUrl}
+          alt={businessName}
+          tone="#C9B792"
+          radius={0}
+          sizes="520px"
+          priority
+          style={{ height: 160 }}
+        />
+        {user ? (
+          <Link
+            href={`/${slug}/perfil`}
+            style={{
+              position: "absolute",
+              top: 20,
+              right: 16,
+              height: 40,
+              paddingLeft: 4,
+              paddingRight: 14,
+              borderRadius: 99,
+              background: "rgba(255,255,255,0.95)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              textDecoration: "none",
+              color: "var(--ink)",
+            }}
+          >
+            <span
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 99,
+                background: "var(--accent)",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              {initials || "?"}
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: -0.1 }}>
+              {firstName}
+            </span>
+          </Link>
+        ) : (
+          <Link
+            href={`/${slug}/login?next=${encodeURIComponent(`/${slug}/menu`)}`}
+            style={{
+              position: "absolute",
+              top: 20,
+              right: 16,
+              height: 40,
+              padding: "0 16px",
+              borderRadius: 99,
+              background: "var(--ink)",
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 600,
+              letterSpacing: -0.1,
+              display: "flex",
+              alignItems: "center",
+              textDecoration: "none",
+            }}
+          >
+            Ingresar
+          </Link>
+        )}
       </div>
 
-      <section className="mt-6">
-        <h2 className="mb-4 text-xl font-bold">{activeCategory?.name}</h2>
-        <div className="grid gap-3">
-          {activeCategory?.products.map((p) => (
-            <ProductCard key={p.id} product={p} onSelect={handleSelect} />
-          ))}
+      {/* Tenant info */}
+      <div
+        style={{
+          padding: "16px 16px 12px",
+          borderBottom: "1px solid var(--hairline)",
+        }}
+      >
+        <div
+          className="d-display"
+          style={{
+            fontSize: 28,
+            lineHeight: 1.05,
+            color: "var(--ink)",
+          }}
+        >
+          {businessName}
         </div>
-      </section>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginTop: 6,
+            flexWrap: "wrap",
+          }}
+        >
+          {tagline && (
+            <>
+              <span style={{ fontSize: 13, color: "var(--ink-2)" }}>{tagline}</span>
+              <span style={{ color: "var(--hairline-2)" }}>·</span>
+            </>
+          )}
+          <StatusDot status={isOpen ? "open" : "closed"} />
+        </div>
+        {primaryZone && (
+          <div
+            style={{
+              display: "flex",
+              gap: 14,
+              marginTop: 12,
+              fontSize: 12,
+              color: "var(--ink-2)",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              {I.clock("var(--ink-3)", 13)} {eta}
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              {I.moto("var(--ink-3)", 14)} Envío {formatCurrency(fee)}
+            </span>
+            {min > 0 && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                Mín. {formatCurrency(min)}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {!isOpen && (
+        <div
+          style={{
+            margin: "12px 16px",
+            padding: "12px 14px",
+            borderRadius: 10,
+            background: "#F6EEE4",
+            border: "1px solid #EADFCB",
+            fontSize: 13,
+            color: "#6D5838",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 2 }}>
+            El local está cerrado
+          </div>
+          <div>Podés ver el menú pero todavía no se aceptan pedidos.</div>
+        </div>
+      )}
+
+      {/* Sticky category tabs */}
+      {categories.length > 0 && (
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 4,
+            background: "var(--bg)",
+            borderBottom: "1px solid var(--hairline)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              gap: 20,
+              overflowX: "auto",
+              padding: "4px 16px 0",
+              scrollbarWidth: "none",
+            }}
+            className="no-scrollbar"
+          >
+            {categories.map((c) => {
+              const isActive = c.id === active;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setActive(c.id)}
+                  style={{
+                    flexShrink: 0,
+                    padding: "12px 0 10px",
+                    background: "none",
+                    border: "none",
+                    borderBottom: isActive
+                      ? "2px solid var(--ink)"
+                      : "2px solid transparent",
+                    color: isActive ? "var(--ink)" : "var(--ink-3)",
+                    fontSize: 14,
+                    fontWeight: isActive ? 600 : 500,
+                    cursor: "pointer",
+                    marginBottom: -1,
+                  }}
+                >
+                  {c.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Products */}
+      <div>
+        {activeCategory?.products.map((p) => (
+          <ProductCard
+            key={p.id}
+            product={p}
+            cartQty={cartByProduct.get(p.id) ?? 0}
+            disabled={!isOpen}
+            onSelect={handleSelect}
+          />
+        ))}
+        {activeCategory?.products.length === 0 && (
+          <div
+            style={{
+              padding: "40px 16px",
+              textAlign: "center",
+              color: "var(--ink-3)",
+              fontSize: 14,
+            }}
+          >
+            Sin productos en esta categoría.
+          </div>
+        )}
+      </div>
+
+      {/* Sticky cart pill */}
+      {count > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            left: 12,
+            right: 12,
+            bottom: 20,
+            zIndex: 20,
+            maxWidth: 496,
+            margin: "0 auto",
+          }}
+        >
+          <Link
+            href={`/${slug}/carrito`}
+            style={{
+              width: "100%",
+              height: 56,
+              borderRadius: 14,
+              background: "var(--accent)",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0 18px 0 14px",
+              textDecoration: "none",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 8,
+                  background: "rgba(255,255,255,0.18)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}
+              >
+                {count}
+              </span>
+              <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: -0.1 }}>
+                Ver mi pedido
+              </span>
+            </span>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>
+              {formatCurrency(total)}
+            </span>
+          </Link>
+        </div>
+      )}
 
       <ProductSheet
         slug={slug}
@@ -59,8 +388,6 @@ export function MenuClient({
         open={sheetOpen}
         onOpenChange={setSheetOpen}
       />
-
-      <CartFab slug={slug} />
-    </>
+    </div>
   );
 }

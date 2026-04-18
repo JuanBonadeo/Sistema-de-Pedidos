@@ -1,88 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { toast } from "sonner";
 
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { CartSummary } from "@/components/cart/cart-summary";
+import { I } from "@/components/delivery/primitives";
 import { formatCurrency } from "@/lib/currency";
 import type { DeliveryZone } from "@/lib/menu";
 import { createOrder } from "@/lib/orders/create-order";
 import { cartTotal, useCart } from "@/stores/cart";
 
-const FormSchema = z
-  .object({
-    delivery_type: z.enum(["delivery", "pickup"]),
-    delivery_address: z.string().optional(),
-    delivery_zone_id: z.string().optional(),
-    delivery_notes: z.string().max(500).optional(),
-    customer_name: z
-      .string()
-      .min(1, "Ingresá tu nombre.")
-      .max(100, "Demasiado largo."),
-    customer_phone: z
-      .string()
-      .min(6, "Teléfono inválido.")
-      .max(20, "Teléfono inválido."),
-    customer_email: z
-      .string()
-      .max(200)
-      .refine((v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
-        message: "Email inválido.",
-      })
-      .optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.delivery_type === "delivery") {
-      if (!data.delivery_address?.trim()) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Ingresá tu dirección.",
-          path: ["delivery_address"],
-        });
-      }
-      if (!data.delivery_zone_id) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Elegí una zona.",
-          path: ["delivery_zone_id"],
-        });
-      }
-    }
-  });
-
-type FormValues = z.infer<typeof FormSchema>;
+type PaymentId = "mp" | "cash" | "pickup-cash";
 
 export function CheckoutForm({
   slug,
+  businessName,
+  businessAddress,
   zones,
   initialName = "",
   initialEmail = "",
 }: {
   slug: string;
+  businessName: string;
+  businessAddress: string | null;
   zones: DeliveryZone[];
   initialName?: string;
   initialEmail?: string;
@@ -92,36 +32,68 @@ export function CheckoutForm({
   const clearCart = useCart(slug, (s) => s.clear);
   const [submitting, setSubmitting] = useState(false);
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(FormSchema),
-    defaultValues: {
-      delivery_type: "delivery",
-      delivery_address: "",
-      delivery_zone_id: "",
-      delivery_notes: "",
-      customer_name: initialName,
-      customer_phone: "",
-      customer_email: initialEmail,
-    },
-  });
+  const [mode, setMode] = useState<"delivery" | "pickup">("delivery");
+  const [zoneId, setZoneId] = useState<string>(zones[0]?.id ?? "");
+  const [address, setAddress] = useState("");
+  const [apt, setApt] = useState("");
+  const [notes, setNotes] = useState("");
+  const [name, setName] = useState(initialName);
+  const [phone, setPhone] = useState("");
+  const [email] = useState(initialEmail);
+  const [payment, setPayment] = useState<PaymentId>("mp");
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [errors, setErrors] = useState<{
+    address?: string;
+    phone?: string;
+    name?: string;
+    zone?: string;
+  }>({});
 
-  const deliveryType = form.watch("delivery_type");
-  const selectedZoneId = form.watch("delivery_zone_id");
-
+  const isPickup = mode === "pickup";
   const selectedZone = useMemo(
-    () => zones.find((z) => z.id === selectedZoneId),
-    [zones, selectedZoneId],
+    () => zones.find((z) => z.id === zoneId),
+    [zones, zoneId],
   );
+  const subtotal = cartTotal(items);
+  const deliveryFee = isPickup ? 0 : (selectedZone?.delivery_fee_cents ?? 0);
+  const total = subtotal + deliveryFee;
 
-  const subtotalCents = cartTotal(items);
-  const deliveryFeeCents =
-    deliveryType === "delivery"
-      ? (selectedZone?.delivery_fee_cents ?? null)
-      : 0;
-  const totalCents =
-    subtotalCents + (typeof deliveryFeeCents === "number" ? deliveryFeeCents : 0);
+  useEffect(() => {
+    if (isPickup && payment === "cash") setPayment("pickup-cash");
+    else if (!isPickup && payment === "pickup-cash") setPayment("cash");
+  }, [isPickup, payment]);
 
-  const onSubmit = async (values: FormValues) => {
+  const paymentOptions: { id: PaymentId; label: string; sub: string }[] =
+    isPickup
+      ? [
+          { id: "mp", label: "Mercado Pago", sub: "Pagás ahora desde la app" },
+          {
+            id: "pickup-cash",
+            label: "Efectivo al retirar",
+            sub: "Pagás en el local",
+          },
+        ]
+      : [
+          { id: "mp", label: "Mercado Pago", sub: "Pagás ahora desde la app" },
+          {
+            id: "cash",
+            label: "Efectivo al recibir",
+            sub: "Indicá con cuánto abonás",
+          },
+        ];
+
+  const phoneOk = /^\+?[\d\s-]{8,}$/.test(phone);
+
+  const submit = async () => {
+    const next: typeof errors = {};
+    if (!name.trim()) next.name = "Ingresá tu nombre.";
+    if (!phoneOk) next.phone = "Teléfono inválido.";
+    if (!isPickup) {
+      if (address.trim().length < 5) next.address = "Completá la dirección.";
+      if (!zoneId) next.zone = "Elegí una zona.";
+    }
+    setErrors(next);
+    if (Object.keys(next).length) return;
     if (items.length === 0) {
       toast.error("Tu carrito está vacío.");
       return;
@@ -130,13 +102,15 @@ export function CheckoutForm({
     try {
       const result = await createOrder({
         business_slug: slug,
-        delivery_type: values.delivery_type,
-        customer_name: values.customer_name.trim(),
-        customer_phone: values.customer_phone.trim(),
-        customer_email: values.customer_email?.trim() || undefined,
-        delivery_address: values.delivery_address?.trim() || undefined,
-        delivery_zone_id: values.delivery_zone_id || undefined,
-        delivery_notes: values.delivery_notes?.trim() || undefined,
+        delivery_type: mode,
+        customer_name: name.trim(),
+        customer_phone: phone.trim(),
+        customer_email: email.trim() || undefined,
+        delivery_address: isPickup
+          ? undefined
+          : `${address.trim()}${apt.trim() ? ` · ${apt.trim()}` : ""}`,
+        delivery_zone_id: isPickup ? undefined : zoneId,
+        delivery_notes: notes.trim() || undefined,
         items: items.map((i) => ({
           product_id: i.product_id,
           quantity: i.quantity,
@@ -157,210 +131,504 @@ export function CheckoutForm({
 
   if (items.length === 0) {
     return (
-      <p className="text-muted-foreground py-20 text-center">
+      <div
+        style={{
+          maxWidth: 520,
+          margin: "0 auto",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "var(--ink-2)",
+          padding: 32,
+          textAlign: "center",
+        }}
+      >
         Tu carrito está vacío.
-      </p>
+      </div>
     );
   }
 
   return (
-    <Form {...form}>
-      <form
-        onSubmit={form.handleSubmit(onSubmit)}
-        className="space-y-6 pb-28"
+    <div
+      style={{
+        maxWidth: 520,
+        margin: "0 auto",
+        minHeight: "100vh",
+        background: "var(--bg)",
+        display: "flex",
+        flexDirection: "column",
+        paddingBottom: 110,
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          paddingTop: 16,
+          paddingBottom: 10,
+          paddingLeft: 8,
+          paddingRight: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          borderBottom: "1px solid var(--hairline)",
+          background: "var(--bg)",
+        }}
       >
-        <h1 className="text-2xl font-extrabold">Checkout</h1>
-
-        <FormField
-          control={form.control}
-          name="delivery_type"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>¿Cómo lo recibís?</FormLabel>
-              <FormControl>
-                <RadioGroup
-                  value={field.value}
-                  onValueChange={field.onChange}
-                  className="grid grid-cols-2 gap-3"
-                >
-                  <Label
-                    htmlFor="delivery-type-delivery"
-                    className="bg-card flex cursor-pointer items-center justify-center gap-2 rounded-lg border p-3 font-medium"
-                  >
-                    <RadioGroupItem
-                      value="delivery"
-                      id="delivery-type-delivery"
-                    />
-                    Delivery
-                  </Label>
-                  <Label
-                    htmlFor="delivery-type-pickup"
-                    className="bg-card flex cursor-pointer items-center justify-center gap-2 rounded-lg border p-3 font-medium"
-                  >
-                    <RadioGroupItem
-                      value="pickup"
-                      id="delivery-type-pickup"
-                    />
-                    Retiro
-                  </Label>
-                </RadioGroup>
-              </FormControl>
-            </FormItem>
-          )}
-        />
-
-        {deliveryType === "delivery" && (
-          <>
-            <FormField
-              control={form.control}
-              name="delivery_address"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Dirección</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Av. Corrientes 1234"
-                      autoComplete="street-address"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="delivery_zone_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Zona</FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Elegí una zona" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {zones.map((z) => (
-                          <SelectItem key={z.id} value={z.id}>
-                            {z.name} · {formatCurrency(z.delivery_fee_cents)}
-                            {z.estimated_minutes
-                              ? ` · ${z.estimated_minutes}min`
-                              : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="delivery_notes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Referencias (opcional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Timbre 3, edificio rojo"
-                      {...field}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-          </>
-        )}
-
-        <div className="space-y-4">
-          <h2 className="font-bold">Contacto</h2>
-          <FormField
-            control={form.control}
-            name="customer_name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Nombre</FormLabel>
-                <FormControl>
-                  <Input autoComplete="name" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="customer_phone"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Teléfono</FormLabel>
-                <FormControl>
-                  <Input
-                    type="tel"
-                    autoComplete="tel"
-                    inputMode="tel"
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="customer_email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email (opcional)</FormLabel>
-                <FormControl>
-                  <Input
-                    type="email"
-                    autoComplete="email"
-                    inputMode="email"
-                    placeholder="tu@email.com"
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+        <button
+          onClick={() => router.back()}
+          aria-label="Volver"
+          style={{
+            width: 40,
+            height: 40,
+            border: "none",
+            background: "none",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {I.chevLeft("var(--ink)", 22)}
+        </button>
+        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: -0.1 }}>
+          Finalizar pedido
         </div>
+      </div>
 
-        <div className="space-y-2">
-          <h2 className="font-bold">Pago</h2>
-          <div className="bg-card rounded-lg border px-4 py-3 text-sm">
-            Efectivo al recibir
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <h2 className="font-bold">Resumen</h2>
-          <CartSummary
-            subtotalCents={subtotalCents}
-            deliveryFeeCents={
-              deliveryType === "pickup" ? 0 : deliveryFeeCents
-            }
-            deliveryFeeLabel="Elegí una zona"
-            totalCents={totalCents}
-          />
-        </div>
-
-        <div className="bg-background fixed inset-x-0 bottom-0 mx-auto max-w-md border-t px-4 py-3">
-          <Button
-            type="submit"
-            size="lg"
-            className="w-full"
-            disabled={submitting}
+      {/* Collapsible summary */}
+      <button
+        onClick={() => setSummaryOpen(!summaryOpen)}
+        style={{
+          width: "100%",
+          padding: "14px 16px",
+          background: "none",
+          border: "none",
+          borderBottom: "1px solid var(--hairline)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          cursor: "pointer",
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 99,
+              background: "#F1EBDF",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
-            {submitting
-              ? "Enviando…"
-              : `Confirmar pedido · ${formatCurrency(totalCents)}`}
-          </Button>
+            {I.bag("var(--ink-2)", 14)}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>
+            {items.length} ítems · {formatCurrency(total)}
+          </span>
+        </span>
+        <span
+          style={{
+            transform: summaryOpen ? "rotate(180deg)" : "none",
+            transition: "transform 200ms",
+          }}
+        >
+          {I.chevDown("var(--ink-3)", 16)}
+        </span>
+      </button>
+      {summaryOpen && (
+        <div
+          style={{
+            padding: "4px 16px 16px",
+            borderBottom: "1px solid var(--hairline)",
+          }}
+        >
+          {items.map((it) => (
+            <div
+              key={it.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "8px 0",
+                fontSize: 13,
+                color: "var(--ink-2)",
+              }}
+            >
+              <span>
+                {it.quantity}× {it.product_name}
+              </span>
+              <span>
+                {formatCurrency(
+                  (it.unit_price_cents +
+                    it.modifiers.reduce((a, m) => a + m.price_delta_cents, 0)) *
+                    it.quantity,
+                )}
+              </span>
+            </div>
+          ))}
+          <SummaryRow label="Subtotal" value={formatCurrency(subtotal)} muted />
+          <SummaryRow
+            label={isPickup ? "Retiro" : "Envío"}
+            value={isPickup ? "Gratis" : formatCurrency(deliveryFee)}
+            muted
+          />
+          <SummaryRow label="Total" value={formatCurrency(total)} />
         </div>
-      </form>
-    </Form>
+      )}
+
+      {/* Mode */}
+      <Section title="¿Cómo lo recibís?">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 8,
+            marginBottom: 14,
+          }}
+        >
+          {([
+            {
+              id: "delivery",
+              label: "Envío a domicilio",
+              sub: selectedZone?.estimated_minutes
+                ? `${selectedZone.estimated_minutes} min`
+                : "30–45 min",
+            },
+            { id: "pickup", label: "Retiro en el local", sub: "15–20 min" },
+          ] as const).map((o) => {
+            const sel = mode === o.id;
+            return (
+              <button
+                key={o.id}
+                onClick={() => setMode(o.id)}
+                style={{
+                  padding: "14px 12px",
+                  borderRadius: 12,
+                  border: `1.5px solid ${sel ? "var(--accent)" : "var(--hairline-2)"}`,
+                  background: sel ? "var(--accent-soft)" : "#fff",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
+                  {o.label}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 3 }}>
+                  {o.sub}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
+      {!isPickup ? (
+        <Section title="Entrega">
+          {zones.length > 1 && (
+            <Field label="Zona" error={errors.zone}>
+              <select
+                value={zoneId}
+                onChange={(e) => setZoneId(e.target.value)}
+                style={inputStyle(!!errors.zone)}
+              >
+                <option value="">Elegí una zona</option>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.name} · {formatCurrency(z.delivery_fee_cents)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <Field label="Dirección" error={errors.address}>
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Calle y número"
+              autoComplete="street-address"
+              style={inputStyle(!!errors.address)}
+            />
+          </Field>
+          <Field label="Piso / depto (opcional)">
+            <input
+              value={apt}
+              onChange={(e) => setApt(e.target.value)}
+              placeholder="3° B"
+              style={inputStyle()}
+            />
+          </Field>
+          <Field label="Notas para el repartidor">
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Ej: timbre no funciona, llamar al celu"
+              style={inputStyle()}
+            />
+          </Field>
+        </Section>
+      ) : (
+        <Section title="Retirá en">
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "flex-start",
+              padding: "4px 0 14px",
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 10,
+                flexShrink: 0,
+                background: "#E8D9BA",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {I.store("var(--ink)", 20)}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{businessName}</div>
+              {businessAddress && (
+                <div style={{ fontSize: 12, color: "var(--ink-2)", marginTop: 2 }}>
+                  {businessAddress}
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>
+                Listo en 15–20 min
+              </div>
+            </div>
+          </div>
+          <Field label="Notas (opcional)">
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Ej: pasame la cuenta cuando llegue"
+              style={inputStyle()}
+            />
+          </Field>
+        </Section>
+      )}
+
+      <Section title="Contacto">
+        <Field label="Nombre" error={errors.name}>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="name"
+            style={inputStyle(!!errors.name)}
+          />
+        </Field>
+        <Field label="Teléfono" error={errors.phone}>
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="11 5555 5555"
+            inputMode="tel"
+            autoComplete="tel"
+            style={inputStyle(!!errors.phone)}
+          />
+        </Field>
+      </Section>
+
+      <Section title="Método de pago">
+        {paymentOptions.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setPayment(p.id)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "14px 0",
+              background: "none",
+              border: "none",
+              borderBottom: "1px solid var(--hairline)",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 99,
+                flexShrink: 0,
+                border: `1.6px solid ${payment === p.id ? "var(--accent)" : "var(--hairline-2)"}`,
+                background: payment === p.id ? "var(--accent)" : "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {payment === p.id && (
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 99,
+                    background: "#fff",
+                  }}
+                />
+              )}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: "var(--ink)", fontWeight: 500 }}>
+                {p.label}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 1 }}>
+                {p.sub}
+              </div>
+            </div>
+          </button>
+        ))}
+      </Section>
+
+      <div
+        style={{
+          padding: "12px 16px",
+          fontSize: 11,
+          color: "var(--ink-3)",
+          textAlign: "center",
+        }}
+      >
+        {isPickup ? `Retirás en ${businessName}` : `Pedido de ${businessName}`}
+      </div>
+
+      <div
+        style={{
+          position: "fixed",
+          left: 12,
+          right: 12,
+          bottom: 20,
+          zIndex: 20,
+          maxWidth: 496,
+          margin: "0 auto",
+        }}
+      >
+        <button
+          disabled={submitting}
+          onClick={submit}
+          style={{
+            width: "100%",
+            height: 56,
+            borderRadius: 14,
+            background: submitting ? "#C7BBA6" : "var(--accent)",
+            color: "#fff",
+            border: "none",
+            cursor: submitting ? "wait" : "pointer",
+            fontSize: 15,
+            fontWeight: 600,
+            letterSpacing: -0.1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 18px",
+          }}
+        >
+          <span>{submitting ? "Procesando…" : "Confirmar pedido"}</span>
+          <span>{formatCurrency(total)}</span>
+        </button>
+      </div>
+    </div>
   );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        padding: "18px 16px 4px",
+        borderBottom: "8px solid #F3EEE4",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+          color: "var(--ink-3)",
+          marginBottom: 10,
+        }}
+      >
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 12, color: "var(--ink-2)", marginBottom: 6 }}>
+        {label}
+      </div>
+      {children}
+      {error && (
+        <div style={{ fontSize: 12, color: "#B94A2A", marginTop: 4 }}>{error}</div>
+      )}
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  value,
+  muted,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        fontSize: 14,
+        color: muted ? "var(--ink-2)" : "var(--ink)",
+        padding: "4px 0",
+      }}
+    >
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function inputStyle(err?: boolean): React.CSSProperties {
+  return {
+    width: "100%",
+    height: 44,
+    padding: "0 14px",
+    borderRadius: 10,
+    border: `1px solid ${err ? "#E0A898" : "var(--hairline-2)"}`,
+    background: "#fff",
+    fontSize: 15,
+    color: "var(--ink)",
+    outline: "none",
+    boxSizing: "border-box",
+  };
 }

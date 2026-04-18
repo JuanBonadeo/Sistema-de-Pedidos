@@ -702,18 +702,21 @@ export type Database = {
           email: string
           full_name: string | null
           id: string
+          is_platform_admin: boolean
         }
         Insert: {
           created_at?: string
           email: string
           full_name?: string | null
           id: string
+          is_platform_admin?: boolean
         }
         Update: {
           created_at?: string
           email?: string
           full_name?: string | null
           id?: string
+          is_platform_admin?: boolean
         }
         Relationships: []
       }
@@ -723,6 +726,7 @@ export type Database = {
     }
     Functions: {
       is_business_member: { Args: { bid: string }; Returns: boolean }
+      is_platform_admin: { Args: never; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

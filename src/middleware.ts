@@ -19,8 +19,9 @@ export async function middleware(request: NextRequest) {
   const hostSlug = resolveSlugFromHost(host, rootDomain);
   const pathname = request.nextUrl.pathname;
 
-  // Subdomain → path rewrite for prod. Skip global routes (auth callback).
-  const isGlobalRoute = pathname === "/auth/callback";
+  // Subdomain → path rewrite for prod. Skip global routes (auth callback, super admin).
+  const isGlobalRoute =
+    pathname === "/auth/callback" || pathname.startsWith("/super");
   if (
     hostSlug &&
     !isGlobalRoute &&
@@ -37,28 +38,32 @@ export async function middleware(request: NextRequest) {
     ? `/${hostSlug}${pathname === "/" ? "" : pathname}`
     : pathname;
 
+  // Protect /super/* (except /super/login)
+  const superMatch = effectivePath.match(/^\/super(?:\/(.*))?$/);
+  if (superMatch) {
+    const [, rest = ""] = superMatch;
+    if (rest !== "login") {
+      const response = NextResponse.next();
+      const supabase = makeSessionClient(request, response);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        const redirectUrl = request.nextUrl.clone();
+        redirectUrl.pathname = `/super/login`;
+        return NextResponse.redirect(redirectUrl);
+      }
+      return response;
+    }
+  }
+
   // Protect /{slug}/admin/* (except /admin/login)
   const adminMatch = effectivePath.match(/^\/([^/]+)\/admin(?:\/(.*))?$/);
   if (adminMatch) {
     const [, slug, rest = ""] = adminMatch;
     if (rest !== "login") {
       const response = NextResponse.next();
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-        {
-          cookies: {
-            getAll() {
-              return request.cookies.getAll();
-            },
-            setAll(cookies) {
-              for (const { name, value, options } of cookies) {
-                response.cookies.set(name, value, options);
-              }
-            },
-          },
-        },
-      );
+      const supabase = makeSessionClient(request, response);
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -72,6 +77,25 @@ export async function middleware(request: NextRequest) {
   }
 
   return NextResponse.next();
+}
+
+function makeSessionClient(request: NextRequest, response: NextResponse) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookies) {
+          for (const { name, value, options } of cookies) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    },
+  );
 }
 
 export const config = {

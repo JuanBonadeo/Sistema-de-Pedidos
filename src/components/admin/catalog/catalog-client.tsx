@@ -13,7 +13,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CategoryDialog } from "@/components/admin/catalog/category-dialog";
@@ -146,7 +145,6 @@ export function CatalogClient({
         open={!!deleteTarget}
         onOpenChange={(o) => !o && setDeleteTarget(null)}
       >
-        <DialogTrigger render={<span style={{ display: "none" }} />} />
         <DialogContent>
           <DialogHeader>
             <DialogTitle>

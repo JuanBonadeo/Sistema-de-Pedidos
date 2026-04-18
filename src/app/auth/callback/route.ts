@@ -6,19 +6,26 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
   const code = searchParams.get("code");
   const rawNext = searchParams.get("next");
+
+  // Only allow redirects to same-origin paths (no protocol, no //).
+  const fallback = "/";
   const next =
     rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
       ? rawNext
-      : "/";
+      : fallback;
+
+  console.log("[auth/callback]", { hasCode: !!code, rawNext, next });
 
   if (!code) {
-    return NextResponse.redirect(`${origin}${next}?error=auth-missing-code`);
+    console.warn("[auth/callback] missing code param");
+    return NextResponse.redirect(`${origin}${next}`);
   }
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
+    console.error("[auth/callback] exchange failed", error);
     return NextResponse.redirect(
       `${origin}${next}?error=${encodeURIComponent(error.message)}`,
     );

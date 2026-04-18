@@ -1,15 +1,13 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { ChevronLeft } from "lucide-react";
 
-import { AdminNav } from "@/components/admin/admin-nav";
 import { OrderDetailActions } from "@/components/admin/order-detail-actions";
 import { Badge } from "@/components/ui/badge";
 import { getOrderDetail } from "@/lib/admin/orders-query";
 import { formatCurrency } from "@/lib/currency";
 import type { OrderStatus } from "@/lib/orders/status";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
@@ -31,12 +29,6 @@ export default async function OrderDetailPage({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect(`/${business_slug}/admin/login`);
-
   const order = await getOrderDetail(id);
   if (!order) notFound();
 
@@ -48,17 +40,7 @@ export default async function OrderDetailPage({
   );
 
   return (
-    <div className="bg-background min-h-screen">
-      <AdminNav
-        slug={business_slug}
-        businessName={business.name}
-        userEmail={user.email ?? ""}
-        userName={
-          (user.user_metadata?.full_name as string | undefined) ??
-          (user.user_metadata?.name as string | undefined)
-        }
-      />
-      <main className="mx-auto max-w-2xl px-4 py-6">
+    <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6 lg:px-8">
         <Link
           href={`/${business_slug}/admin`}
           className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
@@ -200,8 +182,7 @@ export default async function OrderDetailPage({
             deliveryType={order.delivery_type as "delivery" | "pickup"}
           />
         </div>
-      </main>
-    </div>
+    </main>
   );
 }
 

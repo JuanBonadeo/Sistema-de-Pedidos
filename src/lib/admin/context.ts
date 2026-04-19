@@ -6,7 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
-export type BusinessRole = "owner" | "admin" | "staff";
+export type BusinessRole = "admin" | "staff";
 
 export type AdminContext = {
   user: User;
@@ -64,7 +64,13 @@ export async function ensureAdminAccess(
   };
 }
 
-export function canManageMembers(ctx: AdminContext): boolean {
+/**
+ * True when the user can administer the business: edit settings, manage team,
+ * change catalog structure, etc. Platform admin always; business admin yes;
+ * staff no.
+ */
+export function canManageBusiness(ctx: AdminContext): boolean {
   if (ctx.isPlatformAdmin) return true;
-  return ctx.role === "owner" || ctx.role === "admin";
+  return ctx.role === "admin";
 }
+

@@ -84,7 +84,6 @@ export async function getOrderDetail(orderId: string) {
        delivery_type, delivery_address, delivery_notes,
        subtotal_cents, delivery_fee_cents, total_cents,
        status, cancelled_reason, payment_method, payment_status,
-       delivery_zone:delivery_zones(name, delivery_fee_cents),
        order_items(id, product_name, quantity, unit_price_cents, subtotal_cents, notes,
          order_item_modifiers(modifier_name, price_delta_cents)),
        order_status_history(status, notes, created_at)`,

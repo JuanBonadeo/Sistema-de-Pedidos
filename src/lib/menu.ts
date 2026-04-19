@@ -49,24 +49,15 @@ export type BusinessHour = {
   closes_at: string;
 };
 
-export type DeliveryZone = {
-  id: string;
-  name: string;
-  delivery_fee_cents: number;
-  min_order_cents: number | null;
-  estimated_minutes: number | null;
-};
-
 export type MenuData = {
   categories: MenuCategory[];
   hours: BusinessHour[];
-  zones: DeliveryZone[];
 };
 
 export const getMenu = cache(async (businessId: string): Promise<MenuData> => {
   const supabase = createSupabaseServiceClient();
 
-  const [{ data: categories }, { data: products }, { data: hours }, { data: zones }] =
+  const [{ data: categories }, { data: products }, { data: hours }] =
     await Promise.all([
       supabase
         .from("categories")
@@ -86,12 +77,6 @@ export const getMenu = cache(async (businessId: string): Promise<MenuData> => {
         .from("business_hours")
         .select("day_of_week, opens_at, closes_at")
         .eq("business_id", businessId),
-      supabase
-        .from("delivery_zones")
-        .select("id, name, delivery_fee_cents, min_order_cents, estimated_minutes")
-        .eq("business_id", businessId)
-        .eq("is_active", true)
-        .order("sort_order"),
     ]);
 
   const productsList: MenuProduct[] = (products ?? []).map((p) => ({
@@ -138,12 +123,5 @@ export const getMenu = cache(async (businessId: string): Promise<MenuData> => {
   return {
     categories: cats,
     hours: (hours ?? []) as BusinessHour[],
-    zones: (zones ?? []).map((z) => ({
-      id: z.id,
-      name: z.name,
-      delivery_fee_cents: Number(z.delivery_fee_cents),
-      min_order_cents: z.min_order_cents != null ? Number(z.min_order_cents) : null,
-      estimated_minutes: z.estimated_minutes,
-    })),
   };
 });

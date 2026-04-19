@@ -82,11 +82,6 @@ export default async function OrderDetailPage({
               Delivery
             </h2>
             <p className="text-sm">{order.delivery_address}</p>
-            {order.delivery_zone && (
-              <p className="text-muted-foreground text-xs">
-                Zona: {order.delivery_zone.name}
-              </p>
-            )}
             {order.delivery_notes && (
               <p className="text-muted-foreground mt-1 text-xs italic">
                 &quot;{order.delivery_notes}&quot;

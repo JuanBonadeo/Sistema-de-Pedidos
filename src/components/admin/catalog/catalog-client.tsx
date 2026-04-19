@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -14,7 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { CategoryDialog } from "@/components/admin/catalog/category-dialog";
 import { ProductRow } from "@/components/admin/catalog/product-row";
 import type {
@@ -37,20 +38,29 @@ export function CatalogClient({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [deleteTarget, setDeleteTarget] = useState<AdminCategory | null>(null);
-  const [active, setActive] = useState<string>(
-    categories[0]?.id ?? UNCATEGORIZED,
-  );
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
-  const productsByCategory = useMemo(() => {
-    const map: Record<string, AdminProduct[]> = { [UNCATEGORIZED]: [] };
-    for (const c of categories) map[c.id] = [];
-    for (const p of products) {
-      const key = p.category_id ?? UNCATEGORIZED;
-      if (!map[key]) map[key] = [];
-      map[key].push(p);
+  const hasUncategorized = products.some((p) => !p.category_id);
+
+  const filteredProducts = useMemo(() => {
+    let result = products;
+
+    if (categoryFilter === UNCATEGORIZED) {
+      result = result.filter((p) => !p.category_id);
+    } else if (categoryFilter !== null) {
+      result = result.filter((p) => p.category_id === categoryFilter);
     }
-    return map;
-  }, [categories, products]);
+
+    const q = search.trim().toLowerCase();
+    if (q) {
+      result = result.filter((p) => p.name.toLowerCase().includes(q));
+    }
+
+    return result;
+  }, [products, categoryFilter, search]);
+
+  const activeCategory = categories.find((c) => c.id === categoryFilter) ?? null;
 
   const handleDeleteCategory = () => {
     if (!deleteTarget) return;
@@ -62,24 +72,54 @@ export function CatalogClient({
       }
       toast.success("Categoría eliminada.");
       setDeleteTarget(null);
+      if (categoryFilter === deleteTarget.id) setCategoryFilter(null);
       router.refresh();
     });
   };
 
-  const uncategorized = productsByCategory[UNCATEGORIZED] ?? [];
-  const tabs = [
-    ...categories.map((c) => ({ id: c.id, name: c.name, category: c })),
-    ...(uncategorized.length > 0
-      ? [{ id: UNCATEGORIZED, name: "Sin categoría", category: null }]
-      : []),
-  ];
-  const activeTab = tabs.find((t) => t.id === active) ?? tabs[0];
-  const activeProducts = productsByCategory[activeTab?.id ?? ""] ?? [];
+  const filterChip = (
+    id: string | null,
+    label: string,
+  ) => (
+    <button
+      key={id ?? "all"}
+      type="button"
+      onClick={() => setCategoryFilter(categoryFilter === id ? null : id)}
+      className={cn(
+        "rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+        categoryFilter === id
+          ? "bg-primary text-primary-foreground border-primary"
+          : "border-border hover:bg-muted",
+      )}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <>
-      <div className="flex items-center justify-between gap-3">
+      {/* Header */}
+      <div className="flex items-center gap-3">
         <h1 className="text-2xl font-extrabold">Catálogo</h1>
+        <div className="relative ml-auto w-full max-w-xs">
+          <Search className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2 pointer-events-none" />
+          <Input
+            placeholder="Buscar producto…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 pr-8"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="text-muted-foreground hover:text-foreground absolute right-2.5 top-1/2 -translate-y-1/2"
+              aria-label="Limpiar búsqueda"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
         <Link
           href={`/${slug}/admin/catalogo/productos/nuevo`}
           className={buttonVariants({ size: "sm" })}
@@ -88,31 +128,33 @@ export function CatalogClient({
         </Link>
       </div>
 
-      <div className="mt-6 flex items-center justify-between gap-3">
-        <Tabs value={active} onValueChange={setActive} className="min-w-0 flex-1">
-          <TabsList className="flex w-full overflow-x-auto">
-            {tabs.map((t) => (
-              <TabsTrigger key={t.id} value={t.id} className="shrink-0">
-                {t.name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+      {/* Category filters */}
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        {filterChip(null, "Todas")}
+        {categories.map((c) =>
+          filterChip(c.id, c.name),
+        )}
+        {hasUncategorized && filterChip(UNCATEGORIZED, "Sin categoría")}
         <CategoryDialog
           slug={slug}
           trigger={
-            <Button size="sm" variant="outline">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 rounded-full px-3 text-sm"
+            >
               <Plus className="size-3.5" /> Categoría
             </Button>
           }
         />
       </div>
 
-      {activeTab?.category && (
-        <div className="mt-3 flex items-center justify-end gap-2">
+      {/* Active category actions */}
+      {activeCategory && (
+        <div className="mt-2 flex items-center justify-end gap-2">
           <CategoryDialog
             slug={slug}
-            category={activeTab.category}
+            category={activeCategory}
             trigger={
               <Button size="xs" variant="ghost">
                 <Pencil className="size-3" /> Editar
@@ -122,20 +164,25 @@ export function CatalogClient({
           <Button
             size="xs"
             variant="ghost"
-            onClick={() => setDeleteTarget(activeTab.category)}
+            onClick={() => setDeleteTarget(activeCategory)}
           >
             <Trash2 className="size-3" /> Eliminar
           </Button>
         </div>
       )}
 
+      {/* Product list */}
       <ul className="mt-4 grid gap-2">
-        {activeProducts.length === 0 ? (
+        {filteredProducts.length === 0 ? (
           <li className="text-muted-foreground py-8 text-center text-sm italic">
-            Sin productos en esta categoría.
+            {search
+              ? `Sin resultados para "${search}".`
+              : categoryFilter
+                ? "Sin productos en esta categoría."
+                : "Sin productos."}
           </li>
         ) : (
-          activeProducts.map((p) => (
+          filteredProducts.map((p) => (
             <ProductRow key={p.id} slug={slug} product={p} />
           ))
         )}

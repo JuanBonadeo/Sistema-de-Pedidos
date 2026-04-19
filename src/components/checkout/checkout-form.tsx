@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { I } from "@/components/delivery/primitives";
 import { formatCurrency } from "@/lib/currency";
-import type { DeliveryZone } from "@/lib/menu";
 import { createOrder } from "@/lib/orders/create-order";
 import { cartTotal, useCart } from "@/stores/cart";
 
@@ -16,14 +15,16 @@ export function CheckoutForm({
   slug,
   businessName,
   businessAddress,
-  zones,
+  deliveryFeeCents,
+  estimatedMinutes,
   initialName = "",
   initialEmail = "",
 }: {
   slug: string;
   businessName: string;
   businessAddress: string | null;
-  zones: DeliveryZone[];
+  deliveryFeeCents: number;
+  estimatedMinutes: number | null;
   initialName?: string;
   initialEmail?: string;
 }) {
@@ -33,7 +34,6 @@ export function CheckoutForm({
   const [submitting, setSubmitting] = useState(false);
 
   const [mode, setMode] = useState<"delivery" | "pickup">("delivery");
-  const [zoneId, setZoneId] = useState<string>(zones[0]?.id ?? "");
   const [address, setAddress] = useState("");
   const [apt, setApt] = useState("");
   const [notes, setNotes] = useState("");
@@ -46,16 +46,11 @@ export function CheckoutForm({
     address?: string;
     phone?: string;
     name?: string;
-    zone?: string;
   }>({});
 
   const isPickup = mode === "pickup";
-  const selectedZone = useMemo(
-    () => zones.find((z) => z.id === zoneId),
-    [zones, zoneId],
-  );
   const subtotal = cartTotal(items);
-  const deliveryFee = isPickup ? 0 : (selectedZone?.delivery_fee_cents ?? 0);
+  const deliveryFee = isPickup ? 0 : deliveryFeeCents;
   const total = subtotal + deliveryFee;
 
   useEffect(() => {
@@ -88,9 +83,8 @@ export function CheckoutForm({
     const next: typeof errors = {};
     if (!name.trim()) next.name = "Ingresá tu nombre.";
     if (!phoneOk) next.phone = "Teléfono inválido.";
-    if (!isPickup) {
-      if (address.trim().length < 5) next.address = "Completá la dirección.";
-      if (!zoneId) next.zone = "Elegí una zona.";
+    if (!isPickup && address.trim().length < 5) {
+      next.address = "Completá la dirección.";
     }
     setErrors(next);
     if (Object.keys(next).length) return;
@@ -109,7 +103,6 @@ export function CheckoutForm({
         delivery_address: isPickup
           ? undefined
           : `${address.trim()}${apt.trim() ? ` · ${apt.trim()}` : ""}`,
-        delivery_zone_id: isPickup ? undefined : zoneId,
         delivery_notes: notes.trim() || undefined,
         items: items.map((i) => ({
           product_id: i.product_id,
@@ -292,9 +285,7 @@ export function CheckoutForm({
             {
               id: "delivery",
               label: "Envío a domicilio",
-              sub: selectedZone?.estimated_minutes
-                ? `${selectedZone.estimated_minutes} min`
-                : "30–45 min",
+              sub: estimatedMinutes ? `${estimatedMinutes} min` : "30–45 min",
             },
             { id: "pickup", label: "Retiro en el local", sub: "15–20 min" },
           ] as const).map((o) => {
@@ -326,22 +317,6 @@ export function CheckoutForm({
 
       {!isPickup ? (
         <Section title="Entrega">
-          {zones.length > 1 && (
-            <Field label="Zona" error={errors.zone}>
-              <select
-                value={zoneId}
-                onChange={(e) => setZoneId(e.target.value)}
-                style={inputStyle(!!errors.zone)}
-              >
-                <option value="">Elegí una zona</option>
-                {zones.map((z) => (
-                  <option key={z.id} value={z.id}>
-                    {z.name} · {formatCurrency(z.delivery_fee_cents)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
           <Field label="Dirección" error={errors.address}>
             <input
               value={address}

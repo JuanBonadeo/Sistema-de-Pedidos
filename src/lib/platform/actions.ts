@@ -15,7 +15,7 @@ const BusinessInput = z.object({
     .max(60)
     .regex(/^[a-z0-9-]+$/, "Sólo minúsculas, números y guiones."),
   timezone: z.string().min(1),
-  owner_email: z.string().email("Email inválido."),
+  admin_email: z.string().email("Email inválido."),
 });
 
 const RESERVED_SLUGS = new Set([
@@ -58,7 +58,7 @@ export async function createBusiness(
       parsed.error.issues[0]?.message ?? "Datos inválidos.",
     );
   }
-  const { name, slug, timezone, owner_email } = parsed.data;
+  const { name, slug, timezone, admin_email } = parsed.data;
 
   if (RESERVED_SLUGS.has(slug)) {
     return actionError("Ese slug está reservado.");
@@ -74,24 +74,24 @@ export async function createBusiness(
     .maybeSingle();
   if (existing) return actionError("Ya existe un negocio con ese slug.");
 
-  // 1. Invite owner (creates auth.user + sends email). Idempotent: if the
-  // user already exists, fetch its id instead.
+  // 1. Invite business admin (creates auth.user + sends email). Idempotent:
+  // if the user already exists, fetch its id instead.
   let userId: string | null = null;
   const {
     data: { users: allUsers },
   } = await service.auth.admin.listUsers({ perPage: 200 });
   const existingUser = allUsers.find(
-    (u) => u.email?.toLowerCase() === owner_email.toLowerCase(),
+    (u) => u.email?.toLowerCase() === admin_email.toLowerCase(),
   );
 
-  const ownerRedirectTo = `${getSiteUrl()}/${slug}/admin`;
+  const adminRedirectTo = `${getSiteUrl()}/${slug}/admin`;
 
   if (existingUser) {
     userId = existingUser.id;
   } else {
     const { data: invite, error: inviteErr } =
-      await service.auth.admin.inviteUserByEmail(owner_email, {
-        redirectTo: ownerRedirectTo,
+      await service.auth.admin.inviteUserByEmail(admin_email, {
+        redirectTo: adminRedirectTo,
       });
     if (inviteErr || !invite.user) {
       console.error("inviteUserByEmail", inviteErr);
@@ -122,21 +122,21 @@ export async function createBusiness(
   // 3. Ensure public.users row exists
   const { error: userUpsertErr } = await service
     .from("users")
-    .upsert({ id: userId, email: owner_email }, { onConflict: "id" });
+    .upsert({ id: userId, email: admin_email }, { onConflict: "id" });
   if (userUpsertErr) {
     console.error("users upsert", userUpsertErr);
-    return actionError("No pudimos registrar al owner.");
+    return actionError("No pudimos registrar al admin.");
   }
 
-  // 4. Link owner as business_user
+  // 4. Link admin as business_user
   const { error: buErr } = await service.from("business_users").insert({
     business_id: business.id,
     user_id: userId,
-    role: "owner",
+    role: "admin",
   });
   if (buErr) {
     console.error("business_users insert", buErr);
-    return actionError("No pudimos asignar al owner.");
+    return actionError("No pudimos asignar al admin.");
   }
 
   revalidatePath("/super");
@@ -146,7 +146,7 @@ export async function createBusiness(
 const InviteInput = z.object({
   business_id: z.string().uuid(),
   email: z.string().email(),
-  role: z.enum(["owner", "admin", "staff"]).default("admin"),
+  role: z.enum(["admin", "staff"]),
 });
 
 export async function inviteBusinessMember(

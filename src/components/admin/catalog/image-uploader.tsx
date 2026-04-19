@@ -12,10 +12,16 @@ export function ImageUploader({
   businessId,
   value,
   onChange,
+  bucket = "products",
+  pathPrefix,
+  variant = "avatar-square",
 }: {
   businessId: string;
   value: string | null;
   onChange: (url: string | null) => void;
+  bucket?: string;
+  pathPrefix?: string;
+  variant?: "avatar-square" | "avatar-circle" | "cover";
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -33,16 +39,17 @@ export function ImageUploader({
     try {
       const supabase = createSupabaseBrowserClient();
       const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
+      const prefix = pathPrefix ? `${pathPrefix}-` : "";
+      const path = `${businessId}/${prefix}${crypto.randomUUID()}.${ext}`;
       const { error } = await supabase.storage
-        .from("products")
+        .from(bucket)
         .upload(path, file, { cacheControl: "3600", upsert: false });
       if (error) {
         console.error(error);
         toast.error("No pudimos subir la imagen.");
         return;
       }
-      const { data } = supabase.storage.from("products").getPublicUrl(path);
+      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
       onChange(data.publicUrl);
     } finally {
       setUploading(false);
@@ -50,24 +57,33 @@ export function ImageUploader({
     }
   };
 
+  const isCover = variant === "cover";
+  const previewClass = isCover
+    ? "relative aspect-[16/9] w-full overflow-hidden rounded-xl bg-muted"
+    : `bg-muted relative size-24 shrink-0 overflow-hidden ${variant === "avatar-circle" ? "rounded-full" : "rounded-lg"}`;
+  const sizes = isCover ? "(max-width: 768px) 100vw, 520px" : "96px";
+  const wrapperClass = isCover
+    ? "flex flex-col gap-3"
+    : "flex items-center gap-4";
+
   return (
-    <div className="flex items-center gap-4">
-      <div className="bg-muted relative size-24 shrink-0 overflow-hidden rounded-lg">
+    <div className={wrapperClass}>
+      <div className={previewClass}>
         {value ? (
           <Image
             src={value}
             alt="Imagen"
             fill
-            sizes="96px"
+            sizes={sizes}
             className="object-cover"
           />
         ) : (
           <div className="text-muted-foreground flex size-full items-center justify-center">
-            <ImagePlus className="size-6" />
+            <ImagePlus className={isCover ? "size-8" : "size-6"} />
           </div>
         )}
       </div>
-      <div className="flex flex-col gap-2">
+      <div className={isCover ? "flex items-center gap-2" : "flex flex-col gap-2"}>
         <input
           ref={inputRef}
           type="file"

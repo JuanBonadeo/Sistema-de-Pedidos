@@ -38,26 +38,15 @@ describe("CreateOrderInput", () => {
     const result = CreateOrderInput.safeParse({
       ...base,
       delivery_type: "delivery",
-      delivery_zone_id: UUID,
     });
     expect(result.success).toBe(false);
   });
 
-  it("rejects delivery without zone", () => {
+  it("accepts delivery with address", () => {
     const result = CreateOrderInput.safeParse({
       ...base,
       delivery_type: "delivery",
       delivery_address: "Calle 123",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts delivery with address + zone", () => {
-    const result = CreateOrderInput.safeParse({
-      ...base,
-      delivery_type: "delivery",
-      delivery_address: "Calle 123",
-      delivery_zone_id: UUID,
     });
     expect(result.success).toBe(true);
   });

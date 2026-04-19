@@ -27,7 +27,7 @@ const Schema = z.object({
     .max(60)
     .regex(/^[a-z0-9-]+$/, "Sólo minúsculas, números y guiones."),
   timezone: z.string().min(1),
-  owner_email: z.string().email("Email inválido."),
+  admin_email: z.string().email("Email inválido."),
 });
 
 type Values = z.infer<typeof Schema>;
@@ -54,7 +54,7 @@ export function NewBusinessForm() {
       name: "",
       slug: "",
       timezone: "America/Argentina/Buenos_Aires",
-      owner_email: "",
+      admin_email: "",
     },
   });
 
@@ -70,7 +70,7 @@ export function NewBusinessForm() {
         return;
       }
       toast.success(
-        `Negocio creado. Invitación enviada a ${values.owner_email}.`,
+        `Negocio creado. Invitación enviada a ${values.admin_email}.`,
       );
       // Hard navigate to avoid race with the action's revalidatePath.
       window.location.href = `/super/negocios/${result.data.id}`;
@@ -148,10 +148,10 @@ export function NewBusinessForm() {
 
         <FormField
           control={form.control}
-          name="owner_email"
+          name="admin_email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email del owner</FormLabel>
+              <FormLabel>Email del admin del negocio</FormLabel>
               <FormControl>
                 <Input
                   type="email"

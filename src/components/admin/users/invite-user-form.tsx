@@ -33,18 +33,12 @@ const Schema = z.object({
 
 type Values = z.infer<typeof Schema>;
 
-export function InviteUserForm({
-  slug,
-  canInviteAdmin,
-}: {
-  slug: string;
-  canInviteAdmin: boolean;
-}) {
+export function InviteUserForm({ slug }: { slug: string }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const form = useForm<Values>({
     resolver: zodResolver(Schema),
-    defaultValues: { email: "", role: canInviteAdmin ? "admin" : "staff" },
+    defaultValues: { email: "", role: "admin" },
   });
 
   const onSubmit = async (values: Values) => {
@@ -59,7 +53,7 @@ export function InviteUserForm({
         return;
       }
       toast.success(`Invitación enviada a ${values.email}.`);
-      form.reset({ email: "", role: canInviteAdmin ? "admin" : "staff" });
+      form.reset({ email: "", role: "admin" });
       router.refresh();
     } finally {
       setSubmitting(false);
@@ -101,9 +95,7 @@ export function InviteUserForm({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {canInviteAdmin && (
-                      <SelectItem value="admin">Admin</SelectItem>
-                    )}
+                    <SelectItem value="admin">Admin</SelectItem>
                     <SelectItem value="staff">Staff</SelectItem>
                   </SelectContent>
                 </Select>

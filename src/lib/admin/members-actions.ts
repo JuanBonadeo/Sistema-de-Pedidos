@@ -43,9 +43,8 @@ async function assertCanManage(businessSlug: string) {
   ]);
 
   const isPlatformAdmin = profile?.is_platform_admin ?? false;
-  const isOwner = membership?.role === "owner";
   const isAdmin = membership?.role === "admin";
-  if (!isPlatformAdmin && !isOwner && !isAdmin) {
+  if (!isPlatformAdmin && !isAdmin) {
     return { ok: false as const, error: "Permiso denegado." };
   }
   return {
@@ -53,7 +52,6 @@ async function assertCanManage(businessSlug: string) {
     user,
     businessId: business.id,
     isPlatformAdmin,
-    isOwner,
   };
 }
 
@@ -118,35 +116,12 @@ export async function removeBusinessMemberByAdmin(
   const guard = await assertCanManage(businessSlug);
   if (!guard.ok) return actionError(guard.error);
 
-  // Only owner/platform admin can remove. Admins can't remove.
-  if (!guard.isOwner && !guard.isPlatformAdmin) {
-    return actionError("Sólo el owner puede quitar miembros.");
-  }
-
   // Can't remove yourself unless you're a platform admin.
   if (userId === guard.user.id && !guard.isPlatformAdmin) {
     return actionError("No podés quitarte a vos mismo.");
   }
 
   const service = createSupabaseServiceClient();
-
-  // Prevent removing the last owner.
-  const { data: target } = await service
-    .from("business_users")
-    .select("role")
-    .eq("business_id", guard.businessId)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (target?.role === "owner") {
-    const { count } = await service
-      .from("business_users")
-      .select("user_id", { count: "exact", head: true })
-      .eq("business_id", guard.businessId)
-      .eq("role", "owner");
-    if ((count ?? 0) <= 1) {
-      return actionError("No podés quitar al último owner.");
-    }
-  }
 
   const { error } = await service
     .from("business_users")

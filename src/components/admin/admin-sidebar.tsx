@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   Package,
+  Settings,
   ShoppingBag,
   Users,
   X,
@@ -24,7 +25,7 @@ type NavItem = {
   match: (pathname: string) => boolean;
 };
 
-function buildNav(slug: string, showUsers: boolean): NavItem[] {
+function buildNav(slug: string, showBusinessTools: boolean): NavItem[] {
   const items: NavItem[] = [
     {
       href: `/${slug}/admin`,
@@ -47,13 +48,21 @@ function buildNav(slug: string, showUsers: boolean): NavItem[] {
       match: (p) => p.startsWith(`/${slug}/admin/reportes`),
     },
   ];
-  if (showUsers) {
-    items.push({
-      href: `/${slug}/admin/usuarios`,
-      label: "Usuarios",
-      icon: <Users className="size-4" />,
-      match: (p) => p.startsWith(`/${slug}/admin/usuarios`),
-    });
+  if (showBusinessTools) {
+    items.push(
+      {
+        href: `/${slug}/admin/usuarios`,
+        label: "Usuarios",
+        icon: <Users className="size-4" />,
+        match: (p) => p.startsWith(`/${slug}/admin/usuarios`),
+      },
+      {
+        href: `/${slug}/admin/configuracion`,
+        label: "Configuración",
+        icon: <Settings className="size-4" />,
+        match: (p) => p.startsWith(`/${slug}/admin/configuracion`),
+      },
+    );
   }
   return items;
 }
@@ -64,14 +73,14 @@ export function AdminSidebar({
   userEmail,
   userName,
   isPlatformAdmin = false,
-  canManageUsers = false,
+  canManageBusiness = false,
 }: {
   slug: string;
   businessName: string;
   userEmail: string;
   userName?: string | null;
   isPlatformAdmin?: boolean;
-  canManageUsers?: boolean;
+  canManageBusiness?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -132,7 +141,7 @@ export function AdminSidebar({
         <nav className="flex-1 space-y-1 px-3 py-2">
           <SidebarNavItems
             slug={slug}
-            showUsers={canManageUsers}
+            showBusinessTools={canManageBusiness}
             onNavigate={() => setOpen(false)}
           />
           {isPlatformAdmin && (
@@ -179,15 +188,15 @@ export function AdminSidebar({
 
 function SidebarNavItems({
   slug,
-  showUsers,
+  showBusinessTools,
   onNavigate,
 }: {
   slug: string;
-  showUsers: boolean;
+  showBusinessTools: boolean;
   onNavigate: () => void;
 }) {
   const pathname = usePathname();
-  const items = buildNav(slug, showUsers);
+  const items = buildNav(slug, showBusinessTools);
   return (
     <>
       {items.map((item, idx) => {

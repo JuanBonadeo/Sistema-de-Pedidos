@@ -12,11 +12,16 @@ const supabase = createClient<Database>(
 async function main() {
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, slug, name, timezone, settings")
+    .select(
+      "id, slug, name, timezone, settings, delivery_fee_cents, min_order_cents, estimated_delivery_minutes",
+    )
     .eq("slug", "pizzanapoli")
     .single();
 
   console.log("Business:", business);
+  console.log(
+    `\nDelivery: $${((business?.delivery_fee_cents ?? 0) / 100).toFixed(2)} · min $${((business?.min_order_cents ?? 0) / 100).toFixed(2)} · ${business?.estimated_delivery_minutes ?? "?"} min`,
+  );
 
   const { data: products } = await supabase
     .from("products")
@@ -36,19 +41,6 @@ async function main() {
         `    └─ ${g.name} (${g.min_selection}-${g.max_selection}): ${g.modifiers.map((m) => `${m.name}+${m.price_delta_cents / 100}`).join(", ")}`,
       );
     }
-  }
-
-  const { data: zones } = await supabase
-    .from("delivery_zones")
-    .select("name, delivery_fee_cents, estimated_minutes")
-    .eq("business_id", business!.id)
-    .order("sort_order");
-
-  console.log("\nDelivery zones:");
-  for (const z of zones ?? []) {
-    console.log(
-      `  ${z.name} · $${(z.delivery_fee_cents / 100).toFixed(2)} · ${z.estimated_minutes}min`,
-    );
   }
 
   const { data: hours } = await supabase

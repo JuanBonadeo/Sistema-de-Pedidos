@@ -62,7 +62,7 @@ async function main() {
   const { error: membershipErr } = await supabase
     .from("business_users")
     .upsert(
-      { business_id: business.id, user_id: userId, role: "owner" },
+      { business_id: business.id, user_id: userId, role: "admin" },
       { onConflict: "business_id,user_id" },
     );
   if (membershipErr) throw membershipErr;

@@ -28,7 +28,7 @@ import { inviteBusinessMember } from "@/lib/platform/actions";
 
 const Schema = z.object({
   email: z.string().email("Email inválido."),
-  role: z.enum(["owner", "admin", "staff"]),
+  role: z.enum(["admin", "staff"]),
 });
 
 type Values = z.infer<typeof Schema>;
@@ -95,7 +95,6 @@ export function InviteMemberForm({ businessId }: { businessId: string }) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="owner">Owner</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
                     <SelectItem value="staff">Staff</SelectItem>
                   </SelectContent>

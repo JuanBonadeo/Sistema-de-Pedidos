@@ -107,12 +107,16 @@ export type Database = {
           address: string | null
           created_at: string
           currency: string
+          delivery_fee_cents: number
           email: string | null
+          estimated_delivery_minutes: number | null
           id: string
           is_active: boolean
+          cover_image_url: string | null
           lat: number | null
           lng: number | null
           logo_url: string | null
+          min_order_cents: number
           name: string
           phone: string | null
           plan: string | null
@@ -124,12 +128,16 @@ export type Database = {
           address?: string | null
           created_at?: string
           currency?: string
+          delivery_fee_cents?: number
           email?: string | null
+          estimated_delivery_minutes?: number | null
           id?: string
           is_active?: boolean
+          cover_image_url?: string | null
           lat?: number | null
           lng?: number | null
           logo_url?: string | null
+          min_order_cents?: number
           name: string
           phone?: string | null
           plan?: string | null
@@ -141,12 +149,16 @@ export type Database = {
           address?: string | null
           created_at?: string
           currency?: string
+          delivery_fee_cents?: number
           email?: string | null
+          estimated_delivery_minutes?: number | null
           id?: string
           is_active?: boolean
+          cover_image_url?: string | null
           lat?: number | null
           lng?: number | null
           logo_url?: string | null
+          min_order_cents?: number
           name?: string
           phone?: string | null
           plan?: string | null
@@ -196,7 +208,6 @@ export type Database = {
           apartment: string | null
           created_at: string
           customer_id: string
-          delivery_zone_id: string | null
           id: string
           label: string | null
           lat: number | null
@@ -209,7 +220,6 @@ export type Database = {
           apartment?: string | null
           created_at?: string
           customer_id: string
-          delivery_zone_id?: string | null
           id?: string
           label?: string | null
           lat?: number | null
@@ -222,7 +232,6 @@ export type Database = {
           apartment?: string | null
           created_at?: string
           customer_id?: string
-          delivery_zone_id?: string | null
           id?: string
           label?: string | null
           lat?: number | null
@@ -237,13 +246,6 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_addresses_delivery_zone_id_fkey"
-            columns: ["delivery_zone_id"]
-            isOneToOne: false
-            referencedRelation: "delivery_zones"
             referencedColumns: ["id"]
           },
         ]
@@ -279,47 +281,6 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "customers_business_id_fkey"
-            columns: ["business_id"]
-            isOneToOne: false
-            referencedRelation: "businesses"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      delivery_zones: {
-        Row: {
-          business_id: string
-          delivery_fee_cents: number
-          estimated_minutes: number | null
-          id: string
-          is_active: boolean
-          min_order_cents: number | null
-          name: string
-          sort_order: number
-        }
-        Insert: {
-          business_id: string
-          delivery_fee_cents: number
-          estimated_minutes?: number | null
-          id?: string
-          is_active?: boolean
-          min_order_cents?: number | null
-          name: string
-          sort_order?: number
-        }
-        Update: {
-          business_id?: string
-          delivery_fee_cents?: number
-          estimated_minutes?: number | null
-          id?: string
-          is_active?: boolean
-          min_order_cents?: number | null
-          name?: string
-          sort_order?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "delivery_zones_business_id_fkey"
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"
@@ -553,7 +514,6 @@ export type Database = {
           delivery_lng: number | null
           delivery_notes: string | null
           delivery_type: string
-          delivery_zone_id: string | null
           discount_cents: number
           id: string
           order_number: number
@@ -577,7 +537,6 @@ export type Database = {
           delivery_lng?: number | null
           delivery_notes?: string | null
           delivery_type: string
-          delivery_zone_id?: string | null
           discount_cents?: number
           id?: string
           order_number: number
@@ -601,7 +560,6 @@ export type Database = {
           delivery_lng?: number | null
           delivery_notes?: string | null
           delivery_type?: string
-          delivery_zone_id?: string | null
           discount_cents?: number
           id?: string
           order_number?: number
@@ -625,13 +583,6 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "orders_delivery_zone_id_fkey"
-            columns: ["delivery_zone_id"]
-            isOneToOne: false
-            referencedRelation: "delivery_zones"
             referencedColumns: ["id"]
           },
         ]

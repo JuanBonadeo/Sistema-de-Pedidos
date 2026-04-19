@@ -208,7 +208,7 @@ function ModifierList({ groupIdx }: { groupIdx: number }) {
                   <Input
                     type="number"
                     min={0}
-                    placeholder="+ centavos"
+                    placeholder="+ $"
                     {...field}
                     onChange={(e) =>
                       field.onChange(parseInt(e.target.value) || 0)

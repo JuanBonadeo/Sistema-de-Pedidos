@@ -4,7 +4,7 @@ import { Users } from "lucide-react";
 import { InviteUserForm } from "@/components/admin/users/invite-user-form";
 import { UserRow } from "@/components/admin/users/user-row";
 import {
-  canManageMembers,
+  canManageBusiness,
   ensureAdminAccess,
 } from "@/lib/admin/context";
 import { listBusinessMembers } from "@/lib/admin/members-query";
@@ -20,11 +20,9 @@ export default async function UsuariosPage({
   if (!business) notFound();
 
   const ctx = await ensureAdminAccess(business.id, business_slug);
-  if (!canManageMembers(ctx)) redirect(`/${business_slug}/admin`);
+  if (!canManageBusiness(ctx)) redirect(`/${business_slug}/admin`);
 
   const members = await listBusinessMembers(business.id);
-  const isOwnerOrPlatform =
-    ctx.isPlatformAdmin || ctx.role === "owner";
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -46,10 +44,7 @@ export default async function UsuariosPage({
         <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
           Invitar miembro
         </h2>
-        <InviteUserForm
-          slug={business_slug}
-          canInviteAdmin={isOwnerOrPlatform}
-        />
+        <InviteUserForm slug={business_slug} />
         <p className="text-muted-foreground text-xs">
           Le mandamos un mail con un link para que configure su contraseña.
         </p>
@@ -79,7 +74,7 @@ export default async function UsuariosPage({
                 key={m.user_id}
                 slug={business_slug}
                 member={m}
-                canRemove={isOwnerOrPlatform}
+                canRemove
                 isCurrentUser={m.user_id === ctx.user.id}
               />
             ))}

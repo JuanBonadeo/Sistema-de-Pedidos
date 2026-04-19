@@ -34,9 +34,12 @@ export default async function MenuPage({
       slug={business_slug}
       businessName={business.name}
       tagline={tagline}
-      heroImageUrl={business.logo_url}
+      coverImageUrl={business.cover_image_url ?? business.logo_url}
+      logoUrl={business.logo_url}
       categories={menu.categories}
-      zones={menu.zones}
+      deliveryFeeCents={Number(business.delivery_fee_cents)}
+      minOrderCents={Number(business.min_order_cents)}
+      estimatedMinutes={business.estimated_delivery_minutes}
       hours={menu.hours}
       timezone={business.timezone}
       isOpenInitial={isOpen}

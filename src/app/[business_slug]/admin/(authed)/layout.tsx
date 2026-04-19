@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
-import { canManageMembers, ensureAdminAccess } from "@/lib/admin/context";
+import { canManageBusiness, ensureAdminAccess } from "@/lib/admin/context";
 import { getBusiness } from "@/lib/tenant";
 
 export default async function AdminAuthedLayout({
@@ -25,7 +25,7 @@ export default async function AdminAuthedLayout({
         userEmail={ctx.userEmail}
         userName={ctx.userName}
         isPlatformAdmin={ctx.isPlatformAdmin}
-        canManageUsers={canManageMembers(ctx)}
+        canManageBusiness={canManageBusiness(ctx)}
       />
       <div className="flex-1">{children}</div>
     </div>

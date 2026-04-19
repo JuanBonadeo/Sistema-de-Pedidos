@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 import { I, ImageTile, StatusDot } from "@/components/delivery/primitives";
 import { computeIsOpen, type BusinessHour } from "@/lib/business-hours";
 import { formatCurrency } from "@/lib/currency";
-import type { DeliveryZone, MenuCategory, MenuProduct } from "@/lib/menu";
+import type { MenuCategory, MenuProduct } from "@/lib/menu";
 import { cartCount, cartTotal, useCart } from "@/stores/cart";
 
 import { ProductCard } from "./product-card";
@@ -16,9 +17,12 @@ export function MenuClient({
   slug,
   businessName,
   tagline,
-  heroImageUrl,
+  coverImageUrl,
+  logoUrl,
   categories,
-  zones,
+  deliveryFeeCents,
+  minOrderCents,
+  estimatedMinutes,
   hours,
   timezone,
   isOpenInitial,
@@ -27,9 +31,12 @@ export function MenuClient({
   slug: string;
   businessName: string;
   tagline: string | null;
-  heroImageUrl: string | null;
+  coverImageUrl: string | null;
+  logoUrl: string | null;
   categories: MenuCategory[];
-  zones: DeliveryZone[];
+  deliveryFeeCents: number;
+  minOrderCents: number;
+  estimatedMinutes: number | null;
   hours: BusinessHour[];
   timezone: string;
   isOpenInitial: boolean;
@@ -63,12 +70,10 @@ export function MenuClient({
     return m;
   }, [items]);
 
-  const primaryZone = zones[0];
-  const fee = primaryZone?.delivery_fee_cents ?? 0;
-  const min = primaryZone?.min_order_cents ?? 0;
-  const eta = primaryZone?.estimated_minutes
-    ? `${primaryZone.estimated_minutes} min`
-    : "30–45 min";
+  const fee = deliveryFeeCents;
+  const min = minOrderCents;
+  const hasDelivery = fee > 0 || min > 0 || estimatedMinutes != null;
+  const eta = estimatedMinutes ? `${estimatedMinutes} min` : "30–45 min";
 
   const handleSelect = (product: MenuProduct) => {
     setSelected(product);
@@ -100,7 +105,7 @@ export function MenuClient({
       {/* Hero */}
       <div style={{ position: "relative" }}>
         <ImageTile
-          src={heroImageUrl}
+          src={coverImageUrl}
           alt={businessName}
           tone="#C9B792"
           radius={0}
@@ -180,14 +185,44 @@ export function MenuClient({
         }}
       >
         <div
-          className="d-display"
           style={{
-            fontSize: 28,
-            lineHeight: 1.05,
-            color: "var(--ink)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
           }}
         >
-          {businessName}
+          {logoUrl && (
+            <div
+              style={{
+                position: "relative",
+                width: 40,
+                height: 40,
+                borderRadius: 999,
+                overflow: "hidden",
+                flexShrink: 0,
+                boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                border: "1px solid var(--hairline)",
+              }}
+            >
+              <Image
+                src={logoUrl}
+                alt={businessName}
+                fill
+                sizes="40px"
+                style={{ objectFit: "cover" }}
+              />
+            </div>
+          )}
+          <div
+            className="d-display"
+            style={{
+              fontSize: 28,
+              lineHeight: 1.05,
+              color: "var(--ink)",
+            }}
+          >
+            {businessName}
+          </div>
         </div>
         <div
           style={{
@@ -206,7 +241,7 @@ export function MenuClient({
           )}
           <StatusDot status={isOpen ? "open" : "closed"} />
         </div>
-        {primaryZone && (
+        {hasDelivery && (
           <div
             style={{
               display: "flex",
@@ -222,7 +257,8 @@ export function MenuClient({
               {I.clock("var(--ink-3)", 13)} {eta}
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              {I.moto("var(--ink-3)", 14)} Envío {formatCurrency(fee)}
+              {I.moto("var(--ink-3)", 14)}{" "}
+              {fee > 0 ? `Envío ${formatCurrency(fee)}` : "Envío gratis"}
             </span>
             {min > 0 && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>

@@ -1,7 +1,10 @@
 -- ============================================
 -- BUSINESS
 -- ============================================
-insert into businesses (slug, name, timezone, currency, phone, email, address, logo_url, settings)
+insert into businesses (
+  slug, name, timezone, currency, phone, email, address, logo_url,
+  delivery_fee_cents, min_order_cents, estimated_delivery_minutes, settings
+)
 values (
   'pizzanapoli',
   'Pizza Napoli',
@@ -11,6 +14,9 @@ values (
   'hola@pizzanapoli.test',
   'Av. Corrientes 1234, CABA',
   'https://picsum.photos/seed/pn-logo/200',
+  150000,  -- $1500 envío
+  0,
+  30,
   jsonb_build_object(
     'primary_color', '#E11D48',
     'primary_foreground', '#FFFFFF',
@@ -22,20 +28,8 @@ values (
 -- HORARIOS (lunes a domingo 11:00 → 23:00)
 -- ============================================
 insert into business_hours (business_id, day_of_week, opens_at, closes_at)
-select b.id, d, time '11:00', time '23:00'
+select b.id, d, time '6:00', time '24:00'
 from businesses b, generate_series(0, 6) as d
-where b.slug = 'pizzanapoli';
-
--- ============================================
--- DELIVERY ZONES
--- ============================================
-insert into delivery_zones (business_id, name, delivery_fee_cents, min_order_cents, estimated_minutes, sort_order)
-select b.id, v.name, v.fee, v.min_order, v.mins, v.sort
-from businesses b,
-(values
-  ('Centro',      150000::bigint, 0::bigint,      25, 0),
-  ('Zona Norte',  250000::bigint, 500000::bigint, 45, 1)
-) as v(name, fee, min_order, mins, sort)
 where b.slug = 'pizzanapoli';
 
 -- ============================================

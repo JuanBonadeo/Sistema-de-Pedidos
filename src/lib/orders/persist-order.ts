@@ -16,7 +16,7 @@ export async function persistOrder(
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("id")
+    .select("id, delivery_fee_cents, min_order_cents")
     .eq("slug", data.business_slug)
     .eq("is_active", true)
     .maybeSingle();
@@ -85,20 +85,13 @@ export async function persistOrder(
 
   let deliveryFeeCents = 0;
   if (data.delivery_type === "delivery") {
-    const { data: zone } = await supabase
-      .from("delivery_zones")
-      .select("delivery_fee_cents, min_order_cents, is_active, business_id")
-      .eq("id", data.delivery_zone_id!)
-      .maybeSingle();
-    if (!zone || zone.business_id !== business.id || !zone.is_active) {
-      return actionError("Zona de delivery inválida.");
-    }
-    if (zone.min_order_cents && subtotalCents < zone.min_order_cents) {
+    const minOrder = Number(business.min_order_cents ?? 0);
+    if (minOrder > 0 && subtotalCents < minOrder) {
       return actionError(
-        `El mínimo para esta zona es ${formatCurrency(zone.min_order_cents)}.`,
+        `El pedido mínimo es ${formatCurrency(minOrder)}.`,
       );
     }
-    deliveryFeeCents = zone.delivery_fee_cents;
+    deliveryFeeCents = Number(business.delivery_fee_cents ?? 0);
   }
 
   const totalCents = subtotalCents + deliveryFeeCents;
@@ -132,7 +125,6 @@ export async function persistOrder(
       customer_phone: data.customer_phone,
       delivery_type: data.delivery_type,
       delivery_address: data.delivery_address ?? null,
-      delivery_zone_id: data.delivery_zone_id ?? null,
       delivery_notes: data.delivery_notes ?? null,
       subtotal_cents: subtotalCents,
       delivery_fee_cents: deliveryFeeCents,

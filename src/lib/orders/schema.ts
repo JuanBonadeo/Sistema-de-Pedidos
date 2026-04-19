@@ -12,7 +12,6 @@ export const CreateOrderInput = z
       .max(200)
       .optional(),
     delivery_address: z.string().max(200).optional(),
-    delivery_zone_id: z.string().uuid().optional(),
     delivery_notes: z.string().max(500).optional(),
     items: z
       .array(
@@ -26,21 +25,12 @@ export const CreateOrderInput = z
       .min(1),
   })
   .superRefine((data, ctx) => {
-    if (data.delivery_type === "delivery") {
-      if (!data.delivery_address) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Ingresá una dirección de entrega.",
-          path: ["delivery_address"],
-        });
-      }
-      if (!data.delivery_zone_id) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Elegí una zona de delivery.",
-          path: ["delivery_zone_id"],
-        });
-      }
+    if (data.delivery_type === "delivery" && !data.delivery_address) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Ingresá una dirección de entrega.",
+        path: ["delivery_address"],
+      });
     }
   });
 

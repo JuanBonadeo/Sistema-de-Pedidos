@@ -19,7 +19,6 @@ describe.skipIf(!dbAvailable)("persistOrder (integration)", () => {
   let modChicaId: string;
   let modGrandeId: string;
   let modJamonId: string;
-  let zoneCentroId: string;
 
   beforeAll(async () => {
     const { data: products } = await supabase
@@ -34,11 +33,6 @@ describe.skipIf(!dbAvailable)("persistOrder (integration)", () => {
     modChicaId = modifiers!.find((m) => m.name === "Chica")!.id;
     modGrandeId = modifiers!.find((m) => m.name === "Grande")!.id;
     modJamonId = modifiers!.find((m) => m.name === "Jamón")!.id;
-
-    const { data: zones } = await supabase
-      .from("delivery_zones")
-      .select("id, name");
-    zoneCentroId = zones!.find((z) => z.name === "Centro")!.id;
   });
 
   it("creates a pickup order and snapshots names/prices", async () => {
@@ -115,7 +109,6 @@ describe.skipIf(!dbAvailable)("persistOrder (integration)", () => {
       customer_name: "Test Delivery",
       customer_phone: "+5491100000002",
       delivery_address: "Av. Corrientes 999",
-      delivery_zone_id: zoneCentroId,
       items: [
         { product_id: productMuzzaId, quantity: 1, modifier_ids: [modChicaId] },
       ],
@@ -131,7 +124,7 @@ describe.skipIf(!dbAvailable)("persistOrder (integration)", () => {
       .eq("id", result.data.order_id)
       .single();
     // Muzzarella 1000000 + Chica 0 = 1000000
-    // Delivery Centro = 150000
+    // Pizzanapoli business-level delivery fee (seed) = 150000
     expect(order!.subtotal_cents).toBe(1000000);
     expect(order!.delivery_fee_cents).toBe(150000);
     expect(order!.total_cents).toBe(1150000);

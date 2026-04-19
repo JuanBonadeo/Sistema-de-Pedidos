@@ -19,14 +19,12 @@ import { removeBusinessMemberByAdmin } from "@/lib/admin/members-actions";
 import type { BusinessMember } from "@/lib/admin/members-query";
 
 const ROLE_LABELS: Record<BusinessMember["role"], string> = {
-  owner: "Owner",
   admin: "Admin",
   staff: "Staff",
 };
 
 const ROLE_STYLES: Record<BusinessMember["role"], string> = {
-  owner: "bg-primary/10 text-primary border-transparent",
-  admin: "bg-blue-100 text-blue-800 border-transparent",
+  admin: "bg-primary/10 text-primary border-transparent",
   staff: "bg-zinc-100 text-zinc-700 border-transparent",
 };
 

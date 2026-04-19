@@ -54,7 +54,7 @@ export function ProductForm({
           name: product.name,
           slug: product.slug,
           description: product.description ?? undefined,
-          price_cents: product.price_cents,
+          price_cents: product.price_cents / 100,
           image_url: product.image_url,
           category_id: product.category_id,
           is_available: product.is_available,
@@ -70,7 +70,7 @@ export function ProductForm({
             modifiers: g.modifiers.map((m) => ({
               id: m.id,
               name: m.name,
-              price_delta_cents: m.price_delta_cents,
+              price_delta_cents: m.price_delta_cents / 100,
               is_available: m.is_available,
               sort_order: m.sort_order,
             })),
@@ -90,9 +90,20 @@ export function ProductForm({
   const onSubmit = async (values: ProductInput) => {
     setSubmitting(true);
     try {
+      const payload: ProductInput = {
+        ...values,
+        price_cents: Math.round(values.price_cents * 100),
+        modifier_groups: values.modifier_groups.map((g) => ({
+          ...g,
+          modifiers: g.modifiers.map((m) => ({
+            ...m,
+            price_delta_cents: Math.round(m.price_delta_cents * 100),
+          })),
+        })),
+      };
       const result = product
-        ? await updateProduct(slug, product.id, values)
-        : await createProduct(slug, values);
+        ? await updateProduct(slug, product.id, payload)
+        : await createProduct(slug, payload);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -173,7 +184,7 @@ export function ProductForm({
             name="price_cents"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Precio (en centavos)</FormLabel>
+                <FormLabel>Precio ($)</FormLabel>
                 <FormControl>
                   <Input
                     type="number"

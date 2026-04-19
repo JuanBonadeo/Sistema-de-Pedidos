@@ -117,6 +117,10 @@ export type Database = {
           lng: number | null
           logo_url: string | null
           min_order_cents: number
+          mp_access_token: string | null
+          mp_accepts_payments: boolean
+          mp_public_key: string | null
+          mp_webhook_secret: string | null
           name: string
           phone: string | null
           plan: string | null
@@ -138,6 +142,10 @@ export type Database = {
           lng?: number | null
           logo_url?: string | null
           min_order_cents?: number
+          mp_access_token?: string | null
+          mp_accepts_payments?: boolean
+          mp_public_key?: string | null
+          mp_webhook_secret?: string | null
           name: string
           phone?: string | null
           plan?: string | null
@@ -159,6 +167,10 @@ export type Database = {
           lng?: number | null
           logo_url?: string | null
           min_order_cents?: number
+          mp_access_token?: string | null
+          mp_accepts_payments?: boolean
+          mp_public_key?: string | null
+          mp_webhook_secret?: string | null
           name?: string
           phone?: string | null
           plan?: string | null
@@ -516,6 +528,8 @@ export type Database = {
           delivery_type: string
           discount_cents: number
           id: string
+          mp_payment_id: string | null
+          mp_preference_id: string | null
           order_number: number
           payment_method: string
           payment_status: string
@@ -539,6 +553,8 @@ export type Database = {
           delivery_type: string
           discount_cents?: number
           id?: string
+          mp_payment_id?: string | null
+          mp_preference_id?: string | null
           order_number: number
           payment_method?: string
           payment_status?: string
@@ -562,6 +578,8 @@ export type Database = {
           delivery_type?: string
           discount_cents?: number
           id?: string
+          mp_payment_id?: string | null
+          mp_preference_id?: string | null
           order_number?: number
           payment_method?: string
           payment_status?: string

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -50,6 +50,10 @@ const Schema = z.object({
     .union([z.coerce.number().int().min(0), z.literal("")])
     .transform((v) => (v === "" ? null : v))
     .nullable(),
+  mp_access_token: z.string().max(300).optional(),
+  mp_public_key: z.string().max(300).optional(),
+  mp_webhook_secret: z.string().max(300).optional(),
+  mp_accepts_payments: z.boolean(),
 });
 
 type Values = z.infer<typeof Schema>;
@@ -67,6 +71,11 @@ export function BusinessSettingsForm({
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  // Origin resolved after mount to avoid SSR/CSR mismatch on the copy-url hint.
+  const [origin, setOrigin] = useState("");
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
   const form = useForm<Values>({
     resolver: zodResolver(Schema),
     defaultValues: initial,
@@ -331,6 +340,125 @@ export function BusinessSettingsForm({
               </FormItem>
             )}
           />
+        </section>
+
+        {/* Mercado Pago */}
+        <section className="bg-card grid gap-5 rounded-2xl border p-5">
+          <header>
+            <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
+              Mercado Pago
+            </h2>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Conectá tu cuenta para aceptar pagos online. Las credenciales
+              salen del panel de desarrolladores de MP (crear aplicación →
+              Credenciales).
+            </p>
+          </header>
+
+          <FormField
+            control={form.control}
+            name="mp_accepts_payments"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={field.value}
+                      onChange={(e) => field.onChange(e.target.checked)}
+                    />
+                    <span className="text-sm font-medium">
+                      Aceptar Mercado Pago en el checkout
+                    </span>
+                  </label>
+                </FormControl>
+                <p className="text-muted-foreground text-xs">
+                  Requiere completar los dos campos de abajo.
+                </p>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="mp_access_token"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Access Token</FormLabel>
+                <FormControl>
+                  <Input
+                    type="password"
+                    placeholder="APP_USR-..."
+                    autoComplete="off"
+                    {...field}
+                    value={field.value ?? ""}
+                  />
+                </FormControl>
+                <FormMessage />
+                <p className="text-muted-foreground text-xs">
+                  Secreto. Se usa server-side para crear el pago en tu cuenta.
+                </p>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="mp_public_key"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Public Key</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder="APP_USR-..."
+                    {...field}
+                    value={field.value ?? ""}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <details className="group">
+            <summary className="text-muted-foreground cursor-pointer text-xs font-medium hover:text-foreground">
+              Avanzado · Webhook (opcional)
+            </summary>
+            <div className="mt-3 space-y-3 rounded-md border border-dashed p-3">
+              <p className="text-muted-foreground text-xs">
+                Solo hace falta en producción. Mientras el cliente vuelva al
+                menú después de pagar, el pedido se actualiza automáticamente.
+                Si querés cubrir casos donde cierran la pestaña, configurá el
+                webhook en MP y pegá acá la clave secreta.
+              </p>
+              <FormField
+                control={form.control}
+                name="mp_webhook_secret"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Webhook Secret</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder="Clave secreta del webhook"
+                        autoComplete="off"
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                    <p className="text-muted-foreground text-xs">
+                      URL a registrar:
+                    </p>
+                    <code className="bg-muted block break-all rounded p-2 text-[0.7rem]">
+                      {origin}/api/mp/webhook?business_id={businessId}
+                    </code>
+                  </FormItem>
+                )}
+              />
+            </div>
+          </details>
         </section>
 
         {/* Marca / tema */}

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { MenuClient } from "@/components/menu/menu-client";
 import { computeIsOpen } from "@/lib/business-hours";
+import { listActiveOrders } from "@/lib/customers/active-orders";
 import { getMenu } from "@/lib/menu";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
@@ -29,6 +30,10 @@ export default async function MenuPage({
     business.address ??
     null;
 
+  const activeOrders = user
+    ? await listActiveOrders(user.id, business.id)
+    : [];
+
   return (
     <MenuClient
       slug={business_slug}
@@ -40,6 +45,7 @@ export default async function MenuPage({
       deliveryFeeCents={Number(business.delivery_fee_cents)}
       minOrderCents={Number(business.min_order_cents)}
       estimatedMinutes={business.estimated_delivery_minutes}
+      activeOrders={activeOrders}
       hours={menu.hours}
       timezone={business.timezone}
       isOpenInitial={isOpen}

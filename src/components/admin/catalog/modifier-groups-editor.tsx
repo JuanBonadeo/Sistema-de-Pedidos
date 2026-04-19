@@ -25,7 +25,13 @@ export function ModifierGroupsEditor() {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold">Grupos de adicionales</h3>
+        <div>
+          <h3 className="font-semibold">Grupos de adicionales</h3>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            Ej: tamaño, punto de cocción, extras. Los precios de cada opción se
+            suman al precio base del producto.
+          </p>
+        </div>
         <Button
           type="button"
           size="sm"
@@ -180,10 +186,20 @@ function ModifierList({ groupIdx }: { groupIdx: number }) {
           <Plus className="size-3" /> Opción
         </Button>
       </div>
-      {fields.length === 0 && (
+      {fields.length === 0 ? (
         <p className="text-muted-foreground text-xs italic">
           Agregá al menos una opción.
         </p>
+      ) : (
+        <div className="flex items-center gap-2 px-1">
+          <Label className="text-muted-foreground flex-1 text-[0.65rem] font-medium uppercase tracking-wider">
+            Nombre
+          </Label>
+          <Label className="text-muted-foreground w-32 text-[0.65rem] font-medium uppercase tracking-wider">
+            Precio extra ($)
+          </Label>
+          <span className="w-6" aria-hidden />
+        </div>
       )}
       {fields.map((field, mIdx) => (
         <div key={field.id} className="flex items-start gap-2">
@@ -193,7 +209,7 @@ function ModifierList({ groupIdx }: { groupIdx: number }) {
             render={({ field }) => (
               <FormItem className="flex-1">
                 <FormControl>
-                  <Input placeholder="Nombre" {...field} />
+                  <Input placeholder="Ej: Grande" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -205,15 +221,24 @@ function ModifierList({ groupIdx }: { groupIdx: number }) {
             render={({ field }) => (
               <FormItem className="w-32">
                 <FormControl>
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="+ $"
-                    {...field}
-                    onChange={(e) =>
-                      field.onChange(parseInt(e.target.value) || 0)
-                    }
-                  />
+                  <div className="relative">
+                    <span
+                      aria-hidden
+                      className="text-muted-foreground pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm font-medium"
+                    >
+                      +$
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      className="pl-8"
+                      {...field}
+                      onChange={(e) =>
+                        field.onChange(parseInt(e.target.value) || 0)
+                      }
+                    />
+                  </div>
                 </FormControl>
               </FormItem>
             )}
@@ -224,6 +249,7 @@ function ModifierList({ groupIdx }: { groupIdx: number }) {
             variant="ghost"
             onClick={() => remove(mIdx)}
             aria-label="Eliminar opción"
+            className="mt-1"
           >
             <Trash2 className="size-3" />
           </Button>

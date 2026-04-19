@@ -62,6 +62,25 @@ const UpdateInput = z.object({
   estimated_delivery_minutes: z
     .union([z.coerce.number().int().min(0), z.null(), z.literal("")])
     .transform((v) => (v === "" || v === null ? null : v)),
+  mp_access_token: z
+    .string()
+    .trim()
+    .max(300)
+    .optional()
+    .transform((v) => (v === "" ? null : (v ?? null))),
+  mp_public_key: z
+    .string()
+    .trim()
+    .max(300)
+    .optional()
+    .transform((v) => (v === "" ? null : (v ?? null))),
+  mp_webhook_secret: z
+    .string()
+    .trim()
+    .max(300)
+    .optional()
+    .transform((v) => (v === "" ? null : (v ?? null))),
+  mp_accepts_payments: z.coerce.boolean(),
 });
 
 async function assertCanManage(businessSlug: string) {
@@ -126,7 +145,21 @@ export async function updateBusinessSettings(
     delivery_fee_cents,
     min_order_cents,
     estimated_delivery_minutes,
+    mp_access_token,
+    mp_public_key,
+    mp_webhook_secret,
+    mp_accepts_payments,
   } = parsed.data;
+
+  // Guardrail: can't enable MP without the 2 credentials needed to create
+  // preferences + reconcile payments on redirect. The webhook_secret is
+  // optional (only needed if you wire up the /api/mp/webhook endpoint in
+  // production for edge cases like closed tabs or refunds).
+  if (mp_accepts_payments && (!mp_access_token || !mp_public_key)) {
+    return actionError(
+      "Para activar Mercado Pago necesitás cargar Access Token y Public Key.",
+    );
+  }
 
   const guard = await assertCanManage(business_slug);
   if (!guard.ok) return actionError(guard.error);
@@ -153,6 +186,10 @@ export async function updateBusinessSettings(
       delivery_fee_cents,
       min_order_cents,
       estimated_delivery_minutes,
+      mp_access_token,
+      mp_public_key,
+      mp_webhook_secret,
+      mp_accepts_payments,
       settings: nextSettings,
     })
     .eq("id", guard.businessId);

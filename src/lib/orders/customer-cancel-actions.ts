@@ -1,0 +1,118 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
+import { actionError, actionOk, type ActionResult } from "@/lib/actions";
+import { refundPayment } from "@/lib/payments/mercadopago";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
+
+const CancelInput = z.object({
+  order_id: z.string().uuid(),
+  business_slug: z.string().min(1),
+});
+
+/**
+ * Statuses the customer can cancel on their own. We intentionally cut this
+ * off at "confirmed" — once the kitchen is preparing it, cancellation needs
+ * to go through the business (food may already be spoiled/paid for). The
+ * customer can still coordinate via WhatsApp in that case.
+ */
+const CUSTOMER_CANCELLABLE_STATUSES = new Set(["pending", "confirmed"]);
+
+/**
+ * Result signals to the UI whether a refund was also processed so it can
+ * show an accurate toast.
+ *   - "none"     : payment was cash (or never paid)
+ *   - "refunded" : MP refund succeeded
+ *   - "manual"   : MP was paid but refund API failed — admin handles it
+ */
+export type CancelResult = { refund: "none" | "refunded" | "manual" };
+
+export async function cancelOrderByCustomer(
+  input: unknown,
+): Promise<ActionResult<CancelResult>> {
+  const parsed = CancelInput.safeParse(input);
+  if (!parsed.success) return actionError("Datos inválidos.");
+  const { order_id, business_slug } = parsed.data;
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return actionError("No autenticado.");
+
+  const service = createSupabaseServiceClient();
+
+  const { data: order } = await service
+    .from("orders")
+    .select(
+      "id, business_id, status, payment_status, mp_payment_id, customer_id, customers!inner(user_id)",
+    )
+    .eq("id", order_id)
+    .maybeSingle();
+  if (!order) return actionError("Pedido no encontrado.");
+
+  const customerUserId = (order.customers as { user_id: string | null } | null)
+    ?.user_id;
+  if (customerUserId !== user.id) {
+    return actionError("Pedido no encontrado.");
+  }
+
+  if (!CUSTOMER_CANCELLABLE_STATUSES.has(order.status)) {
+    return actionError(
+      "Este pedido ya está en preparación. Contactá al local para cancelarlo.",
+    );
+  }
+
+  // Attempt a MP refund BEFORE marking cancelled, if the order was paid.
+  // We try once; regardless of outcome we still cancel the order so the
+  // customer isn't stuck waiting. If the refund failed the admin sees
+  // `payment_status: paid` + `status: cancelled` and can process it by hand.
+  let refundOutcome: CancelResult["refund"] = "none";
+  if (order.payment_status === "paid" && order.mp_payment_id) {
+    const { data: biz } = await service
+      .from("businesses")
+      .select("mp_access_token")
+      .eq("id", order.business_id)
+      .maybeSingle();
+    if (biz?.mp_access_token) {
+      const refund = await refundPayment(
+        biz.mp_access_token,
+        order.mp_payment_id,
+      );
+      if (refund.ok) {
+        refundOutcome = "refunded";
+      } else {
+        console.error("MP refund failed on customer cancel", refund.error);
+        refundOutcome = "manual";
+      }
+    } else {
+      // Business has no MP token somehow — leave for manual handling.
+      refundOutcome = "manual";
+    }
+  }
+
+  const update: Record<string, unknown> = {
+    status: "cancelled",
+    cancelled_reason: "Cancelado por el cliente",
+  };
+  if (refundOutcome === "refunded") {
+    update.payment_status = "refunded";
+  }
+
+  const { error } = await service
+    .from("orders")
+    .update(update)
+    .eq("id", order_id);
+  if (error) {
+    console.error("cancelOrderByCustomer", error);
+    return actionError("No pudimos cancelar el pedido.");
+  }
+
+  revalidatePath(`/${business_slug}/confirmacion/${order_id}`);
+  revalidatePath(`/${business_slug}/perfil/pedidos`);
+  revalidatePath(`/${business_slug}/menu`);
+  return actionOk({ refund: refundOutcome });
+}

@@ -17,6 +17,8 @@ export function CheckoutForm({
   businessAddress,
   deliveryFeeCents,
   estimatedMinutes,
+  savedAddresses = [],
+  mpEnabled = false,
   initialName = "",
   initialEmail = "",
 }: {
@@ -25,6 +27,8 @@ export function CheckoutForm({
   businessAddress: string | null;
   deliveryFeeCents: number;
   estimatedMinutes: number | null;
+  savedAddresses?: { id: string; street: string }[];
+  mpEnabled?: boolean;
   initialName?: string;
   initialEmail?: string;
 }) {
@@ -40,7 +44,7 @@ export function CheckoutForm({
   const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState("");
   const [email] = useState(initialEmail);
-  const [payment, setPayment] = useState<PaymentId>("mp");
+  const [payment, setPayment] = useState<PaymentId>(mpEnabled ? "mp" : "cash");
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [errors, setErrors] = useState<{
     address?: string;
@@ -58,24 +62,28 @@ export function CheckoutForm({
     else if (!isPickup && payment === "pickup-cash") setPayment("cash");
   }, [isPickup, payment]);
 
-  const paymentOptions: { id: PaymentId; label: string; sub: string }[] =
-    isPickup
+  const paymentOptions: { id: PaymentId; label: string; sub: string }[] = [
+    ...(mpEnabled
       ? [
-          { id: "mp", label: "Mercado Pago", sub: "Pagás ahora desde la app" },
           {
-            id: "pickup-cash",
-            label: "Efectivo al retirar",
-            sub: "Pagás en el local",
+            id: "mp" as const,
+            label: "Mercado Pago",
+            sub: "Pagás ahora desde la app",
           },
         ]
-      : [
-          { id: "mp", label: "Mercado Pago", sub: "Pagás ahora desde la app" },
-          {
-            id: "cash",
-            label: "Efectivo al recibir",
-            sub: "Indicá con cuánto abonás",
-          },
-        ];
+      : []),
+    isPickup
+      ? {
+          id: "pickup-cash" as const,
+          label: "Efectivo al retirar",
+          sub: "Pagás en el local",
+        }
+      : {
+          id: "cash" as const,
+          label: "Efectivo al recibir",
+          sub: "Indicá con cuánto abonás",
+        },
+  ];
 
   const phoneOk = /^\+?[\d\s-]{8,}$/.test(phone);
 
@@ -104,6 +112,7 @@ export function CheckoutForm({
           ? undefined
           : `${address.trim()}${apt.trim() ? ` · ${apt.trim()}` : ""}`,
         delivery_notes: notes.trim() || undefined,
+        payment_method: payment === "mp" ? "mp" : "cash",
         items: items.map((i) => ({
           product_id: i.product_id,
           quantity: i.quantity,
@@ -116,6 +125,12 @@ export function CheckoutForm({
         return;
       }
       clearCart();
+      // If MP returned a redirect URL, kick the user to Checkout Pro.
+      // Otherwise (cash / pickup-cash) go straight to the tracking page.
+      if (result.data.mp_init_point) {
+        window.location.href = result.data.mp_init_point;
+        return;
+      }
       router.push(`/${slug}/confirmacion/${result.data.order_id}`);
     } finally {
       setSubmitting(false);
@@ -317,6 +332,57 @@ export function CheckoutForm({
 
       {!isPickup ? (
         <Section title="Entrega">
+          {savedAddresses.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--ink-2)",
+                  marginBottom: 6,
+                }}
+              >
+                Mis direcciones
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                {savedAddresses.map((a) => {
+                  const sel = address === a.street;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => {
+                        setAddress(a.street);
+                        setApt("");
+                      }}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 99,
+                        border: `1px solid ${sel ? "var(--accent)" : "var(--hairline-2)"}`,
+                        background: sel ? "var(--accent-soft)" : "#fff",
+                        color: "var(--ink)",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        maxWidth: "100%",
+                        textAlign: "left",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                      title={a.street}
+                    >
+                      {a.street}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <Field label="Dirección" error={errors.address}>
             <input
               value={address}

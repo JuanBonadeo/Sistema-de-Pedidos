@@ -18,16 +18,17 @@ export default async function AdminAuthedLayout({
   const ctx = await ensureAdminAccess(business.id, business_slug);
 
   return (
-    <div className="bg-background min-h-screen lg:flex">
+    <div className="bg-background flex min-h-screen">
       <AdminSidebar
         slug={business_slug}
         businessName={business.name}
+        businessLogoUrl={business.logo_url}
         userEmail={ctx.userEmail}
         userName={ctx.userName}
         isPlatformAdmin={ctx.isPlatformAdmin}
         canManageBusiness={canManageBusiness(ctx)}
       />
-      <div className="flex-1">{children}</div>
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }

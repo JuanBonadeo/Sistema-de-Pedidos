@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
+import { ActiveOrderBanner } from "@/components/menu/active-order-banner";
 import { I, ImageTile, StatusDot } from "@/components/delivery/primitives";
 import { computeIsOpen, type BusinessHour } from "@/lib/business-hours";
+import type { ActiveOrder } from "@/lib/customers/active-orders";
 import { formatCurrency } from "@/lib/currency";
 import type { MenuCategory, MenuProduct } from "@/lib/menu";
 import { cartCount, cartTotal, useCart } from "@/stores/cart";
@@ -23,6 +25,7 @@ export function MenuClient({
   deliveryFeeCents,
   minOrderCents,
   estimatedMinutes,
+  activeOrders,
   hours,
   timezone,
   isOpenInitial,
@@ -37,6 +40,7 @@ export function MenuClient({
   deliveryFeeCents: number;
   minOrderCents: number;
   estimatedMinutes: number | null;
+  activeOrders: ActiveOrder[];
   hours: BusinessHour[];
   timezone: string;
   isOpenInitial: boolean;
@@ -102,6 +106,13 @@ export function MenuClient({
         background: "var(--bg)",
       }}
     >
+      {/* Active order banner — only for logged-in users with non-terminal orders */}
+      <ActiveOrderBanner
+        slug={slug}
+        orders={activeOrders}
+        estimatedMinutes={estimatedMinutes}
+      />
+
       {/* Hero */}
       <div style={{ position: "relative" }}>
         <ImageTile

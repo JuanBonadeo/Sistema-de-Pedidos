@@ -47,6 +47,10 @@ export default async function ConfiguracionPage({
     delivery_fee_cents: Number(business.delivery_fee_cents ?? 0) / 100,
     min_order_cents: Number(business.min_order_cents ?? 0) / 100,
     estimated_delivery_minutes: business.estimated_delivery_minutes,
+    mp_access_token: business.mp_access_token ?? "",
+    mp_public_key: business.mp_public_key ?? "",
+    mp_webhook_secret: business.mp_webhook_secret ?? "",
+    mp_accepts_payments: business.mp_accepts_payments,
   };
 
   return (

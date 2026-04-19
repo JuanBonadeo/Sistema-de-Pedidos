@@ -13,6 +13,8 @@ export type AdminOrder = {
   delivery_type: "delivery" | "pickup";
   total_cents: number;
   status: OrderStatus;
+  payment_method: string;
+  payment_status: string;
   cancelled_reason: string | null;
   items: { product_name: string; quantity: number }[];
 };
@@ -51,7 +53,7 @@ export async function getTodayOrders(
   const { data } = await supabase
     .from("orders")
     .select(
-      "id, order_number, created_at, customer_name, customer_phone, delivery_type, total_cents, status, cancelled_reason, order_items(product_name, quantity)",
+      "id, order_number, created_at, customer_name, customer_phone, delivery_type, total_cents, status, payment_method, payment_status, cancelled_reason, order_items(product_name, quantity)",
     )
     .eq("business_id", businessId)
     .gte("created_at", since)
@@ -66,6 +68,8 @@ export async function getTodayOrders(
     delivery_type: o.delivery_type as "delivery" | "pickup",
     total_cents: Number(o.total_cents),
     status: o.status as OrderStatus,
+    payment_method: o.payment_method,
+    payment_status: o.payment_status,
     cancelled_reason: o.cancelled_reason,
     items: (o.order_items ?? []).map((i) => ({
       product_name: i.product_name,

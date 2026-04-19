@@ -1,0 +1,176 @@
+import { NextResponse } from "next/server";
+
+import { fetchPayment, verifySignature } from "@/lib/payments/mercadopago";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
+
+// MP's webhook expects a 2xx within ~22s, otherwise it retries. Keep this
+// handler small: validate signature, fetch payment, update the order, return.
+//
+// The business_id is passed as a query param because a single webhook host
+// serves multiple tenants; we need to resolve the right access_token and
+// webhook_secret before we can verify anything.
+export async function POST(req: Request) {
+  const url = new URL(req.url);
+  const businessId = url.searchParams.get("business_id");
+  if (!businessId) {
+    return NextResponse.json(
+      { error: "missing business_id" },
+      { status: 400 },
+    );
+  }
+
+  // Capture headers + body (as string for signature validation, then parse).
+  const xSignature = req.headers.get("x-signature");
+  const xRequestId = req.headers.get("x-request-id");
+  const rawBody = await req.text();
+
+  // MP sends a few notification shapes. The new one is:
+  //   { type: "payment", data: { id: "123" }, action: "...", ... }
+  // The legacy IPN shape we may still get:
+  //   { topic: "payment", resource: ".../v1/payments/123" }
+  let payload:
+    | { type?: string; action?: string; data?: { id?: string | number } }
+    | { topic?: string; resource?: string }
+    | null = null;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    // Empty body pings / malformed — ack quickly so MP doesn't retry forever.
+    return NextResponse.json({ ok: true });
+  }
+
+  const paymentId = extractPaymentId(payload);
+  if (!paymentId) {
+    // Topics other than payment (merchant_order, etc) — ignore for now.
+    return NextResponse.json({ ok: true });
+  }
+
+  const service = createSupabaseServiceClient();
+  const { data: business, error: bizErr } = await service
+    .from("businesses")
+    .select("id, mp_access_token, mp_webhook_secret")
+    .eq("id", businessId)
+    .maybeSingle();
+  if (bizErr || !business || !business.mp_access_token || !business.mp_webhook_secret) {
+    console.error("MP webhook: business not found or MP not configured", {
+      businessId,
+    });
+    // 200 to avoid retry storms for a business that may have disabled MP.
+    return NextResponse.json({ ok: true });
+  }
+
+  // Signature check. Fails closed — if MP didn't sign or signature doesn't
+  // match, drop the notification. Legitimate retries will re-sign correctly.
+  const valid = verifySignature({
+    xSignature,
+    xRequestId,
+    dataId: paymentId,
+    secret: business.mp_webhook_secret,
+  });
+  if (!valid) {
+    console.warn("MP webhook: invalid signature", {
+      businessId,
+      paymentId,
+    });
+    return NextResponse.json(
+      { error: "invalid signature" },
+      { status: 401 },
+    );
+  }
+
+  // Idempotency: if we've already processed this payment_id, skip.
+  const { data: existingByPayment } = await service
+    .from("orders")
+    .select("id, payment_status")
+    .eq("mp_payment_id", paymentId)
+    .maybeSingle();
+
+  // Fetch the payment details from MP using the business's access token.
+  let payment;
+  try {
+    payment = await fetchPayment(business.mp_access_token, paymentId);
+  } catch (err) {
+    console.error("MP fetchPayment failed", err);
+    // 500 so MP retries later — our problem, not theirs.
+    return NextResponse.json({ error: "upstream error" }, { status: 500 });
+  }
+
+  if (!payment.externalReference) {
+    console.warn("MP payment missing external_reference", { paymentId });
+    return NextResponse.json({ ok: true });
+  }
+
+  // Locate the order (either via external_reference, or we matched it earlier
+  // via mp_payment_id for idempotent re-delivery).
+  const orderId = payment.externalReference;
+  const { data: order } = await service
+    .from("orders")
+    .select("id, business_id, status, payment_status")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order) {
+    console.warn("MP webhook: order not found", { orderId });
+    return NextResponse.json({ ok: true });
+  }
+  if (order.business_id !== business.id) {
+    // Cross-tenant tampering attempt — fail loud.
+    console.error("MP webhook: business mismatch", {
+      orderId,
+      businessId,
+      orderBiz: order.business_id,
+    });
+    return NextResponse.json({ error: "business mismatch" }, { status: 403 });
+  }
+
+  // Map MP status to our payment_status + optional order.status bump.
+  const nextPaymentStatus =
+    payment.status === "approved"
+      ? "paid"
+      : payment.status === "rejected" || payment.status === "cancelled"
+        ? "failed"
+        : payment.status === "refunded" || payment.status === "charged_back"
+          ? "refunded"
+          : "pending";
+
+  // Payment and order status are decoupled on purpose — see reconcile.ts.
+  const updatePayload: Record<string, unknown> = {
+    mp_payment_id: paymentId,
+    payment_status: nextPaymentStatus,
+  };
+
+  // Skip the write if nothing changed (idempotent replay).
+  if (
+    existingByPayment &&
+    existingByPayment.payment_status === nextPaymentStatus
+  ) {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
+  const { error: updErr } = await service
+    .from("orders")
+    .update(updatePayload)
+    .eq("id", order.id);
+  if (updErr) {
+    console.error("MP webhook: update failed", updErr);
+    return NextResponse.json({ error: "update failed" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, payment_status: nextPaymentStatus });
+}
+
+function extractPaymentId(
+  payload:
+    | { type?: string; action?: string; data?: { id?: string | number } }
+    | { topic?: string; resource?: string }
+    | null,
+): string | null {
+  if (!payload) return null;
+  if ("data" in payload && payload.data?.id != null) {
+    return String(payload.data.id);
+  }
+  if ("resource" in payload && typeof payload.resource === "string") {
+    const match = payload.resource.match(/\/payments\/(\d+)/);
+    if (match) return match[1];
+  }
+  return null;
+}

@@ -184,7 +184,7 @@ export function ProductForm({
             name="price_cents"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Precio ($)</FormLabel>
+                <FormLabel>Precio base ($)</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
@@ -195,6 +195,10 @@ export function ProductForm({
                     }
                   />
                 </FormControl>
+                <p className="text-muted-foreground text-xs">
+                  Sin adicionales. Los grupos de adicionales se suman sobre
+                  este precio.
+                </p>
                 <FormMessage />
               </FormItem>
             )}
@@ -211,7 +215,22 @@ export function ProductForm({
                     onValueChange={(v) => field.onChange(v || null)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Elegí" />
+                      {/*
+                        Base UI's SelectValue shows the raw value by default
+                        (a UUID in our case). We resolve id → name via the
+                        children render function so the trigger shows "Pizzas"
+                        instead of "ab23-..."; falls back to null so the
+                        placeholder renders for empty/unknown selections.
+                      */}
+                      <SelectValue placeholder="Elegí">
+                        {(value) => {
+                          if (!value) return null;
+                          return (
+                            categories.find((c) => c.id === value)?.name ??
+                            null
+                          );
+                        }}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {categories.map((c) => (

@@ -2,11 +2,29 @@ import "server-only";
 
 import { actionError, actionOk, type ActionResult } from "@/lib/actions";
 import { formatCurrency } from "@/lib/currency";
+import { createPreference } from "@/lib/payments/mercadopago";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
 import type { CreateOrderInput } from "./schema";
 
-export type CreateOrderResult = { order_id: string; order_number: number };
+export type CreateOrderResult = {
+  order_id: string;
+  order_number: number;
+  /**
+   * Present when the order was placed with MP as payment method and the
+   * business has MP configured. Client should redirect to this URL to
+   * complete the payment.
+   */
+  mp_init_point?: string;
+};
+
+function getSiteUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (envUrl) return envUrl.replace(/\/$/, "");
+  const rootDomain = process.env.ROOT_DOMAIN ?? "localhost:3000";
+  const proto = rootDomain.includes("localhost") ? "http" : "https";
+  return `${proto}://${rootDomain}`;
+}
 
 export async function persistOrder(
   data: CreateOrderInput,
@@ -16,11 +34,23 @@ export async function persistOrder(
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, delivery_fee_cents, min_order_cents")
+    .select(
+      "id, slug, delivery_fee_cents, min_order_cents, mp_access_token, mp_accepts_payments",
+    )
     .eq("slug", data.business_slug)
     .eq("is_active", true)
     .maybeSingle();
   if (!business) return actionError("Negocio no encontrado.");
+
+  const requestedPayment = data.payment_method ?? "cash";
+  const wantsMp = requestedPayment === "mp";
+  const mpEnabled = Boolean(
+    business.mp_accepts_payments && business.mp_access_token,
+  );
+  if (wantsMp && !mpEnabled) {
+    return actionError("Este negocio no acepta Mercado Pago por ahora.");
+  }
+  const paymentMethod = wantsMp ? "mp" : "cash";
 
   const productIds = [...new Set(data.items.map((i) => i.product_id))];
   const { data: products } = await supabase
@@ -129,7 +159,7 @@ export async function persistOrder(
       subtotal_cents: subtotalCents,
       delivery_fee_cents: deliveryFeeCents,
       total_cents: totalCents,
-      payment_method: "cash_on_delivery",
+      payment_method: paymentMethod,
       payment_status: "pending",
     })
     .select("id, order_number")
@@ -137,6 +167,23 @@ export async function persistOrder(
   if (orderErr || !order) {
     console.error("order insert", orderErr);
     return actionError("No pudimos crear el pedido.");
+  }
+
+  // Persist the delivery address for this customer, idempotently. We dedupe
+  // by exact street match so repeat orders to the same place don't stack.
+  if (data.delivery_type === "delivery" && data.delivery_address) {
+    const street = data.delivery_address;
+    const { data: existing } = await supabase
+      .from("customer_addresses")
+      .select("id")
+      .eq("customer_id", customer.id)
+      .eq("street", street)
+      .maybeSingle();
+    if (!existing) {
+      await supabase
+        .from("customer_addresses")
+        .insert({ customer_id: customer.id, street });
+    }
   }
 
   for (const line of lines) {
@@ -175,5 +222,68 @@ export async function persistOrder(
     }
   }
 
-  return actionOk({ order_id: order.id, order_number: order.order_number });
+  // If the customer chose MP, create the preference in their MP account and
+  // hand the init_point back to the client so it can redirect. The order is
+  // already persisted with payment_status='pending'; the webhook upgrades it
+  // to 'paid' / 'failed' once MP reports the outcome.
+  let mpInitPoint: string | undefined;
+  if (wantsMp && business.mp_access_token) {
+    // MP rejects zero-amount preferences. This shouldn't happen in practice
+    // (cart validation catches it earlier) but guard anyway.
+    if (totalCents <= 0) {
+      await supabase
+        .from("orders")
+        .update({ payment_status: "failed" })
+        .eq("id", order.id);
+      return actionError("El total del pedido es 0, no se puede pagar online.");
+    }
+    try {
+      const pref = await createPreference({
+        accessToken: business.mp_access_token,
+        siteUrl: getSiteUrl(),
+        businessId: business.id,
+        businessSlug: business.slug,
+        orderId: order.id,
+        orderNumber: order.order_number,
+        items: lines.map((l) => ({
+          id: l.product_id,
+          title: l.product_name,
+          quantity: l.quantity,
+          unit_price: Math.round(
+            (l.unit_price_cents +
+              l.modifiers.reduce((a, m) => a + m.price_delta_cents, 0)) /
+              100,
+          ),
+        })),
+        payer: {
+          name: data.customer_name,
+          email: data.customer_email,
+          phone: data.customer_phone,
+        },
+      });
+      // Best-effort: if the update fails we still let the customer pay, we
+      // just lose the preference_id pointer for reconciliation.
+      await supabase
+        .from("orders")
+        .update({ mp_preference_id: pref.preferenceId })
+        .eq("id", order.id);
+      mpInitPoint = pref.initPoint;
+    } catch (err) {
+      console.error("MP createPreference failed", err);
+      // Don't block the order — mark payment as failed so the admin sees it.
+      await supabase
+        .from("orders")
+        .update({ payment_status: "failed" })
+        .eq("id", order.id);
+      return actionError(
+        "No pudimos conectar con Mercado Pago. Probá de nuevo o elegí efectivo.",
+      );
+    }
+  }
+
+  return actionOk({
+    order_id: order.id,
+    order_number: order.order_number,
+    mp_init_point: mpInitPoint,
+  });
 }

@@ -75,10 +75,10 @@ export function ProfileScreen({
         </div>
 
         <div style={{ padding: "0 24px" }}>
-          <MenuRow label="Mis pedidos" />
-          <MenuRow label="Direcciones" />
-          <MenuRow label="Métodos de pago" />
-          <MenuRow label="Ayuda" last />
+          <MenuRow label="Mis pedidos" href={`/${slug}/perfil/pedidos`} />
+          <MenuRow label="Direcciones" href={`/${slug}/perfil/direcciones`} />
+          <MenuRow label="Métodos de pago" disabled />
+          <MenuRow label="Ayuda" disabled last />
         </div>
 
         <div style={{ padding: "40px 24px 0" }}>
@@ -102,27 +102,65 @@ export function ProfileScreen({
   );
 }
 
-function MenuRow({ label, last }: { label: string; last?: boolean }) {
-  return (
-    <button
-      style={{
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        padding: "18px 0",
-        background: "none",
-        border: "none",
-        borderBottom: last ? "none" : "1px solid var(--hairline)",
-        cursor: "pointer",
-        textAlign: "left",
-      }}
-    >
+function MenuRow({
+  label,
+  href,
+  disabled,
+  last,
+}: {
+  label: string;
+  href?: string;
+  disabled?: boolean;
+  last?: boolean;
+}) {
+  const baseStyle: React.CSSProperties = {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    padding: "18px 0",
+    background: "none",
+    border: "none",
+    borderBottom: last ? "none" : "1px solid var(--hairline)",
+    textAlign: "left",
+    textDecoration: "none",
+    color: disabled ? "var(--ink-3)" : "var(--ink)",
+    cursor: disabled ? "default" : "pointer",
+  };
+
+  const labelEl = (
+    <>
       <span
-        style={{ flex: 1, fontSize: 15, color: "var(--ink)", fontWeight: 500 }}
+        style={{
+          flex: 1,
+          fontSize: 15,
+          fontWeight: 500,
+        }}
       >
         {label}
       </span>
-      {I.chevRight("var(--ink-3)", 14)}
-    </button>
+      {disabled ? (
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--ink-3)",
+            fontStyle: "italic",
+          }}
+        >
+          Próximamente
+        </span>
+      ) : (
+        I.chevRight("var(--ink-3)", 14)
+      )}
+    </>
   );
+
+  if (href && !disabled) {
+    return (
+      <Link href={href} style={baseStyle}>
+        {labelEl}
+      </Link>
+    );
+  }
+
+  return <div style={baseStyle}>{labelEl}</div>;
 }

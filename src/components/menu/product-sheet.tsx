@@ -239,7 +239,12 @@ export function ProductSheet({
                 {g.modifiers.map((o) => {
                   const current = selection[g.id] ?? [];
                   const selected = current.includes(o.id);
-                  const atMax = !selected && current.length >= g.max_selection;
+                  // atMax only applies to multi-select (checkbox) groups. In
+                  // radio-like groups (max=1), clicking another option should
+                  // REPLACE the current selection, so we must not disable the
+                  // other options just because one is already picked.
+                  const atMax =
+                    isMulti && !selected && current.length >= g.max_selection;
                   const disabled = !o.is_available || atMax;
                   return (
                     <button

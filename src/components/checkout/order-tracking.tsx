@@ -3,6 +3,7 @@
 import { Fragment } from "react";
 import Link from "next/link";
 
+import { CustomerCancelButton } from "@/components/checkout/customer-cancel-button";
 import { I } from "@/components/delivery/primitives";
 import { formatCurrency } from "@/lib/currency";
 
@@ -24,6 +25,7 @@ type Item = {
 
 export function OrderTracking({
   slug,
+  orderId,
   businessName,
   tagline,
   orderNumber,
@@ -34,8 +36,11 @@ export function OrderTracking({
   deliveryFeeCents,
   totalCents,
   whatsappHref,
+  canCancel = false,
+  wasPaid = false,
 }: {
   slug: string;
+  orderId: string;
   businessName: string;
   tagline: string | null;
   orderNumber: number;
@@ -46,6 +51,8 @@ export function OrderTracking({
   deliveryFeeCents: number;
   totalCents: number;
   whatsappHref?: string | null;
+  canCancel?: boolean;
+  wasPaid?: boolean;
 }) {
   const stepLabels = [
     { key: "received", label: "Recibido", sub: "El local confirmó tu pedido" },
@@ -435,6 +442,13 @@ export function OrderTracking({
           >
             Volver al inicio
           </Link>
+          {canCancel && (
+            <CustomerCancelButton
+              orderId={orderId}
+              businessSlug={slug}
+              wasPaid={wasPaid}
+            />
+          )}
         </div>
       </div>
     </div>

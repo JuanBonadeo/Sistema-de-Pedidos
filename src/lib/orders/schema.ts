@@ -13,6 +13,7 @@ export const CreateOrderInput = z
       .optional(),
     delivery_address: z.string().max(200).optional(),
     delivery_notes: z.string().max(500).optional(),
+    payment_method: z.enum(["cash", "mp"]).optional(),
     items: z
       .array(
         z.object({

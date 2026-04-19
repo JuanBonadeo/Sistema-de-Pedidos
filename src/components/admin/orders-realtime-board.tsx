@@ -10,6 +10,7 @@ import type { OrderStatus } from "@/lib/orders/status";
 import { updateOrderStatus } from "@/lib/orders/update-status";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
+import { CancelledOrderRow } from "./cancelled-order-row";
 import { OrderCard } from "./order-card";
 
 type Column = {
@@ -76,7 +77,7 @@ export function OrdersRealtimeBoard({
       const { data } = await supabase
         .from("orders")
         .select(
-          "id, order_number, created_at, customer_name, customer_phone, delivery_type, total_cents, status, cancelled_reason, order_items(product_name, quantity)",
+          "id, order_number, created_at, customer_name, customer_phone, delivery_type, total_cents, status, payment_method, payment_status, cancelled_reason, order_items(product_name, quantity)",
         )
         .eq("id", orderId)
         .maybeSingle();
@@ -90,6 +91,8 @@ export function OrdersRealtimeBoard({
         delivery_type: data.delivery_type as "delivery" | "pickup",
         total_cents: Number(data.total_cents),
         status: data.status as OrderStatus,
+        payment_method: data.payment_method,
+        payment_status: data.payment_status,
         cancelled_reason: data.cancelled_reason,
         items: (data.order_items ?? []).map((i) => ({
           product_name: i.product_name,
@@ -153,6 +156,9 @@ export function OrdersRealtimeBoard({
               setOrders((prev) =>
                 prev.map((o) => (o.id === id ? full : o)),
               );
+            } else if (payload.eventType === "DELETE") {
+              const id = (payload.old as { id: string }).id;
+              setOrders((prev) => prev.filter((o) => o.id !== id));
             }
           },
         )
@@ -206,6 +212,13 @@ export function OrdersRealtimeBoard({
     return groups;
   }, [orders]);
 
+  // Cancelled orders live outside the kanban — we show them in a separate
+  // collapsible section at the bottom so the admin can clean them up.
+  const cancelledOrders = useMemo(
+    () => orders.filter((o) => o.status === "cancelled"),
+    [orders],
+  );
+
   const activeCount = orders.filter(
     (o) => o.status !== "delivered" && o.status !== "cancelled",
   ).length;
@@ -254,6 +267,30 @@ export function OrdersRealtimeBoard({
           </section>
         ))}
       </div>
+
+      {cancelledOrders.length > 0 && (
+        <details className="group mt-4">
+          <summary className="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase tracking-wider">
+            <span>Cancelados</span>
+            <span className="text-foreground">
+              ({cancelledOrders.length})
+            </span>
+            <span className="text-muted-foreground/60 normal-case tracking-normal">
+              · tocá para ver
+            </span>
+          </summary>
+          <div className="mt-3 grid gap-2">
+            {cancelledOrders.map((order) => (
+              <CancelledOrderRow
+                key={order.id}
+                order={order}
+                slug={slug}
+                timezone={timezone}
+              />
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

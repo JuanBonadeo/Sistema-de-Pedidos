@@ -94,7 +94,11 @@ export async function cancelOrderByCustomer(
     }
   }
 
-  const update: Record<string, unknown> = {
+  const update: {
+    status: string;
+    cancelled_reason: string;
+    payment_status?: string;
+  } = {
     status: "cancelled",
     cancelled_reason: "Cancelado por el cliente",
   };

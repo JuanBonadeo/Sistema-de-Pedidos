@@ -133,7 +133,7 @@ export async function POST(req: Request) {
           : "pending";
 
   // Payment and order status are decoupled on purpose — see reconcile.ts.
-  const updatePayload: Record<string, unknown> = {
+  const updatePayload: { mp_payment_id: string; payment_status: string } = {
     mp_payment_id: paymentId,
     payment_status: nextPaymentStatus,
   };

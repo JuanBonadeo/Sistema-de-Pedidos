@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -77,7 +77,10 @@ export function BusinessSettingsForm({
     setOrigin(window.location.origin);
   }, []);
   const form = useForm<Values>({
-    resolver: zodResolver(Schema),
+    // zod 4 + `.transform()` / `z.coerce` produce input ≠ output types which
+    // the hookform resolver generics don't narrow cleanly. Cast to the
+    // expected Resolver<Values> shape — runtime behavior is correct.
+    resolver: zodResolver(Schema) as unknown as Resolver<Values>,
     defaultValues: initial,
   });
 

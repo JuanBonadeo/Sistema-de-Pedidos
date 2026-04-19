@@ -74,7 +74,10 @@ export async function reconcileMpPayment(args: {
   // and order acceptance ("admin reviewed + approved") are distinct events.
   // The admin still has to click "Confirmar" in the dashboard to move the
   // order forward. The paid badge on the card gives them the signal.
-  const updatePayload: Record<string, unknown> = {
+  const updatePayload: {
+    mp_payment_id: string;
+    payment_status: string;
+  } = {
     mp_payment_id: args.paymentId,
     payment_status: nextPaymentStatus,
   };

@@ -4,7 +4,7 @@ import { SuperLoginForm } from "@/components/super/super-login-form";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
-export default async function SuperLoginPage() {
+export default async function PlatformLoginPage() {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -16,7 +16,7 @@ export default async function SuperLoginPage() {
       .select("is_platform_admin")
       .eq("id", user.id)
       .maybeSingle();
-    if (profile?.is_platform_admin) redirect("/super");
+    if (profile?.is_platform_admin) redirect("/");
   }
 
   return (

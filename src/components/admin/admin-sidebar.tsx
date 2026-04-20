@@ -173,7 +173,7 @@ export function AdminSidebar({
               )}
             />
             <NavIcon
-              href="/super"
+              href="/"
               label="Volver a plataforma"
               icon={<ArrowLeft className="size-5" />}
               active={false}
@@ -364,7 +364,7 @@ function UserMenu({
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
     window.location.href = isPlatformAdmin
-      ? "/super/login"
+      ? "/login"
       : `/${slug}/admin/login`;
   };
 

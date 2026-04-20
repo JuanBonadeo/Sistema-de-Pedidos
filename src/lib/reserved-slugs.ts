@@ -1,18 +1,19 @@
 /**
  * Business slugs we reserve for platform-level routes. If a business tried
- * to use one, it would collide with /admin, /super, /api, etc.
+ * to use one, it would collide with /admin, /negocios, /login, etc.
  *
  * Shared by createBusiness (platform) and updateBusinessSettings (per-
  * business admin).
  */
 export const RESERVED_SLUGS = new Set([
   "admin",
-  "super",
   "api",
-  "auth",
-  "www",
   "app",
+  "auth",
   "login",
+  "negocios",
+  "super",
+  "www",
 ]);
 
 export const SLUG_PATTERN = /^[a-z0-9-]+$/;

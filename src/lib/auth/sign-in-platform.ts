@@ -39,5 +39,5 @@ export async function signInPlatform(
     return actionError("No tenés permisos de plataforma.");
   }
 
-  redirect("/super");
+  redirect("/");
 }

@@ -139,7 +139,7 @@ export async function createBusiness(
     return actionError("No pudimos asignar al admin.");
   }
 
-  revalidatePath("/super");
+  revalidatePath("/");
   return actionOk({ id: business.id, slug: business.slug });
 }
 
@@ -205,7 +205,7 @@ export async function inviteBusinessMember(
     return actionError("No pudimos asignar al miembro.");
   }
 
-  revalidatePath(`/super/negocios/${business_id}`);
+  revalidatePath(`/negocios/${business_id}`);
   return actionOk(null);
 }
 
@@ -226,7 +226,7 @@ export async function removeBusinessMember(
     console.error("removeBusinessMember", error);
     return actionError("No pudimos quitar al miembro.");
   }
-  revalidatePath(`/super/negocios/${businessId}`);
+  revalidatePath(`/negocios/${businessId}`);
   return actionOk(null);
 }
 

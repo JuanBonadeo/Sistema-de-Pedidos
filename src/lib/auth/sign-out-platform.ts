@@ -7,5 +7,5 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export async function signOutPlatform(): Promise<never> {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
-  redirect("/super/login");
+  redirect("/login");
 }

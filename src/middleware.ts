@@ -19,9 +19,13 @@ export async function middleware(request: NextRequest) {
   const hostSlug = resolveSlugFromHost(host, rootDomain);
   const pathname = request.nextUrl.pathname;
 
-  // Subdomain → path rewrite for prod. Skip global routes (auth callback, super admin).
+  // Subdomain → path rewrite for prod. Skip global routes (auth callback,
+  // platform admin at root, platform login, platform business CRUD).
   const isGlobalRoute =
-    pathname === "/auth/callback" || pathname.startsWith("/super");
+    pathname === "/auth/callback" ||
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname.startsWith("/negocios");
   if (
     hostSlug &&
     !isGlobalRoute &&
@@ -38,23 +42,22 @@ export async function middleware(request: NextRequest) {
     ? `/${hostSlug}${pathname === "/" ? "" : pathname}`
     : pathname;
 
-  // Protect /super/* (except /super/login)
-  const superMatch = effectivePath.match(/^\/super(?:\/(.*))?$/);
-  if (superMatch) {
-    const [, rest = ""] = superMatch;
-    if (rest !== "login") {
-      const response = NextResponse.next();
-      const supabase = makeSessionClient(request, response);
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        const redirectUrl = request.nextUrl.clone();
-        redirectUrl.pathname = `/super/login`;
-        return NextResponse.redirect(redirectUrl);
-      }
-      return response;
+  // Protect platform routes (/ and /negocios/*). /login is the unauthenticated
+  // entry point so it's excluded.
+  const isPlatformProtected =
+    effectivePath === "/" || effectivePath.startsWith("/negocios");
+  if (isPlatformProtected) {
+    const response = NextResponse.next();
+    const supabase = makeSessionClient(request, response);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = `/login`;
+      return NextResponse.redirect(redirectUrl);
     }
+    return response;
   }
 
   // Protect /{slug}/admin/* (except /admin/login)

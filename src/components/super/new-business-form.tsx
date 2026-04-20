@@ -73,7 +73,7 @@ export function NewBusinessForm() {
         `Negocio creado. Invitación enviada a ${values.admin_email}.`,
       );
       // Hard navigate to avoid race with the action's revalidatePath.
-      window.location.href = `/super/negocios/${result.data.id}`;
+      window.location.href = `/negocios/${result.data.id}`;
     } finally {
       setSubmitting(false);
     }

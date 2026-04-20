@@ -7,7 +7,7 @@ import { MemberRow } from "@/components/super/member-row";
 import { Badge } from "@/components/ui/badge";
 import { getBusinessDetail } from "@/lib/platform/queries";
 
-export default async function SuperBusinessDetailPage({
+export default async function PlatformBusinessDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -19,7 +19,7 @@ export default async function SuperBusinessDetailPage({
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       <Link
-        href="/super"
+        href="/"
         className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
       >
         <ChevronLeft className="size-4" /> Volver

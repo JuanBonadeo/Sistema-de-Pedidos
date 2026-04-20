@@ -6,7 +6,7 @@ import { PlatformStats } from "@/components/super/platform-stats";
 import { buttonVariants } from "@/components/ui/button";
 import { getPlatformOverview } from "@/lib/platform/queries";
 
-export default async function SuperHomePage() {
+export default async function PlatformHomePage() {
   const { businesses, totals } = await getPlatformOverview();
 
   return (
@@ -24,7 +24,7 @@ export default async function SuperHomePage() {
           </p>
         </div>
         <Link
-          href="/super/negocios/nuevo"
+          href="/negocios/nuevo"
           className={buttonVariants({ size: "lg" })}
         >
           <Plus className="size-4" /> Nuevo negocio
@@ -54,7 +54,7 @@ export default async function SuperHomePage() {
               pedidos.
             </p>
             <Link
-              href="/super/negocios/nuevo"
+              href="/negocios/nuevo"
               className={buttonVariants({ size: "sm" })}
             >
               <Plus className="size-3.5" /> Crear negocio

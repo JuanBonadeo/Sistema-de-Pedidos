@@ -94,7 +94,7 @@ export function BusinessCard({ business }: { business: PlatformBusiness }) {
 
       <footer className="relative flex items-center justify-between">
         <Link
-          href={`/super/negocios/${business.id}`}
+          href={`/negocios/${business.id}`}
           className="text-muted-foreground hover:text-foreground relative z-20 inline-flex items-center gap-1 text-xs"
         >
           <Settings className="size-3" />

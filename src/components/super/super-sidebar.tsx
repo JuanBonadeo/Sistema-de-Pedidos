@@ -17,10 +17,10 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   {
-    href: "/super",
+    href: "/",
     label: "Dashboard",
     icon: <LayoutDashboard className="size-4" />,
-    match: (p) => p === "/super" || p.startsWith("/super/negocios"),
+    match: (p) => p === "/" || p.startsWith("/negocios"),
   },
 ];
 
@@ -36,7 +36,7 @@ export function SuperSidebar({
   const signOut = async () => {
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
-    window.location.href = "/super/login";
+    window.location.href = "/login";
   };
 
   return (

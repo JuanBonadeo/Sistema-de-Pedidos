@@ -23,12 +23,19 @@ import {
   type PreviewProduct,
 } from "@/components/admin/settings/menu-preview";
 import { updateBusinessSettings } from "@/lib/admin/business-actions";
+import { SLUG_PATTERN, slugify } from "@/lib/reserved-slugs";
 
 const HexColor = z
   .string()
   .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Color inválido.");
 
 const Schema = z.object({
+  slug: z
+    .string()
+    .trim()
+    .min(2, "Mínimo 2 caracteres.")
+    .max(60, "Máximo 60 caracteres.")
+    .regex(SLUG_PATTERN, "Sólo minúsculas, números y guiones."),
   name: z.string().min(1, "Requerido.").max(120),
   phone: z.string().max(40).optional(),
   email: z.string().max(120).optional(),
@@ -95,6 +102,16 @@ export function BusinessSettingsForm({
       });
       if (!r.ok) {
         toast.error(r.error);
+        return;
+      }
+      // If the slug changed we need to navigate to the new URL, otherwise
+      // the current page (/{oldSlug}/admin/configuracion) would 404 on
+      // refresh since the record no longer matches that slug.
+      const newSlug = r.data.slug;
+      if (newSlug !== slug) {
+        toast.success("Configuración guardada. URL actualizada.");
+        router.replace(`/${newSlug}/admin/configuracion`);
+        router.refresh();
         return;
       }
       toast.success("Configuración guardada.");
@@ -174,6 +191,51 @@ export function BusinessSettingsForm({
                 <FormMessage />
               </FormItem>
             )}
+          />
+
+          <FormField
+            control={form.control}
+            name="slug"
+            render={({ field }) => {
+              const initialSlug = initial.slug;
+              const currentName = nameValue ?? "";
+              const suggested = slugify(currentName);
+              const canSuggest =
+                suggested.length >= 2 && suggested !== field.value;
+              const changed = field.value !== initialSlug;
+              return (
+                <FormItem>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <FormLabel>Slug (URL)</FormLabel>
+                    {canSuggest && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          field.onChange(suggested, { shouldDirty: true })
+                        }
+                        className="text-primary text-xs font-medium underline-offset-2 hover:underline"
+                      >
+                        Usar el nombre → {suggested}
+                      </button>
+                    )}
+                  </div>
+                  <FormControl>
+                    <Input placeholder="pizzanapoli" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                  <p className="text-muted-foreground text-xs">
+                    URL pública: <code>/{field.value || "…"}</code>
+                  </p>
+                  {changed && (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[0.7rem] leading-snug text-amber-900">
+                      ⚠️ Al cambiar el slug, la URL vieja deja de funcionar.
+                      Links compartidos, bookmarks de clientes y QRs impresos
+                      con <code>/{initialSlug}</code> van a dar 404.
+                    </p>
+                  )}
+                </FormItem>
+              );
+            }}
           />
         </section>
 

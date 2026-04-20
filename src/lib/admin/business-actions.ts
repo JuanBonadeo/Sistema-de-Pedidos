@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { actionError, actionOk, type ActionResult } from "@/lib/actions";
+import { RESERVED_SLUGS, SLUG_PATTERN } from "@/lib/reserved-slugs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
@@ -13,6 +14,12 @@ const HexColor = z
 
 const UpdateInput = z.object({
   business_slug: z.string().min(1),
+  slug: z
+    .string()
+    .trim()
+    .min(2, "Mínimo 2 caracteres.")
+    .max(60, "Máximo 60 caracteres.")
+    .regex(SLUG_PATTERN, "Sólo minúsculas, números y guiones."),
   name: z.string().min(1, "Requerido.").max(120),
   phone: z
     .string()
@@ -126,13 +133,14 @@ async function assertCanManage(businessSlug: string) {
 
 export async function updateBusinessSettings(
   input: unknown,
-): Promise<ActionResult<null>> {
+): Promise<ActionResult<{ slug: string }>> {
   const parsed = UpdateInput.safeParse(input);
   if (!parsed.success) {
     return actionError(parsed.error.issues[0]?.message ?? "Datos inválidos.");
   }
   const {
     business_slug,
+    slug: nextSlug,
     name,
     phone,
     email,
@@ -164,6 +172,22 @@ export async function updateBusinessSettings(
   const guard = await assertCanManage(business_slug);
   if (!guard.ok) return actionError(guard.error);
 
+  // Slug change validation — only run if it actually changed.
+  const service0 = createSupabaseServiceClient();
+  if (nextSlug !== business_slug) {
+    if (RESERVED_SLUGS.has(nextSlug)) {
+      return actionError(`"${nextSlug}" está reservado por la plataforma.`);
+    }
+    const { data: clash } = await service0
+      .from("businesses")
+      .select("id")
+      .eq("slug", nextSlug)
+      .maybeSingle();
+    if (clash && clash.id !== guard.businessId) {
+      return actionError(`Ya existe otro negocio con el slug "${nextSlug}".`);
+    }
+  }
+
   const service = createSupabaseServiceClient();
   const nextSettings = {
     ...guard.currentSettings,
@@ -176,6 +200,7 @@ export async function updateBusinessSettings(
   const { error } = await service
     .from("businesses")
     .update({
+      slug: nextSlug,
       name,
       phone,
       email,
@@ -199,7 +224,12 @@ export async function updateBusinessSettings(
     return actionError("No pudimos guardar los cambios.");
   }
 
-  // Invalidate everything branded by this tenant (theme + logo live in layout).
+  // Invalidate everything branded by this tenant (theme + logo live in
+  // layout). If the slug changed, invalidate both the old path (so cached
+  // pages 404 properly) and the new one.
   revalidatePath(`/${business_slug}`, "layout");
-  return actionOk(null);
+  if (nextSlug !== business_slug) {
+    revalidatePath(`/${nextSlug}`, "layout");
+  }
+  return actionOk({ slug: nextSlug });
 }

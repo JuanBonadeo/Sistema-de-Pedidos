@@ -149,7 +149,7 @@ export function AdminSidebar({
       {/* Nav */}
       <nav
         className={cn(
-          "flex flex-1 flex-col gap-1 overflow-y-auto py-3",
+          "flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden py-3",
           expanded ? "px-3" : "items-center px-0",
         )}
       >

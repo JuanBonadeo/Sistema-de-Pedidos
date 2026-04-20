@@ -33,6 +33,7 @@ export default async function ConfiguracionPage({
     }));
 
   const initial = {
+    slug: business.slug,
     name: business.name,
     phone: business.phone ?? "",
     email: business.email ?? "",
@@ -66,10 +67,7 @@ export default async function ConfiguracionPage({
           Datos de contacto, marca y zona horaria del negocio.
         </p>
         <p className="text-muted-foreground mt-3 text-xs">
-          URL pública: <code>/{business.slug}</code>{" "}
-          <span className="text-muted-foreground/70">
-            (el slug lo gestiona la plataforma)
-          </span>
+          URL pública actual: <code>/{business.slug}</code>
         </p>
       </header>
 

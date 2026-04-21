@@ -13,6 +13,19 @@ import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { z } from "zod";
 
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import {
+  buildEnabledToolsList,
+  buildEnabledToolsMarkdown,
+  isToolEnabled,
+  TOOL_METADATA,
+  type ToolOverrides,
+} from "@/lib/chatbot/tools-metadata";
+
+export type ToolTraceEntry = {
+  name: string;
+  args: Record<string, unknown>;
+  result: string;
+};
 
 export type ChatbotChannel = "whatsapp" | "web-test";
 
@@ -36,6 +49,7 @@ export type RunChatbotInput = {
 export type RunChatbotResult = {
   conversationId: string;
   assistantMessage: string;
+  toolTrace: ToolTraceEntry[];
 };
 
 export const DEFAULT_SYSTEM_PROMPT = `# Asistente virtual de {{businessName}}
@@ -64,50 +78,10 @@ Variá las palabras exactas entre conversaciones para no sonar robótico, pero r
 5. **Iterar**: "¿Querés agregar algo más?" hasta que el cliente diga que cerró.
 6. **Revisar + link**: \`get_cart\` para mostrar resumen + total. Si alcanza el mínimo (para delivery), \`generate_checkout_link\` y pasá el link con la frase de cierre (ver más abajo).
 
-## Herramientas
+## Herramientas disponibles
+Tenés acceso a: {{enabled_tools_list}}.
 
-### \`search_products(query)\`
-Busca productos activos del catálogo por nombre o descripción.
-- **Siempre** antes de mencionar un producto/precio/disponibilidad.
-- Usá \`price_ars\` tal cual — no recalcules.
-- Si no trae resultados, probá una variación (singular/plural, sinónimo, sin acentos).
-- **Cada producto viene con un \`id\` (UUID).** Guardalo mentalmente — lo necesitás para \`get_product_details\` y \`add_to_cart\`. **Nunca inventes un \`id\`**; si no lo tenés, volvé a buscar con \`search_products\`.
-
-### \`get_product_details(product_id)\`
-Devuelve el producto con sus \`modifier_groups\` (toppings, tamaños, etc.). Cada grupo tiene \`min_selection\`, \`max_selection\`, \`is_required\`.
-- Usala **antes** de \`add_to_cart\` cuando el producto pueda tener opciones.
-- Si hay grupos con \`is_required: true\` o \`min_selection > 0\`, preguntale al cliente qué elige antes de agregar.
-- Respetá los \`max_selection\` — si el cliente pide más opciones de las permitidas, avisale.
-
-### \`check_business_status()\`
-Dice si el local está abierto, cuándo cierra, o cuándo abre.
-- Llamala **una sola vez al inicio** de la conversación, como parte del primer mensaje (ver "Primer mensaje").
-- Después, volvela a llamar **solo si** el cliente pregunta explícitamente por horarios o si pueden pedir ahora. No la uses como chequeo de rutina.
-- Nunca inventes horarios.
-
-### \`get_delivery_info()\`
-Delivery fee, mínimo de pedido, minutos estimados, dirección del local (para pickup).
-- Usala si preguntan por costo de envío, hasta dónde llevan, mínimo, o dirección para retirar.
-
-### \`get_cart()\`
-Muestra el carrito actual con subtotal y si alcanza el mínimo.
-- Llamala antes de \`generate_checkout_link\` **siempre**.
-- Llamala cuando el cliente pregunte "qué llevo" / "cuánto va" / "¿cuánto es?".
-
-### \`add_to_cart(product_id, quantity, modifier_ids?, notes?)\`
-Agrega un ítem al carrito. El server valida producto, modifiers y cantidades.
-- Nunca inventes modifier_ids — usá los que te dio \`get_product_details\` o \`add_to_cart\` (cuando devuelve \`needs_options\`).
-- Si devuelve \`{ "needs_options": true, groups: [...] }\`: **NO es un error para el cliente**. Usá la info de \`groups\` para preguntarle qué prefiere (una pregunta corta por grupo, con las opciones disponibles). Después volvé a llamar \`add_to_cart\` con los \`modifier_ids\` elegidos. **Nunca le digas al cliente "hubo un error" ni "no se pudo agregar"** — es solo que faltan opciones.
-- Si devuelve \`{ "error": ... }\` de verdad (ej. producto no disponible): decilo con empatía y ofrecé alternativas.
-
-### \`remove_from_cart(line_id)\`
-Quita una línea del carrito. Usá el \`id\` que viene en \`get_cart\`/\`add_to_cart\`.
-
-### \`generate_checkout_link()\`
-Genera el link para terminar el pedido en la web. Solo llamala cuando:
-1. El cliente confirmó que no quiere agregar más.
-2. Llamaste \`get_cart\` en el mensaje previo.
-3. El carrito no está vacío.
+{{enabled_tools_markdown}}
 
 ## Reglas duras
 1. **Nunca** inventes productos, precios, modifiers ni horarios. Todo sale de las tools.
@@ -155,18 +129,25 @@ export async function runChatbot(
     contactId,
   );
   const history = await fetchHistory(service, conversationId);
+  const { enabledTools, toolOverrides } = await loadToolConfig(
+    service,
+    input.businessId,
+  );
   const systemPrompt = await resolveSystemPrompt(
     service,
     input.businessId,
     input.businessName,
+    enabledTools,
+    toolOverrides,
   );
 
   await insertMessage(service, conversationId, "user", input.userMessage);
 
-  const assistantMessage = await invokeLlm({
+  const { assistantMessage, toolTrace } = await invokeLlm({
     businessId: input.businessId,
     businessSlug: input.businessSlug,
     conversationId,
+    enabledTools,
     systemPrompt,
     history,
     userMessage: input.userMessage,
@@ -175,7 +156,7 @@ export async function runChatbot(
   await insertMessage(service, conversationId, "assistant", assistantMessage);
   await touchConversation(service, conversationId);
 
-  return { conversationId, assistantMessage };
+  return { conversationId, assistantMessage, toolTrace };
 }
 
 export async function closeConversation(
@@ -291,6 +272,8 @@ async function resolveSystemPrompt(
   service: Service,
   businessId: string,
   businessName: string,
+  enabledTools: string[] | null,
+  toolOverrides: ToolOverrides,
 ): Promise<string> {
   const { data } = await service
     .from("chatbot_configs")
@@ -303,7 +286,29 @@ async function resolveSystemPrompt(
       ? data.system_prompt
       : DEFAULT_SYSTEM_PROMPT;
 
-  return template.replaceAll("{{businessName}}", businessName);
+  return template
+    .replaceAll("{{businessName}}", businessName)
+    .replaceAll("{{enabled_tools_list}}", buildEnabledToolsList(enabledTools))
+    .replaceAll(
+      "{{enabled_tools_markdown}}",
+      buildEnabledToolsMarkdown(enabledTools, toolOverrides),
+    );
+}
+
+async function loadToolConfig(
+  service: Service,
+  businessId: string,
+): Promise<{ enabledTools: string[] | null; toolOverrides: ToolOverrides }> {
+  const { data } = await service
+    .from("chatbot_configs")
+    .select("enabled_tools, tool_overrides")
+    .eq("business_id", businessId)
+    .maybeSingle();
+  return {
+    enabledTools: (data?.enabled_tools as string[] | null | undefined) ?? null,
+    toolOverrides:
+      (data?.tool_overrides as ToolOverrides | null | undefined) ?? {},
+  };
 }
 
 // ---------------- tools ----------------
@@ -1132,10 +1137,24 @@ function buildGenerateCheckoutLinkTool(ctx: BotCtx) {
 
 // ---------------- LLM loop ----------------
 
+// Registry: maps a tool name to its builder. Each builder takes the unified
+// BotCtx so the registry stays homogeneous.
+const TOOL_BUILDERS: Record<string, (ctx: BotCtx) => StructuredToolInterface> = {
+  search_products: (ctx) => buildSearchProductsTool(ctx.businessId),
+  check_business_status: (ctx) => buildBusinessStatusTool(ctx.businessId),
+  get_product_details: (ctx) => buildProductDetailsTool(ctx.businessId),
+  get_delivery_info: (ctx) => buildDeliveryInfoTool(ctx.businessId),
+  get_cart: (ctx) => buildGetCartTool(ctx),
+  add_to_cart: (ctx) => buildAddToCartTool(ctx),
+  remove_from_cart: (ctx) => buildRemoveFromCartTool(ctx),
+  generate_checkout_link: (ctx) => buildGenerateCheckoutLinkTool(ctx),
+};
+
 async function invokeLlm({
   businessId,
   businessSlug,
   conversationId,
+  enabledTools,
   systemPrompt,
   history,
   userMessage,
@@ -1143,28 +1162,30 @@ async function invokeLlm({
   businessId: string;
   businessSlug: string;
   conversationId: string;
+  enabledTools: string[] | null;
   systemPrompt: string;
   history: StoredMessage[];
   userMessage: string;
-}): Promise<string> {
-  const ctx = { businessId, businessSlug, conversationId };
-  const tools: StructuredToolInterface[] = [
-    buildSearchProductsTool(businessId),
-    buildBusinessStatusTool(businessId),
-    buildProductDetailsTool(businessId),
-    buildDeliveryInfoTool(businessId),
-    buildGetCartTool(ctx),
-    buildAddToCartTool(ctx),
-    buildRemoveFromCartTool(ctx),
-    buildGenerateCheckoutLinkTool(ctx),
-  ];
+}): Promise<{ assistantMessage: string; toolTrace: ToolTraceEntry[] }> {
+  const ctx: BotCtx = { businessId, businessSlug, conversationId };
+  const toolTrace: ToolTraceEntry[] = [];
+
+  // Build only the enabled tools (null = all enabled).
+  const tools: StructuredToolInterface[] = TOOL_METADATA.filter((meta) =>
+    isToolEnabled(meta.name, enabledTools),
+  )
+    .map((meta) => TOOL_BUILDERS[meta.name]?.(ctx))
+    .filter((t): t is StructuredToolInterface => Boolean(t));
+
   const toolsByName: Record<string, StructuredToolInterface> =
     Object.fromEntries(tools.map((t) => [t.name, t]));
 
-  const llm = new ChatOpenAI({
+  const baseLlm = new ChatOpenAI({
     model: CHATBOT_MODEL,
     temperature: 0.3,
-  }).bindTools(tools);
+  });
+  // bindTools with an empty list confuses some providers; only bind when we have any.
+  const llm = tools.length > 0 ? baseLlm.bindTools(tools) : baseLlm;
 
   const messages: BaseMessage[] = [new SystemMessage(systemPrompt)];
 
@@ -1192,14 +1213,17 @@ async function invokeLlm({
 
     const calls = response.tool_calls ?? [];
     if (calls.length === 0) {
-      return extractText(response.content);
+      return { assistantMessage: extractText(response.content), toolTrace };
     }
 
     for (const call of calls) {
       const target = toolsByName[call.name];
       let resultText: string;
       if (!target) {
-        resultText = JSON.stringify({ error: `unknown tool: ${call.name}` });
+        resultText = JSON.stringify({
+          error: "tool_disabled_or_unknown",
+          instruction: `La tool "${call.name}" no está disponible en este negocio. No la vuelvas a llamar. Respondé con lo que sabés sin esa herramienta.`,
+        });
       } else {
         try {
           const result = await target.invoke(call);
@@ -1215,6 +1239,11 @@ async function invokeLlm({
           });
         }
       }
+      toolTrace.push({
+        name: call.name,
+        args: (call.args ?? {}) as Record<string, unknown>,
+        result: resultText,
+      });
       console.log(
         `[chatbot] tool=${call.name} args=${JSON.stringify(call.args)} → ${resultText.slice(0, 400)}`,
       );
@@ -1236,7 +1265,7 @@ async function invokeLlm({
   );
   const finalLlm = new ChatOpenAI({ model: CHATBOT_MODEL, temperature: 0.3 });
   const final = await finalLlm.invoke(messages);
-  return extractText(final.content);
+  return { assistantMessage: extractText(final.content), toolTrace };
 }
 
 function extractText(content: unknown): string {

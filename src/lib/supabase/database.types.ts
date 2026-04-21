@@ -223,17 +223,23 @@ export type Database = {
       chatbot_configs: {
         Row: {
           business_id: string
+          enabled_tools: string[] | null
           system_prompt: string
+          tool_overrides: Json
           updated_at: string
         }
         Insert: {
           business_id: string
+          enabled_tools?: string[] | null
           system_prompt?: string
+          tool_overrides?: Json
           updated_at?: string
         }
         Update: {
           business_id?: string
+          enabled_tools?: string[] | null
           system_prompt?: string
+          tool_overrides?: Json
           updated_at?: string
         }
         Relationships: [

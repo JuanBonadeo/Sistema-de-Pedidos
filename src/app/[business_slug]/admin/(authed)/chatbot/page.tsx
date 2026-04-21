@@ -13,7 +13,7 @@ export default async function ChatbotPage({
   if (!business) notFound();
 
   return (
-    <div className="mx-auto flex h-screen max-w-3xl flex-col p-4">
+    <div className="flex h-screen flex-col p-4 lg:p-6">
       <ChatbotPanel
         businessSlug={business_slug}
         businessName={business.name}

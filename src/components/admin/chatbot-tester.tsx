@@ -1,17 +1,33 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Paperclip, RotateCcw, Send, Smile, Video } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  Maximize2,
+  Minimize2,
+  RotateCcw,
+  Send,
+  Wrench,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
+type ToolTraceEntry = {
+  name: string;
+  args: Record<string, unknown>;
+  result: string;
+};
+
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   at: Date;
+  toolTrace?: ToolTraceEntry[];
 };
 
 const STORAGE_KEY = "chatbotTesterContactId";
@@ -36,6 +52,17 @@ export function ChatbotTester({
   const [input, setInput] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  // Escape closes the expanded view.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -107,12 +134,20 @@ export function ChatbotTester({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
-      const data: { conversationId: string; assistantMessage: string } =
-        await res.json();
+      const data: {
+        conversationId: string;
+        assistantMessage: string;
+        toolTrace?: ToolTraceEntry[];
+      } = await res.json();
       setConversationId(data.conversationId);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.assistantMessage, at: new Date() },
+        {
+          role: "assistant",
+          content: data.assistantMessage,
+          at: new Date(),
+          toolTrace: data.toolTrace,
+        },
       ]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Error desconocido";
@@ -147,50 +182,114 @@ export function ChatbotTester({
       .join("") || "?";
 
   return (
-    <div className="flex flex-1 flex-col items-center gap-3 pb-4">
+    <div
+      className={cn(
+        expanded
+          ? "fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/70 p-6 backdrop-blur-sm"
+          : "flex w-full max-w-sm flex-col items-stretch gap-3",
+      )}
+    >
+      {expanded && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+          aria-label="Cerrar vista ampliada"
+        >
+          <X className="size-5" />
+        </button>
+      )}
+
       {/* Dev controls — fuera del mockup */}
-      <div className="flex w-full max-w-sm flex-wrap items-center gap-2 text-xs">
-        <label className="font-medium text-zinc-600" htmlFor="contact-id">
-          Tel
-        </label>
+      <div
+        className={cn(
+          "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs shadow-sm",
+          expanded
+            ? "w-[min(560px,92vw)] border-white/10 bg-white/10 text-white"
+            : "w-full border-zinc-200 bg-white",
+        )}
+      >
+        <span
+          className={cn(
+            "text-[0.65rem] font-semibold uppercase tracking-wide",
+            expanded ? "text-white/60" : "text-zinc-400",
+          )}
+        >
+          Test
+        </span>
         <Input
           id="contact-id"
           value={contactIdentifier}
           onChange={(e) => persistContact(e.target.value)}
           placeholder="+5491122334455"
-          className="h-7 flex-1 text-xs"
+          className={cn(
+            "h-7 flex-1 text-xs",
+            expanded
+              ? "border-white/20 bg-white/5 text-white placeholder:text-white/40"
+              : "border-zinc-200",
+          )}
+          aria-label="Teléfono simulado"
         />
         <Button
           variant="outline"
           size="sm"
-          className="h-7 px-2"
+          className="h-7 gap-1.5 px-2.5"
           onClick={resetConversation}
           disabled={loading}
         >
           <RotateCcw className="size-3.5" />
           Reiniciar
         </Button>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className={cn(
+            "flex size-7 items-center justify-center rounded-md border transition",
+            expanded
+              ? "border-white/20 text-white hover:bg-white/10"
+              : "border-zinc-200 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900",
+          )}
+          aria-label={expanded ? "Contraer" : "Ampliar"}
+          title={expanded ? "Contraer" : "Ampliar (Esc)"}
+        >
+          {expanded ? (
+            <Minimize2 className="size-3.5" />
+          ) : (
+            <Maximize2 className="size-3.5" />
+          )}
+        </button>
       </div>
 
       {/* Phone frame */}
-      <div className="relative w-full max-w-sm rounded-[2.5rem] bg-zinc-900 p-2 shadow-2xl ring-1 ring-zinc-800/50">
+      <div
+        className={cn(
+          "relative rounded-[2.75rem] bg-zinc-900 p-2.5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] ring-1 ring-zinc-800",
+          expanded ? "w-[min(560px,92vw)]" : "w-full",
+        )}
+      >
         {/* Notch */}
-        <div className="absolute left-1/2 top-2 z-10 h-5 w-24 -translate-x-1/2 rounded-b-2xl bg-zinc-900" />
+        <div className="absolute left-1/2 top-2.5 z-10 h-6 w-28 -translate-x-1/2 rounded-b-2xl bg-zinc-900" />
 
-        <div className="flex h-[640px] flex-col overflow-hidden rounded-[2rem] bg-[#EFE9E1]">
+        <div
+          className={cn(
+            "flex flex-col overflow-hidden rounded-[2.25rem] bg-[#EFE9E1]",
+            expanded ? "h-[min(85vh,900px)]" : "h-[640px]",
+          )}
+        >
           {/* WA header */}
-          <div className="flex shrink-0 items-center gap-3 bg-[#008069] px-3 py-2.5 pt-7 text-white">
+          <div className="flex shrink-0 items-center gap-3 bg-[#008069] px-3 py-3 pt-8 text-white">
             <ArrowLeft className="size-5 shrink-0 opacity-80" />
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm font-bold tracking-tight">
               {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{businessName}</p>
-              <p className="truncate text-[0.65rem] opacity-80">
+              <p className="truncate text-sm font-semibold leading-tight">
+                {businessName}
+              </p>
+              <p className="truncate text-[0.7rem] leading-tight opacity-80">
                 {loading ? "escribiendo..." : "en línea"}
               </p>
             </div>
-            <Video className="size-5 shrink-0 opacity-80" />
           </div>
 
           {/* Chat background */}
@@ -209,13 +308,19 @@ export function ChatbotTester({
                   const prev = messages[i - 1];
                   const isFirstOfRun = !prev || prev.role !== m.role;
                   return (
-                    <Bubble
-                      key={i}
-                      role={m.role}
-                      content={m.content}
-                      time={formatTime(m.at)}
-                      firstOfRun={isFirstOfRun}
-                    />
+                    <div key={i}>
+                      <Bubble
+                        role={m.role}
+                        content={m.content}
+                        time={formatTime(m.at)}
+                        firstOfRun={isFirstOfRun}
+                      />
+                      {m.role === "assistant" &&
+                        m.toolTrace &&
+                        m.toolTrace.length > 0 && (
+                          <ToolTrace trace={m.toolTrace} />
+                        )}
+                    </div>
                   );
                 })}
                 {loading && <TypingBubble />}
@@ -229,10 +334,9 @@ export function ChatbotTester({
               e.preventDefault();
               void send();
             }}
-            className="flex shrink-0 items-end gap-1.5 bg-[#F0F2F5] px-2 py-2"
+            className="flex shrink-0 items-end gap-2 bg-[#F0F2F5] px-3 py-2.5"
           >
-            <div className="flex flex-1 items-end gap-1 rounded-3xl bg-white px-3 py-1.5 shadow-sm">
-              <Smile className="size-5 shrink-0 translate-y-1 text-zinc-500" />
+            <div className="flex flex-1 items-center rounded-3xl bg-white px-4 py-1 shadow-sm">
               <textarea
                 ref={inputRef}
                 value={input}
@@ -245,21 +349,20 @@ export function ChatbotTester({
                 }}
                 placeholder="Mensaje"
                 rows={1}
-                className="min-h-[20px] flex-1 resize-none bg-transparent py-1 text-sm leading-5 placeholder:text-zinc-400 focus:outline-none"
+                className="min-h-[20px] w-full resize-none bg-transparent py-1.5 text-sm leading-5 placeholder:text-zinc-400 focus:outline-none"
                 disabled={loading}
               />
-              <Paperclip className="size-5 shrink-0 translate-y-1 -rotate-45 text-zinc-500" />
             </div>
             <button
               type="submit"
               disabled={loading || !input.trim()}
               className={cn(
                 "flex size-10 shrink-0 items-center justify-center rounded-full text-white transition",
-                "bg-[#008069] hover:bg-[#006E5C] disabled:bg-zinc-400",
+                "bg-[#008069] hover:bg-[#006E5C] disabled:bg-zinc-300",
               )}
               aria-label="Enviar"
             >
-              <Send className="size-4 translate-x-[-1px]" />
+              <Send className="size-[18px] translate-x-[-1px]" />
             </button>
           </form>
         </div>
@@ -269,10 +372,10 @@ export function ChatbotTester({
         .wa-bg {
           background-color: #EFE9E1;
           background-image:
-            radial-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
-            radial-gradient(rgba(0,0,0,0.03) 1px, transparent 1px);
-          background-size: 20px 20px, 40px 40px;
-          background-position: 0 0, 10px 10px;
+            radial-gradient(rgba(0,0,0,0.035) 1px, transparent 1px),
+            radial-gradient(rgba(0,0,0,0.025) 1px, transparent 1px);
+          background-size: 24px 24px, 48px 48px;
+          background-position: 0 0, 12px 12px;
         }
       `}</style>
     </div>
@@ -301,7 +404,7 @@ function Bubble({
     >
       <div
         className={cn(
-          "relative max-w-[78%] px-2.5 pb-1 pt-1.5 text-sm shadow-sm",
+          "relative max-w-[80%] px-2.5 pb-1 pt-1.5 text-sm shadow-sm",
           isUser ? "bg-[#D9FDD3]" : "bg-white",
           "rounded-lg",
           firstOfRun && (isUser ? "rounded-tr-[3px]" : "rounded-tl-[3px]"),
@@ -338,5 +441,68 @@ function Dot({ delay }: { delay: string }) {
       className="size-1.5 animate-bounce rounded-full bg-zinc-400"
       style={{ animationDelay: delay }}
     />
+  );
+}
+
+function ToolTrace({ trace }: { trace: ToolTraceEntry[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1 flex justify-start">
+      <div className="max-w-[80%]">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[0.65rem] font-medium text-zinc-500 transition hover:bg-black/5 hover:text-zinc-700"
+        >
+          <Wrench className="size-3" />
+          {trace.length} herramienta{trace.length === 1 ? "" : "s"}
+          <ChevronDown
+            className={cn("size-3 transition", open && "rotate-180")}
+          />
+        </button>
+        {open && (
+          <div className="mt-1 space-y-1 rounded-md bg-zinc-900/5 p-2">
+            {trace.map((t, i) => (
+              <TraceEntry key={i} entry={t} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TraceEntry({ entry }: { entry: ToolTraceEntry }) {
+  const [resultOpen, setResultOpen] = useState(false);
+  let prettyResult = entry.result;
+  try {
+    prettyResult = JSON.stringify(JSON.parse(entry.result), null, 2);
+  } catch {
+    // leave as-is
+  }
+  const hasArgs = Object.keys(entry.args).length > 0;
+  return (
+    <div className="rounded bg-white/70 p-1.5 text-[0.65rem] font-mono text-zinc-700">
+      <div className="flex items-center gap-1.5">
+        <code className="font-semibold text-zinc-900">{entry.name}</code>
+        {hasArgs && (
+          <code className="truncate text-zinc-500">
+            ({JSON.stringify(entry.args)})
+          </code>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => setResultOpen((v) => !v)}
+        className="mt-0.5 text-[0.6rem] text-zinc-500 hover:text-zinc-700"
+      >
+        {resultOpen ? "ocultar resultado" : "ver resultado"}
+      </button>
+      {resultOpen && (
+        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-zinc-900 p-2 text-[0.6rem] leading-tight text-emerald-200">
+          {prettyResult}
+        </pre>
+      )}
+    </div>
   );
 }

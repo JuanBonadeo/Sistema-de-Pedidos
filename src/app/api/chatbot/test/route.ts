@@ -44,6 +44,7 @@ export async function POST(req: Request) {
       contactIdentifier: contactIdentifier.trim(),
       userMessage: message,
     });
+    // result already includes { conversationId, assistantMessage, toolTrace }
     return NextResponse.json(result);
   } catch (err) {
     console.error("chatbot test POST failed", err);

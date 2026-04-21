@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { ReportRange } from "@/lib/admin/reports-query";
 
 const LABELS: Record<ReportRange, string> = {
@@ -20,19 +20,36 @@ export function RangeSelector({
   active: ReportRange;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      {ORDER.map((r) => (
-        <Link
-          key={r}
-          href={`/${slug}/admin/reportes?range=${r}`}
-          className={buttonVariants({
-            size: "sm",
-            variant: r === active ? "default" : "outline",
-          })}
-        >
-          {LABELS[r]}
-        </Link>
-      ))}
-    </div>
+    <nav
+      aria-label="Rango del reporte"
+      className="inline-flex rounded-full bg-white p-1 ring-1 ring-zinc-200/70"
+    >
+      {ORDER.map((r) => {
+        const isActive = r === active;
+        return (
+          <Link
+            key={r}
+            href={`/${slug}/admin/reportes?range=${r}`}
+            aria-pressed={isActive}
+            className={cn(
+              "rounded-full px-3.5 py-1.5 text-xs font-semibold transition",
+              isActive
+                ? "text-white shadow-sm"
+                : "text-zinc-600 hover:text-zinc-900",
+            )}
+            style={
+              isActive
+                ? {
+                    background: "var(--brand)",
+                    color: "var(--brand-foreground)",
+                  }
+                : undefined
+            }
+          >
+            {LABELS[r]}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

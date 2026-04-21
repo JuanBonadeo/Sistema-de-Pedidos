@@ -113,12 +113,22 @@ export function CheckoutForm({
           : `${address.trim()}${apt.trim() ? ` · ${apt.trim()}` : ""}`,
         delivery_notes: notes.trim() || undefined,
         payment_method: payment === "mp" ? "mp" : "cash",
-        items: items.map((i) => ({
-          product_id: i.product_id,
-          quantity: i.quantity,
-          notes: i.notes,
-          modifier_ids: i.modifiers.map((m) => m.modifier_id),
-        })),
+        items: items.map((i) =>
+          i.kind === "daily_menu" && i.daily_menu_id
+            ? {
+                kind: "daily_menu" as const,
+                daily_menu_id: i.daily_menu_id,
+                quantity: i.quantity,
+                notes: i.notes,
+              }
+            : {
+                // Back-compat: ítems sin kind se tratan como producto normal.
+                product_id: i.product_id as string,
+                quantity: i.quantity,
+                notes: i.notes,
+                modifier_ids: i.modifiers.map((m) => m.modifier_id),
+              },
+        ),
       });
       if (!result.ok) {
         toast.error(result.error);

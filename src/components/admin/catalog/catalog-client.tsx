@@ -1,12 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -98,16 +97,15 @@ export function CatalogClient({
 
   return (
     <>
-      {/* Header */}
+      {/* Search */}
       <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-extrabold">Catálogo</h1>
-        <div className="relative ml-auto w-full max-w-xs">
-          <Search className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2 pointer-events-none" />
+        <div className="relative w-full max-w-md">
+          <Search className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />
           <Input
             placeholder="Buscar producto…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 pr-8"
+            className="rounded-full border-zinc-200 bg-white pl-9 pr-8"
           />
           {search && (
             <button
@@ -120,16 +118,10 @@ export function CatalogClient({
             </button>
           )}
         </div>
-        <Link
-          href={`/${slug}/admin/catalogo/productos/nuevo`}
-          className={buttonVariants({ size: "sm" })}
-        >
-          <Plus className="size-3.5" /> Nuevo producto
-        </Link>
       </div>
 
       {/* Category filters */}
-      <div className="mt-5 flex flex-wrap items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         {filterChip(null, "Todas")}
         {categories.map((c) =>
           filterChip(c.id, c.name),

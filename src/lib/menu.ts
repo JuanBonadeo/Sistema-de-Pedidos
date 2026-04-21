@@ -43,6 +43,21 @@ export type MenuCategory = {
   products: MenuProduct[];
 };
 
+export type MenuDailyMenuComponent = {
+  id: string;
+  label: string;
+  description: string | null;
+};
+
+export type MenuDailyMenu = {
+  id: string;
+  name: string;
+  description: string | null;
+  price_cents: number;
+  image_url: string | null;
+  components: MenuDailyMenuComponent[];
+};
+
 export type BusinessHour = {
   day_of_week: number;
   opens_at: string;
@@ -52,13 +67,25 @@ export type BusinessHour = {
 export type MenuData = {
   categories: MenuCategory[];
   hours: BusinessHour[];
+  todaysMenus: MenuDailyMenu[];
 };
 
-export const getMenu = cache(async (businessId: string): Promise<MenuData> => {
-  const supabase = createSupabaseServiceClient();
+/**
+ * Catálogo público. `todayDow` es el día de la semana actual (0..6) en el
+ * TZ del negocio y se usa para filtrar los menús del día. Se pasa desde el
+ * server component para evitar hydration mismatch — nunca calculamos `Date`
+ * en el cliente acá.
+ */
+export const getMenu = cache(
+  async (businessId: string, todayDow: number): Promise<MenuData> => {
+    const supabase = createSupabaseServiceClient();
 
-  const [{ data: categories }, { data: products }, { data: hours }] =
-    await Promise.all([
+    const [
+      { data: categories },
+      { data: products },
+      { data: hours },
+      { data: dailyMenus },
+    ] = await Promise.all([
       supabase
         .from("categories")
         .select("id, name, slug, sort_order")
@@ -77,6 +104,16 @@ export const getMenu = cache(async (businessId: string): Promise<MenuData> => {
         .from("business_hours")
         .select("day_of_week, opens_at, closes_at")
         .eq("business_id", businessId),
+      supabase
+        .from("daily_menus")
+        .select(
+          "id, name, description, price_cents, image_url, available_days, daily_menu_components(id, label, description, sort_order)",
+        )
+        .eq("business_id", businessId)
+        .eq("is_active", true)
+        .eq("is_available", true)
+        .contains("available_days", [todayDow])
+        .order("sort_order"),
     ]);
 
   const productsList: MenuProduct[] = (products ?? []).map((p) => ({
@@ -120,8 +157,25 @@ export const getMenu = cache(async (businessId: string): Promise<MenuData> => {
     products: productsList.filter((p) => p.category_id === c.id),
   }));
 
+  const todaysMenus: MenuDailyMenu[] = (dailyMenus ?? []).map((m) => ({
+    id: m.id,
+    name: m.name,
+    description: m.description,
+    price_cents: Number(m.price_cents),
+    image_url: m.image_url,
+    components: (m.daily_menu_components ?? [])
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((c) => ({
+        id: c.id,
+        label: c.label,
+        description: c.description,
+      })),
+  }));
+
   return {
     categories: cats,
     hours: (hours ?? []) as BusinessHour[],
+    todaysMenus,
   };
 });

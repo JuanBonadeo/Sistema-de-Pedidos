@@ -16,7 +16,7 @@ export default async function PlatformLayout({
     (admin.user.user_metadata?.name as string | undefined);
 
   return (
-    <div className="bg-background min-h-screen lg:flex">
+    <div className="min-h-screen bg-zinc-100/60 lg:flex">
       <SuperSidebar userEmail={admin.email} userName={userName} />
       <div className="flex-1">{children}</div>
     </div>

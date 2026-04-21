@@ -9,9 +9,11 @@ import { I, ImageTile, StatusDot } from "@/components/delivery/primitives";
 import { computeIsOpen, type BusinessHour } from "@/lib/business-hours";
 import type { ActiveOrder } from "@/lib/customers/active-orders";
 import { formatCurrency } from "@/lib/currency";
-import type { MenuCategory, MenuProduct } from "@/lib/menu";
+import type { MenuCategory, MenuDailyMenu, MenuProduct } from "@/lib/menu";
 import { cartCount, cartTotal, useCart } from "@/stores/cart";
 
+import { DailyMenuSection } from "./daily-menu-section";
+import { DailyMenuSheet } from "./daily-menu-sheet";
 import { ProductCard } from "./product-card";
 import { ProductSheet } from "./product-sheet";
 
@@ -22,6 +24,8 @@ export function MenuClient({
   coverImageUrl,
   logoUrl,
   categories,
+  todaysMenus,
+  todayLabel,
   deliveryFeeCents,
   minOrderCents,
   estimatedMinutes,
@@ -37,6 +41,8 @@ export function MenuClient({
   coverImageUrl: string | null;
   logoUrl: string | null;
   categories: MenuCategory[];
+  todaysMenus: MenuDailyMenu[];
+  todayLabel: string;
   deliveryFeeCents: number;
   minOrderCents: number;
   estimatedMinutes: number | null;
@@ -49,6 +55,9 @@ export function MenuClient({
   const [active, setActive] = useState(categories[0]?.id ?? "");
   const [selected, setSelected] = useState<MenuProduct | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [selectedDailyMenu, setSelectedDailyMenu] =
+    useState<MenuDailyMenu | null>(null);
+  const [dailyMenuSheetOpen, setDailyMenuSheetOpen] = useState(false);
 
   const [isOpen, setIsOpen] = useState(isOpenInitial);
   useEffect(() => {
@@ -69,6 +78,9 @@ export function MenuClient({
   const cartByProduct = useMemo(() => {
     const m = new Map<string, number>();
     for (const it of items) {
+      // Sólo los ítems-producto suman al badge "qty en cart" del listado de
+      // productos. Los menús del día llevan su propio contador aparte.
+      if (it.kind === "daily_menu" || !it.product_id) continue;
       m.set(it.product_id, (m.get(it.product_id) ?? 0) + it.quantity);
     }
     return m;
@@ -82,6 +94,11 @@ export function MenuClient({
   const handleSelect = (product: MenuProduct) => {
     setSelected(product);
     setSheetOpen(true);
+  };
+
+  const handleSelectDailyMenu = (menu: MenuDailyMenu) => {
+    setSelectedDailyMenu(menu);
+    setDailyMenuSheetOpen(true);
   };
 
   const initials = user
@@ -299,6 +316,14 @@ export function MenuClient({
         </div>
       )}
 
+      {/* Menú del día — sección destacada arriba del catálogo */}
+      <DailyMenuSection
+        menus={todaysMenus}
+        todayLabel={todayLabel}
+        disabled={!isOpen}
+        onSelect={handleSelectDailyMenu}
+      />
+
       {/* Sticky category tabs */}
       {categories.length > 0 && (
         <div
@@ -434,6 +459,14 @@ export function MenuClient({
         product={selected}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+      />
+
+      <DailyMenuSheet
+        slug={slug}
+        menu={selectedDailyMenu}
+        open={dailyMenuSheetOpen}
+        onOpenChange={setDailyMenuSheetOpen}
+        disabled={!isOpen}
       />
     </div>
   );

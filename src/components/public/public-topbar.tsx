@@ -5,6 +5,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { OpenBadge } from "@/components/menu/open-badge";
 import { ProfileMenu } from "@/components/profile-menu";
 import { computeIsOpen } from "@/lib/business-hours";
+import { currentDayOfWeek } from "@/lib/day-of-week";
 import { getMenu } from "@/lib/menu";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
@@ -13,8 +14,10 @@ export async function PublicTopbar({ slug }: { slug: string }) {
   const business = await getBusiness(slug);
   if (!business) return null;
 
+  // La topbar solo usa `menu.hours`; el `todayDow` no afecta pero es obligatorio
+  // tras la extensión de getMenu para daily menus.
   const [menu, supabase] = await Promise.all([
-    getMenu(business.id),
+    getMenu(business.id, currentDayOfWeek(business.timezone)),
     createSupabaseServerClient(),
   ]);
   const {

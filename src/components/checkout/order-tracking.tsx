@@ -21,6 +21,9 @@ type Item = {
   quantity: number;
   subtotal_cents: number;
   modifiers: string[];
+  // Para líneas de menú del día: lista los componentes del combo.
+  // Array vacío o undefined = producto normal.
+  daily_menu_components?: string[];
 };
 
 export function OrderTracking({
@@ -339,6 +342,19 @@ export function OrderTracking({
                 <div>
                   {it.quantity}× {it.product_name}
                 </div>
+                {it.daily_menu_components &&
+                  it.daily_menu_components.length > 0 && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: "var(--ink-3)",
+                        marginTop: 2,
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {it.daily_menu_components.join(" · ")}
+                    </div>
+                  )}
                 {it.modifiers.length > 0 && (
                   <div
                     style={{

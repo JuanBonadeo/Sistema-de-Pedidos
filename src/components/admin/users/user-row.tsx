@@ -24,7 +24,7 @@ const ROLE_LABELS: Record<BusinessMember["role"], string> = {
 };
 
 const ROLE_STYLES: Record<BusinessMember["role"], string> = {
-  admin: "bg-primary/10 text-primary border-transparent",
+  admin: "bg-[color-mix(in_srgb,var(--brand)_15%,transparent)] text-[var(--brand)] border-transparent",
   staff: "bg-zinc-100 text-zinc-700 border-transparent",
 };
 
@@ -57,21 +57,27 @@ export function UserRow({
   };
 
   return (
-    <li className="bg-card flex items-center justify-between gap-3 rounded-xl border p-4">
+    <li className="flex items-center justify-between gap-3 rounded-2xl bg-white p-4 ring-1 ring-zinc-200/70 transition hover:ring-zinc-300">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="bg-primary text-primary-foreground flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold">
+        <span
+          className="flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-1 ring-black/10"
+          style={{
+            background: "var(--brand)",
+            color: "var(--brand-foreground)",
+          }}
+        >
           {member.email[0]?.toUpperCase() ?? "?"}
         </span>
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
+          <p className="truncate text-sm font-semibold text-zinc-900">
             {member.email}
             {isCurrentUser && (
-              <span className="text-muted-foreground ml-2 text-xs">
+              <span className="ml-2 text-xs font-normal text-zinc-500">
                 (vos)
               </span>
             )}
           </p>
-          <p className="text-muted-foreground text-xs">
+          <p className="text-xs text-zinc-500">
             Desde{" "}
             {new Intl.DateTimeFormat("es-AR", {
               day: "2-digit",

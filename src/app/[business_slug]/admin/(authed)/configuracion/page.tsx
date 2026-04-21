@@ -1,10 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 
 import { BusinessSettingsForm } from "@/components/admin/settings/business-settings-form";
+import { PageHeader, PageShell } from "@/components/admin/shell/page-shell";
 import {
   canManageBusiness,
   ensureAdminAccess,
 } from "@/lib/admin/context";
+import { currentDayOfWeek } from "@/lib/day-of-week";
 import { getMenu } from "@/lib/menu";
 import { getBusiness, getBusinessSettings } from "@/lib/tenant";
 
@@ -21,7 +23,7 @@ export default async function ConfiguracionPage({
   if (!canManageBusiness(ctx)) redirect(`/${business_slug}/admin`);
 
   const settings = getBusinessSettings(business);
-  const menu = await getMenu(business.id);
+  const menu = await getMenu(business.id, currentDayOfWeek(business.timezone));
   const sampleProducts = menu.categories
     .flatMap((c) => c.products)
     .slice(0, 3)
@@ -55,29 +57,19 @@ export default async function ConfiguracionPage({
   };
 
   return (
-    <main className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      <header>
-        <p className="text-muted-foreground text-xs font-semibold uppercase tracking-widest">
-          Negocio
-        </p>
-        <h1 className="mt-1 text-3xl font-black tracking-tight">
-          Configuración
-        </h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Datos de contacto, marca y zona horaria del negocio.
-        </p>
-        <p className="text-muted-foreground mt-3 text-xs">
-          URL pública actual: <code>/{business.slug}</code>
-        </p>
-      </header>
-
+    <PageShell width="wide">
+      <PageHeader
+        eyebrow="Negocio"
+        title="Configuración"
+        description={`Datos de contacto, marca, envío y pagos. URL pública: /${business.slug}`}
+      />
       <BusinessSettingsForm
         slug={business_slug}
         businessId={business.id}
         initial={initial}
         sampleProducts={sampleProducts}
       />
-    </main>
+    </PageShell>
   );
 }
 

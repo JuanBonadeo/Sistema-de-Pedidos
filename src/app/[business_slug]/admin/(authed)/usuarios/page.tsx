@@ -4,6 +4,12 @@ import { Users } from "lucide-react";
 import { InviteUserForm } from "@/components/admin/users/invite-user-form";
 import { UserRow } from "@/components/admin/users/user-row";
 import {
+  PageHeader,
+  PageShell,
+  Surface,
+  SurfaceHeader,
+} from "@/components/admin/shell/page-shell";
+import {
   canManageBusiness,
   ensureAdminAccess,
 } from "@/lib/admin/context";
@@ -24,49 +30,72 @@ export default async function UsuariosPage({
 
   const members = await listBusinessMembers(business.id);
 
-  return (
-    <main className="mx-auto max-w-4xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-muted-foreground text-xs font-semibold uppercase tracking-widest">
-            Equipo
-          </p>
-          <h1 className="mt-1 text-3xl font-black tracking-tight">
-            Usuarios
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Quiénes tienen acceso al panel de este negocio.
-          </p>
-        </div>
-      </header>
+  const adminCount = members.filter((m) => m.role === "admin").length;
+  const staffCount = members.filter((m) => m.role === "staff").length;
 
-      <section className="bg-card space-y-3 rounded-2xl border p-5">
-        <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-          Invitar miembro
-        </h2>
-        <InviteUserForm slug={business_slug} />
-        <p className="text-muted-foreground text-xs">
-          Le mandamos un mail con un link para que configure su contraseña.
-        </p>
-      </section>
+  return (
+    <PageShell width="default">
+      <PageHeader
+        eyebrow="Equipo"
+        title="Usuarios"
+        description="Gente con acceso al panel de este negocio. Invitá miembros y definí su rol."
+      />
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,320px)]">
+        <Surface padding="default">
+          <SurfaceHeader
+            eyebrow="Invitación"
+            title="Sumar miembro"
+            description="Le mandamos un mail con un link para que configure su contraseña."
+          />
+          <div className="mt-5">
+            <InviteUserForm slug={business_slug} />
+          </div>
+        </Surface>
+
+        <Surface padding="default" tone="subtle">
+          <SurfaceHeader
+            eyebrow="Resumen"
+            title={`${members.length} ${members.length === 1 ? "miembro" : "miembros"}`}
+          />
+          <dl className="mt-5 grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-white p-4 ring-1 ring-zinc-200/60">
+              <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                Admins
+              </dt>
+              <dd className="mt-1 text-2xl font-semibold tabular-nums">
+                {adminCount}
+              </dd>
+            </div>
+            <div className="rounded-xl bg-white p-4 ring-1 ring-zinc-200/60">
+              <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                Staff
+              </dt>
+              <dd className="mt-1 text-2xl font-semibold tabular-nums">
+                {staffCount}
+              </dd>
+            </div>
+          </dl>
+        </Surface>
+      </div>
 
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-xl font-extrabold">
-            Miembros
-            <span className="text-muted-foreground ml-2 text-sm font-normal">
-              ({members.length})
-            </span>
-          </h2>
-        </div>
-
+        <SurfaceHeader
+          eyebrow="Personas"
+          title="Directorio"
+        />
         {members.length === 0 ? (
-          <div className="bg-card text-muted-foreground grid place-items-center gap-3 rounded-2xl border p-10 text-center">
-            <div className="bg-muted flex size-12 items-center justify-center rounded-2xl">
-              <Users className="size-5" />
+          <Surface padding="default" className="grid place-items-center gap-3 p-12 text-center">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-600">
+              <Users className="size-5" strokeWidth={1.75} />
             </div>
-            <p className="text-sm">Nadie tiene acceso todavía.</p>
-          </div>
+            <p className="text-sm font-semibold text-zinc-900">
+              Nadie tiene acceso todavía
+            </p>
+            <p className="max-w-sm text-sm text-zinc-600">
+              Invitá al primer miembro desde el formulario de arriba.
+            </p>
+          </Surface>
         ) : (
           <ul className="grid gap-2">
             {members.map((m) => (
@@ -81,7 +110,7 @@ export default async function UsuariosPage({
           </ul>
         )}
       </section>
-    </main>
+    </PageShell>
   );
 }
 

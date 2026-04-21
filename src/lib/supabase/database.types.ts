@@ -455,6 +455,94 @@ export type Database = {
           },
         ]
       }
+      daily_menu_components: {
+        Row: {
+          description: string | null
+          id: string
+          label: string
+          menu_id: string
+          sort_order: number
+        }
+        Insert: {
+          description?: string | null
+          id?: string
+          label: string
+          menu_id: string
+          sort_order?: number
+        }
+        Update: {
+          description?: string | null
+          id?: string
+          label?: string
+          menu_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_menu_components_menu_id_fkey"
+            columns: ["menu_id"]
+            isOneToOne: false
+            referencedRelation: "daily_menus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_menus: {
+        Row: {
+          available_days: number[]
+          business_id: string
+          created_at: string
+          description: string | null
+          id: string
+          image_url: string | null
+          is_active: boolean
+          is_available: boolean
+          name: string
+          price_cents: number
+          slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          available_days?: number[]
+          business_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          is_available?: boolean
+          name: string
+          price_cents: number
+          slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          available_days?: number[]
+          business_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          is_available?: boolean
+          name?: string
+          price_cents?: number
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_menus_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       modifier_groups: {
         Row: {
           business_id: string
@@ -579,6 +667,8 @@ export type Database = {
       }
       order_items: {
         Row: {
+          daily_menu_id: string | null
+          daily_menu_snapshot: Json | null
           id: string
           notes: string | null
           order_id: string
@@ -589,6 +679,8 @@ export type Database = {
           unit_price_cents: number
         }
         Insert: {
+          daily_menu_id?: string | null
+          daily_menu_snapshot?: Json | null
           id?: string
           notes?: string | null
           order_id: string
@@ -599,6 +691,8 @@ export type Database = {
           unit_price_cents: number
         }
         Update: {
+          daily_menu_id?: string | null
+          daily_menu_snapshot?: Json | null
           id?: string
           notes?: string | null
           order_id?: string
@@ -609,6 +703,13 @@ export type Database = {
           unit_price_cents?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "order_items_daily_menu_id_fkey"
+            columns: ["daily_menu_id"]
+            isOneToOne: false
+            referencedRelation: "daily_menus"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "order_items_order_id_fkey"
             columns: ["order_id"]

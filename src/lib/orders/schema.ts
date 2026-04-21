@@ -1,5 +1,28 @@
 import { z } from "zod";
 
+/**
+ * Ítem de carrito. Puede ser un producto normal o un menú del día (combo).
+ * Usamos un discriminated union por `kind` — omitirlo defaultea a `"product"`
+ * por back-compat con ítems persistidos antes de la feature.
+ */
+const OrderProductItem = z.object({
+  kind: z.literal("product").optional(),
+  product_id: z.string().uuid(),
+  quantity: z.number().int().min(1).max(99),
+  notes: z.string().max(200).optional(),
+  modifier_ids: z.array(z.string().uuid()).default([]),
+});
+
+const OrderDailyMenuItem = z.object({
+  kind: z.literal("daily_menu"),
+  daily_menu_id: z.string().uuid(),
+  quantity: z.number().int().min(1).max(99),
+  notes: z.string().max(200).optional(),
+});
+
+export const OrderItemInput = z.union([OrderProductItem, OrderDailyMenuItem]);
+export type OrderItemInput = z.infer<typeof OrderItemInput>;
+
 export const CreateOrderInput = z
   .object({
     business_slug: z.string().min(1),
@@ -14,16 +37,7 @@ export const CreateOrderInput = z
     delivery_address: z.string().max(200).optional(),
     delivery_notes: z.string().max(500).optional(),
     payment_method: z.enum(["cash", "mp"]).optional(),
-    items: z
-      .array(
-        z.object({
-          product_id: z.string().uuid(),
-          quantity: z.number().int().min(1).max(99),
-          notes: z.string().max(200).optional(),
-          modifier_ids: z.array(z.string().uuid()).default([]),
-        }),
-      )
-      .min(1),
+    items: z.array(OrderItemInput).min(1),
   })
   .superRefine((data, ctx) => {
     if (data.delivery_type === "delivery" && !data.delivery_address) {

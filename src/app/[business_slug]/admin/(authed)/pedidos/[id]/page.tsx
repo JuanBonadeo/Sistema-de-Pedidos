@@ -1,10 +1,13 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
-import { ChevronLeft } from "lucide-react";
 
 import { OrderDetailActions } from "@/components/admin/order-detail-actions";
-import { Badge } from "@/components/ui/badge";
+import {
+  PageHeader,
+  PageShell,
+  Surface,
+  SurfaceHeader,
+} from "@/components/admin/shell/page-shell";
 import { getOrderDetail } from "@/lib/admin/orders-query";
 import { formatCurrency } from "@/lib/currency";
 import type { OrderStatus } from "@/lib/orders/status";
@@ -18,6 +21,16 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   on_the_way: "En camino",
   delivered: "Entregado",
   cancelled: "Cancelado",
+};
+
+const STATUS_DOT: Record<OrderStatus, string> = {
+  pending: "bg-amber-500",
+  confirmed: "bg-sky-500",
+  preparing: "bg-indigo-500",
+  ready: "bg-emerald-500",
+  on_the_way: "bg-violet-500",
+  delivered: "bg-zinc-400",
+  cancelled: "bg-rose-500",
 };
 
 export default async function OrderDetailPage({
@@ -40,144 +53,162 @@ export default async function OrderDetailPage({
   );
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6 lg:px-8">
-        <Link
-          href={`/${business_slug}/admin`}
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <ChevronLeft className="size-4" />
-          Volver
-        </Link>
-
-        <header className="mt-4 flex items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-extrabold">
-              #{order.order_number}
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              {formatInTimeZone(order.created_at, tz, "dd/MM/yyyy HH:mm")}
-            </p>
-          </div>
-          <Badge variant="secondary" className="uppercase tracking-wide">
-            {STATUS_LABEL[status]}
-          </Badge>
-        </header>
-
-        <section className="bg-card mt-6 grid gap-2 rounded-xl p-4">
-          <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-            Cliente
-          </h2>
-          <p className="font-medium">{order.customer_name}</p>
-          <a
-            href={`tel:${order.customer_phone}`}
-            className="text-primary text-sm underline-offset-2 hover:underline"
+    <PageShell width="narrow">
+      <PageHeader
+        eyebrow={formatInTimeZone(order.created_at, tz, "dd MMM yyyy · HH:mm")}
+        title={`Pedido #${order.order_number}`}
+        back={{ href: `/${business_slug}/admin/pedidos`, label: "Volver a pedidos" }}
+        action={
+          <span
+            className={`inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-700 ring-1 ring-zinc-200/70`}
           >
-            {order.customer_phone}
-          </a>
-        </section>
+            <span
+              className={`size-1.5 rounded-full ${STATUS_DOT[status]}`}
+            />
+            {STATUS_LABEL[status]}
+          </span>
+        }
+      />
 
-        {order.delivery_type === "delivery" && (
-          <section className="bg-card mt-4 grid gap-1 rounded-xl p-4">
-            <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-              Delivery
-            </h2>
-            <p className="text-sm">{order.delivery_address}</p>
-            {order.delivery_notes && (
-              <p className="text-muted-foreground mt-1 text-xs italic">
-                &quot;{order.delivery_notes}&quot;
-              </p>
-            )}
-          </section>
-        )}
+      <Surface padding="default">
+        <SurfaceHeader
+          eyebrow="Cliente"
+          title={order.customer_name}
+        />
+        <a
+          href={`tel:${order.customer_phone}`}
+          className="mt-3 inline-block text-sm font-medium"
+          style={{ color: "var(--brand)" }}
+        >
+          {order.customer_phone}
+        </a>
+      </Surface>
 
-        <section className="bg-card mt-4 grid gap-3 rounded-xl p-4">
-          <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-            Ítems
-          </h2>
-          <ul className="grid gap-3">
-            {order.order_items.map((item) => (
-              <li key={item.id} className="grid gap-0.5">
+      {order.delivery_type === "delivery" && (
+        <Surface padding="default">
+          <SurfaceHeader eyebrow="Delivery" title="Entrega a domicilio" />
+          <p className="mt-3 text-sm text-zinc-700">{order.delivery_address}</p>
+          {order.delivery_notes && (
+            <p className="mt-2 text-xs italic text-zinc-500">
+              &quot;{order.delivery_notes}&quot;
+            </p>
+          )}
+        </Surface>
+      )}
+
+      <Surface padding="default">
+        <SurfaceHeader
+          eyebrow={`${order.order_items.length} ${order.order_items.length === 1 ? "ítem" : "ítems"}`}
+          title="Detalle del pedido"
+        />
+        <ul className="mt-5 space-y-4">
+          {order.order_items.map((item) => {
+            const menuSnap = item.daily_menu_snapshot as
+              | {
+                  name?: string;
+                  components?: {
+                    label: string;
+                    description: string | null;
+                  }[];
+                }
+              | null;
+            const isMenu = !!item.daily_menu_id;
+            return (
+              <li key={item.id} className="grid gap-1">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="font-medium">
+                  <span className="font-semibold text-zinc-900">
                     {item.quantity}× {item.product_name}
+                    {isMenu && (
+                      <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider text-amber-900">
+                        Menú del día
+                      </span>
+                    )}
                   </span>
-                  <span className="font-semibold">
+                  <span className="shrink-0 font-semibold tabular-nums text-zinc-900">
                     {formatCurrency(item.subtotal_cents)}
                   </span>
                 </div>
+                {isMenu && menuSnap?.components && (
+                  <ul className="ml-4 grid gap-0.5 text-xs text-zinc-500">
+                    {menuSnap.components.map((c, idx) => (
+                      <li key={idx}>· {c.label}</li>
+                    ))}
+                  </ul>
+                )}
                 {item.order_item_modifiers.length > 0 && (
-                  <p className="text-muted-foreground text-xs tracking-wider">
+                  <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                     {item.order_item_modifiers
-                      .map((m) => m.modifier_name.toUpperCase())
-                      .join(", ")}
+                      .map((m) => m.modifier_name)
+                      .join(" · ")}
                   </p>
                 )}
                 {item.notes && (
-                  <p className="text-muted-foreground text-xs italic">
+                  <p className="text-xs italic text-zinc-500">
                     &quot;{item.notes}&quot;
                   </p>
                 )}
               </li>
-            ))}
-          </ul>
-          <dl className="border-t pt-3 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Subtotal</dt>
-              <dd>{formatCurrency(order.subtotal_cents)}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">
-                {order.delivery_type === "delivery" ? "Envío" : "Retiro"}
-              </dt>
-              <dd>{formatCurrency(order.delivery_fee_cents)}</dd>
-            </div>
-            <div className="mt-1 flex justify-between border-t pt-2 font-bold">
-              <dt>Total</dt>
-              <dd>{formatCurrency(order.total_cents)}</dd>
-            </div>
-          </dl>
-        </section>
+            );
+          })}
+        </ul>
+        <dl className="mt-6 space-y-2 border-t border-zinc-100 pt-5 text-sm tabular-nums">
+          <div className="flex justify-between">
+            <dt className="text-zinc-500">Subtotal</dt>
+            <dd className="text-zinc-900">
+              {formatCurrency(order.subtotal_cents)}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-zinc-500">
+              {order.delivery_type === "delivery" ? "Envío" : "Retiro"}
+            </dt>
+            <dd className="text-zinc-900">
+              {formatCurrency(order.delivery_fee_cents)}
+            </dd>
+          </div>
+          <div className="mt-2 flex justify-between border-t border-zinc-100 pt-3 text-base font-semibold">
+            <dt>Total</dt>
+            <dd>{formatCurrency(order.total_cents)}</dd>
+          </div>
+        </dl>
+      </Surface>
 
-        <section className="bg-card mt-4 grid gap-2 rounded-xl p-4">
-          <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-            Línea de tiempo
-          </h2>
-          <ol className="grid gap-2 text-sm">
-            {history.map((h, idx) => (
-              <li key={idx} className="flex gap-3">
-                <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+      <Surface padding="default">
+        <SurfaceHeader eyebrow="Historial" title="Línea de tiempo" />
+        <ol className="mt-5 space-y-3 text-sm">
+          {history.map((h, idx) => (
+            <li key={idx} className="flex items-start gap-3">
+              <span className="mt-1 inline-flex size-2 shrink-0 rounded-full bg-zinc-900" />
+              <div className="flex flex-1 flex-wrap items-baseline justify-between gap-2">
+                <span className="font-medium text-zinc-900">
+                  {STATUS_LABEL[h.status as OrderStatus] ?? h.status}
+                </span>
+                <span className="text-xs tabular-nums text-zinc-500">
                   {formatInTimeZone(h.created_at, tz, "HH:mm")}
                 </span>
-                <span>
-                  {STATUS_LABEL[h.status as OrderStatus] ?? h.status}
-                  {h.notes && (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      — {h.notes}
-                    </span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </section>
+                {h.notes && (
+                  <p className="w-full text-xs text-zinc-500">{h.notes}</p>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+      </Surface>
 
-        {order.cancelled_reason && (
-          <div className="bg-destructive/10 text-destructive mt-4 rounded-lg p-3 text-sm">
-            <span className="font-semibold">Cancelado:</span>{" "}
-            {order.cancelled_reason}
-          </div>
-        )}
-
-        <div className="mt-6">
-          <OrderDetailActions
-            orderId={order.id}
-            slug={business_slug}
-            status={status}
-            deliveryType={order.delivery_type as "delivery" | "pickup"}
-          />
+      {order.cancelled_reason && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+          <p className="font-semibold">Pedido cancelado</p>
+          <p className="mt-0.5">{order.cancelled_reason}</p>
         </div>
-    </main>
+      )}
+
+      <OrderDetailActions
+        orderId={order.id}
+        slug={business_slug}
+        status={status}
+        deliveryType={order.delivery_type as "delivery" | "pickup"}
+      />
+    </PageShell>
   );
 }
 

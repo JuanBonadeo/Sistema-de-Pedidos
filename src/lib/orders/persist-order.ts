@@ -1,6 +1,7 @@
 import "server-only";
 
 import { actionError, actionOk, type ActionResult } from "@/lib/actions";
+import { currentDayOfWeek } from "@/lib/day-of-week";
 import { formatCurrency } from "@/lib/currency";
 import { createPreference } from "@/lib/payments/mercadopago";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -35,7 +36,7 @@ export async function persistOrder(
   const { data: business } = await supabase
     .from("businesses")
     .select(
-      "id, slug, delivery_fee_cents, min_order_cents, mp_access_token, mp_accepts_payments",
+      "id, slug, timezone, delivery_fee_cents, min_order_cents, mp_access_token, mp_accepts_payments",
     )
     .eq("slug", data.business_slug)
     .eq("is_active", true)
@@ -52,23 +53,47 @@ export async function persistOrder(
   }
   const paymentMethod = wantsMp ? "mp" : "cash";
 
-  const productIds = [...new Set(data.items.map((i) => i.product_id))];
-  const { data: products } = await supabase
-    .from("products")
-    .select("id, name, price_cents, business_id, is_active, is_available")
-    .in("id", productIds);
-  if (!products || products.length !== productIds.length) {
-    return actionError("Algún producto ya no está disponible.");
-  }
-  for (const p of products) {
-    if (p.business_id !== business.id) return actionError("Producto inválido.");
-    if (!p.is_active || !p.is_available) {
-      return actionError(`"${p.name}" ya no está disponible.`);
+  // Separamos ítems por tipo. Un carrito puede mezclar productos y menús.
+  const productItems = data.items.filter(
+    (i): i is Extract<typeof i, { product_id: string }> =>
+      i.kind !== "daily_menu",
+  );
+  const menuItems = data.items.filter(
+    (i): i is Extract<typeof i, { daily_menu_id: string }> =>
+      i.kind === "daily_menu",
+  );
+
+  // --- Validación de productos ---
+  const productIds = [...new Set(productItems.map((i) => i.product_id))];
+  const productById = new Map<
+    string,
+    { id: string; name: string; price_cents: number }
+  >();
+  if (productIds.length > 0) {
+    const { data: products } = await supabase
+      .from("products")
+      .select("id, name, price_cents, business_id, is_active, is_available")
+      .in("id", productIds);
+    if (!products || products.length !== productIds.length) {
+      return actionError("Algún producto ya no está disponible.");
+    }
+    for (const p of products) {
+      if (p.business_id !== business.id)
+        return actionError("Producto inválido.");
+      if (!p.is_active || !p.is_available) {
+        return actionError(`"${p.name}" ya no está disponible.`);
+      }
+      productById.set(p.id, {
+        id: p.id,
+        name: p.name,
+        price_cents: Number(p.price_cents),
+      });
     }
   }
-  const productById = new Map(products.map((p) => [p.id, p]));
 
-  const allModifierIds = [...new Set(data.items.flatMap((i) => i.modifier_ids))];
+  const allModifierIds = [
+    ...new Set(productItems.flatMap((i) => i.modifier_ids)),
+  ];
   const modifierById = new Map<
     string,
     { id: string; name: string; price_delta_cents: number; is_available: boolean }
@@ -83,12 +108,133 @@ export async function persistOrder(
     }
     for (const m of modifiers) {
       if (!m.is_available) return actionError("Algún adicional ya no está disponible.");
-      modifierById.set(m.id, m);
+      modifierById.set(m.id, {
+        id: m.id,
+        name: m.name,
+        price_delta_cents: Number(m.price_delta_cents),
+        is_available: m.is_available,
+      });
     }
   }
 
+  // --- Validación de menús del día ---
+  // Importante: chequeamos `available_days` contra el DOW *en el TZ del negocio*.
+  // Así no pasa que el servidor en UTC piense que es martes cuando en Argentina
+  // sigue siendo lunes — y viceversa.
+  type DailyMenuRow = {
+    id: string;
+    name: string;
+    price_cents: number;
+    image_url: string | null;
+    available_days: number[];
+    is_active: boolean;
+    is_available: boolean;
+    business_id: string;
+    daily_menu_components:
+      | { id: string; label: string; description: string | null; sort_order: number }[]
+      | null;
+  };
+  const menuIds = [...new Set(menuItems.map((i) => i.daily_menu_id))];
+  const menuById = new Map<string, DailyMenuRow>();
+  if (menuIds.length > 0) {
+    const { data: menus } = await supabase
+      .from("daily_menus")
+      .select(
+        "id, name, price_cents, image_url, available_days, is_active, is_available, business_id, daily_menu_components(id, label, description, sort_order)",
+      )
+      .in("id", menuIds);
+    if (!menus || menus.length !== menuIds.length) {
+      return actionError("Algún menú del día ya no está disponible.");
+    }
+    const todayDow = currentDayOfWeek(business.timezone);
+    for (const raw of menus) {
+      const m: DailyMenuRow = {
+        id: raw.id,
+        name: raw.name,
+        price_cents: Number(raw.price_cents),
+        image_url: raw.image_url,
+        available_days: raw.available_days ?? [],
+        is_active: raw.is_active,
+        is_available: raw.is_available,
+        business_id: raw.business_id,
+        daily_menu_components: raw.daily_menu_components,
+      };
+      if (m.business_id !== business.id)
+        return actionError("Menú inválido.");
+      if (!m.is_active || !m.is_available) {
+        return actionError(`"${m.name}" ya no está disponible.`);
+      }
+      if (!m.available_days.includes(todayDow)) {
+        return actionError(
+          `"${m.name}" no está disponible hoy. Volvé otro día.`,
+        );
+      }
+      menuById.set(m.id, m);
+    }
+  }
+
+  // --- Armado de líneas (subtotal, snapshots, modifiers) ---
+  type OrderLine =
+    | {
+        kind: "product";
+        product_id: string;
+        daily_menu_id: null;
+        daily_menu_snapshot: null;
+        product_name: string;
+        unit_price_cents: number;
+        quantity: number;
+        notes: string | null;
+        subtotal_cents: number;
+        modifiers: {
+          modifier_id: string;
+          modifier_name: string;
+          price_delta_cents: number;
+        }[];
+      }
+    | {
+        kind: "daily_menu";
+        product_id: null;
+        daily_menu_id: string;
+        daily_menu_snapshot: {
+          name: string;
+          image_url: string | null;
+          components: { label: string; description: string | null }[];
+        };
+        product_name: string;
+        unit_price_cents: number;
+        quantity: number;
+        notes: string | null;
+        subtotal_cents: number;
+        modifiers: never[];
+      };
+
   let subtotalCents = 0;
-  const lines = data.items.map((inputItem) => {
+  const lines: OrderLine[] = data.items.map((inputItem): OrderLine => {
+    if (inputItem.kind === "daily_menu") {
+      const menu = menuById.get(inputItem.daily_menu_id)!;
+      const lineSubtotal = menu.price_cents * inputItem.quantity;
+      subtotalCents += lineSubtotal;
+      const components = (menu.daily_menu_components ?? [])
+        .slice()
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((c) => ({ label: c.label, description: c.description }));
+      return {
+        kind: "daily_menu",
+        product_id: null,
+        daily_menu_id: menu.id,
+        daily_menu_snapshot: {
+          name: menu.name,
+          image_url: menu.image_url,
+          components,
+        },
+        product_name: menu.name,
+        unit_price_cents: menu.price_cents,
+        quantity: inputItem.quantity,
+        notes: inputItem.notes ?? null,
+        subtotal_cents: lineSubtotal,
+        modifiers: [],
+      };
+    }
     const product = productById.get(inputItem.product_id)!;
     const modLines = inputItem.modifier_ids.map((id) => {
       const m = modifierById.get(id)!;
@@ -103,7 +249,10 @@ export async function persistOrder(
       (product.price_cents + modsTotal) * inputItem.quantity;
     subtotalCents += lineSubtotal;
     return {
+      kind: "product",
       product_id: product.id,
+      daily_menu_id: null,
+      daily_menu_snapshot: null,
       product_name: product.name,
       unit_price_cents: product.price_cents,
       quantity: inputItem.quantity,
@@ -192,6 +341,8 @@ export async function persistOrder(
       .insert({
         order_id: order.id,
         product_id: line.product_id,
+        daily_menu_id: line.daily_menu_id,
+        daily_menu_snapshot: line.daily_menu_snapshot,
         product_name: line.product_name,
         unit_price_cents: line.unit_price_cents,
         quantity: line.quantity,
@@ -204,7 +355,7 @@ export async function persistOrder(
       console.error("order_item insert", lineErr);
       return actionError("No pudimos guardar los productos del pedido.");
     }
-    if (line.modifiers.length > 0) {
+    if (line.kind === "product" && line.modifiers.length > 0) {
       const { error: modErr } = await supabase
         .from("order_item_modifiers")
         .insert(
@@ -246,7 +397,9 @@ export async function persistOrder(
         orderId: order.id,
         orderNumber: order.order_number,
         items: lines.map((l) => ({
-          id: l.product_id,
+          // MP usa el id sólo para categorización — cualquier string lo sirve.
+          // Usamos product_id o daily_menu_id según el tipo de línea.
+          id: (l.product_id ?? l.daily_menu_id) as string,
           title: l.product_name,
           quantity: l.quantity,
           unit_price: Math.round(

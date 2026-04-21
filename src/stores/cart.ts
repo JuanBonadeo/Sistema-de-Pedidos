@@ -10,9 +10,31 @@ export type CartModifier = {
   price_delta_cents: number;
 };
 
+export type CartDailyMenuComponent = {
+  id: string;
+  label: string;
+  description: string | null;
+};
+
+/**
+ * Un item del carrito es un `product` o un `daily_menu` (combo cerrado).
+ * `kind` es el discriminador. Para ítems persistidos antes de introducir
+ * este campo, el código que lea `kind` debe tratar `undefined` como
+ * `'product'` (back-compat).
+ *
+ * Campos específicos por kind:
+ *   - product: `product_id`, `modifiers` (puede estar vacío).
+ *   - daily_menu: `daily_menu_id`, `components_snapshot`, `modifiers` siempre `[]`.
+ *
+ * `product_name`, `unit_price_cents`, `image_url` se usan en ambos como
+ * "label", precio base y miniatura de la línea.
+ */
 export type CartItem = {
   id: string;
-  product_id: string;
+  kind?: "product" | "daily_menu";
+  product_id?: string;
+  daily_menu_id?: string;
+  components_snapshot?: CartDailyMenuComponent[];
   product_name: string;
   unit_price_cents: number;
   quantity: number;

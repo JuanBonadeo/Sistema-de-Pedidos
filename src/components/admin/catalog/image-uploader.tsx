@@ -15,6 +15,7 @@ export function ImageUploader({
   bucket = "products",
   pathPrefix,
   variant = "avatar-square",
+  layout = "auto",
 }: {
   businessId: string;
   value: string | null;
@@ -22,6 +23,7 @@ export function ImageUploader({
   bucket?: string;
   pathPrefix?: string;
   variant?: "avatar-square" | "avatar-circle" | "cover";
+  layout?: "auto" | "stacked";
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -58,13 +60,19 @@ export function ImageUploader({
   };
 
   const isCover = variant === "cover";
+  const stacked = layout === "stacked" || isCover;
   const previewClass = isCover
     ? "relative aspect-[16/9] w-full overflow-hidden rounded-xl bg-muted"
-    : `bg-muted relative size-24 shrink-0 overflow-hidden ${variant === "avatar-circle" ? "rounded-full" : "rounded-lg"}`;
-  const sizes = isCover ? "(max-width: 768px) 100vw, 520px" : "96px";
-  const wrapperClass = isCover
+    : stacked
+      ? `bg-muted relative mx-auto aspect-square w-full max-w-[160px] overflow-hidden ${variant === "avatar-circle" ? "rounded-full" : "rounded-xl"}`
+      : `bg-muted relative size-24 shrink-0 overflow-hidden ${variant === "avatar-circle" ? "rounded-full" : "rounded-lg"}`;
+  const sizes = isCover ? "(max-width: 768px) 100vw, 520px" : "160px";
+  const wrapperClass = stacked
     ? "flex flex-col gap-3"
     : "flex items-center gap-4";
+  const buttonsClass = stacked
+    ? "flex items-center justify-center gap-2"
+    : "flex flex-col gap-2";
 
   return (
     <div className={wrapperClass}>
@@ -83,7 +91,7 @@ export function ImageUploader({
           </div>
         )}
       </div>
-      <div className={isCover ? "flex items-center gap-2" : "flex flex-col gap-2"}>
+      <div className={isCover ? "flex items-center gap-2" : buttonsClass}>
         <input
           ref={inputRef}
           type="file"

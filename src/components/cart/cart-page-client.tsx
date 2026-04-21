@@ -173,9 +173,47 @@ export function CartPageClient({
                   style={{ width: 56, height: 56, flexShrink: 0 }}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
-                    {it.product_name}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <div
+                      style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}
+                    >
+                      {it.product_name}
+                    </div>
+                    {it.kind === "daily_menu" && (
+                      <span
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          background: "#FFF0CF",
+                          color: "#8A5E18",
+                        }}
+                      >
+                        Menú del día
+                      </span>
+                    )}
                   </div>
+                  {it.kind === "daily_menu" && it.components_snapshot && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: "var(--ink-3)",
+                        marginTop: 2,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {it.components_snapshot.map((c) => c.label).join(" · ")}
+                    </div>
+                  )}
                   {it.modifiers.length > 0 && (
                     <div
                       style={{

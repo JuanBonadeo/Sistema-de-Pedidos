@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
+import { BrandStyle } from "@/components/admin/shell/brand-style";
 import { canManageBusiness, ensureAdminAccess } from "@/lib/admin/context";
-import { getBusiness } from "@/lib/tenant";
+import { getBusiness, getBusinessSettings } from "@/lib/tenant";
 
 export default async function AdminAuthedLayout({
   children,
@@ -16,9 +17,17 @@ export default async function AdminAuthedLayout({
   if (!business) notFound();
 
   const ctx = await ensureAdminAccess(business.id, business_slug);
+  const settings = getBusinessSettings(business);
 
   return (
-    <div className="bg-background flex min-h-screen">
+    <div
+      data-admin-brand
+      className="flex min-h-screen bg-zinc-100/60"
+    >
+      <BrandStyle
+        primary={settings.primary_color}
+        primaryForeground={settings.primary_foreground}
+      />
       <AdminSidebar
         slug={business_slug}
         businessName={business.name}

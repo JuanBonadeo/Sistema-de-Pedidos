@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
 
-import { CatalogClient } from "@/components/admin/catalog/catalog-client";
+import { CatalogShell } from "@/components/admin/catalog/catalog-shell";
+import { PageShell } from "@/components/admin/shell/page-shell";
 import { getAdminCatalog } from "@/lib/admin/catalog-query";
+import { getAdminDailyMenus } from "@/lib/admin/daily-menu-query";
+import { currentDayOfWeek } from "@/lib/day-of-week";
 import { getBusiness } from "@/lib/tenant";
 
 export default async function CatalogPage({
@@ -13,16 +16,22 @@ export default async function CatalogPage({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  const { categories, products } = await getAdminCatalog(business.id);
+  const [{ categories, products }, menus] = await Promise.all([
+    getAdminCatalog(business.id),
+    getAdminDailyMenus(business.id),
+  ]);
+  const todayDow = currentDayOfWeek(business.timezone);
 
   return (
-    <main className="mx-auto max-w-4xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      <CatalogClient
+    <PageShell width="default">
+      <CatalogShell
         slug={business_slug}
         categories={categories}
         products={products}
+        menus={menus}
+        todayDow={todayDow}
       />
-    </main>
+    </PageShell>
   );
 }
 

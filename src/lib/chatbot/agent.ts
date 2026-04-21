@@ -71,6 +71,7 @@ Busca productos activos del catálogo por nombre o descripción.
 - **Siempre** antes de mencionar un producto/precio/disponibilidad.
 - Usá \`price_ars\` tal cual — no recalcules.
 - Si no trae resultados, probá una variación (singular/plural, sinónimo, sin acentos).
+- **Cada producto viene con un \`id\` (UUID).** Guardalo mentalmente — lo necesitás para \`get_product_details\` y \`add_to_cart\`. **Nunca inventes un \`id\`**; si no lo tenés, volvé a buscar con \`search_products\`.
 
 ### \`get_product_details(product_id)\`
 Devuelve el producto con sus \`modifier_groups\` (toppings, tamaños, etc.). Cada grupo tiene \`min_selection\`, \`max_selection\`, \`is_required\`.
@@ -95,8 +96,9 @@ Muestra el carrito actual con subtotal y si alcanza el mínimo.
 
 ### \`add_to_cart(product_id, quantity, modifier_ids?, notes?)\`
 Agrega un ítem al carrito. El server valida producto, modifiers y cantidades.
-- Si devuelve error (ej. falta un modifier requerido), leé el mensaje y preguntá al cliente.
-- Nunca inventes modifier_ids — usá los que te dio \`get_product_details\`.
+- Nunca inventes modifier_ids — usá los que te dio \`get_product_details\` o \`add_to_cart\` (cuando devuelve \`needs_options\`).
+- Si devuelve \`{ "needs_options": true, groups: [...] }\`: **NO es un error para el cliente**. Usá la info de \`groups\` para preguntarle qué prefiere (una pregunta corta por grupo, con las opciones disponibles). Después volvé a llamar \`add_to_cart\` con los \`modifier_ids\` elegidos. **Nunca le digas al cliente "hubo un error" ni "no se pudo agregar"** — es solo que faltan opciones.
+- Si devuelve \`{ "error": ... }\` de verdad (ej. producto no disponible): decilo con empatía y ofrecé alternativas.
 
 ### \`remove_from_cart(line_id)\`
 Quita una línea del carrito. Usá el \`id\` que viene en \`get_cart\`/\`add_to_cart\`.
@@ -321,7 +323,7 @@ function buildSearchProductsTool(businessId: string) {
       const { data, error } = await service
         .from("products")
         .select(
-          "name, description, price_cents, is_available, categories(name)",
+          "id, name, description, price_cents, is_available, categories(name)",
         )
         .eq("business_id", businessId)
         .eq("is_active", true)
@@ -334,6 +336,7 @@ function buildSearchProductsTool(businessId: string) {
       }
 
       const products = (data ?? []).map((p) => ({
+        id: p.id,
         name: p.name,
         description: p.description ?? null,
         price_cents: p.price_cents,
@@ -646,9 +649,33 @@ function summarizeCart(
 
 // ---------------- product details + delivery info tools ----------------
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function invalidProductIdResponse(given: string) {
+  return JSON.stringify({
+    error: "product_id_invalid",
+    instruction:
+      "Ese product_id no existe. Probablemente lo inventaste o usaste un placeholder. Llamá `search_products` con el nombre del producto que pidió el cliente, tomá el `id` que viene en el resultado, y reintentá. NO le digas al cliente que hubo un error — simplemente buscá y reintentá.",
+    given_product_id: given,
+  });
+}
+
+function invalidModifierIdResponse(given: string[]) {
+  return JSON.stringify({
+    error: "modifier_id_invalid",
+    instruction:
+      "Alguno de los modifier_ids no es un UUID válido (probablemente lo inventaste). Llamá `get_product_details` con el product_id correcto para obtener los ids reales de los modifiers, y reintentá add_to_cart con esos. NO le digas al cliente que hubo un error.",
+    given_modifier_ids: given,
+  });
+}
+
 function buildProductDetailsTool(businessId: string) {
   return tool(
     async ({ product_id }: { product_id: string }) => {
+      if (!UUID_RE.test(product_id)) {
+        return invalidProductIdResponse(product_id);
+      }
       const service = createSupabaseServiceClient();
       const { data: product, error: pErr } = await service
         .from("products")
@@ -660,7 +687,7 @@ function buildProductDetailsTool(businessId: string) {
         .maybeSingle();
       if (pErr) return JSON.stringify({ error: pErr.message });
       if (!product || !product.is_active) {
-        return JSON.stringify({ error: "producto no encontrado" });
+        return invalidProductIdResponse(product_id);
       }
 
       const { data: groups, error: gErr } = await service
@@ -816,6 +843,17 @@ function buildAddToCartTool(ctx: BotCtx) {
         return JSON.stringify({ error: "quantity debe ser entero entre 1 y 99" });
       }
 
+      // 0) Validate UUID format BEFORE hitting the DB (Postgres rejects with
+      // an unhelpful "invalid input syntax" that the LLM can't recover from).
+      if (!UUID_RE.test(product_id)) {
+        return invalidProductIdResponse(product_id);
+      }
+      const selectedIds = modifier_ids ?? [];
+      const badMods = selectedIds.filter((id) => !UUID_RE.test(id));
+      if (badMods.length > 0) {
+        return invalidModifierIdResponse(badMods);
+      }
+
       // 1) Validate product.
       const { data: product, error: pErr } = await service
         .from("products")
@@ -825,7 +863,7 @@ function buildAddToCartTool(ctx: BotCtx) {
         .maybeSingle();
       if (pErr) return JSON.stringify({ error: pErr.message });
       if (!product || !product.is_active) {
-        return JSON.stringify({ error: "producto no encontrado" });
+        return invalidProductIdResponse(product_id);
       }
       if (!product.is_available) {
         return JSON.stringify({
@@ -842,7 +880,6 @@ function buildAddToCartTool(ctx: BotCtx) {
         .eq("business_id", ctx.businessId)
         .eq("product_id", product_id);
 
-      const selectedIds = modifier_ids ?? [];
       const modifierSnapshots: CartModifier[] = [];
 
       if (groups && groups.length > 0) {
@@ -901,22 +938,72 @@ function buildAddToCartTool(ctx: BotCtx) {
           });
         }
 
-        // Validate min/max per group.
+        // Validate min/max per group. If anything is missing/over, respond
+        // with `needs_options: true` (NOT "error") and include all the groups
+        // + available modifiers so the model can ask the user without
+        // another tool call.
+        type MissingGroup = {
+          id: string;
+          name: string;
+          min: number;
+          max: number;
+          required: boolean;
+          reason: "missing" | "too_many";
+          modifiers: Array<{
+            id: string;
+            name: string;
+            price_delta_cents: number;
+            price_delta_ars: string | null;
+          }>;
+        };
+        const missing: MissingGroup[] = [];
         for (const g of groups) {
           const count = (selectedByGroup.get(g.id) ?? []).length;
-          const needsMin = g.is_required ? Math.max(1, g.min_selection) : g.min_selection;
-          if (count < needsMin) {
-            return JSON.stringify({
-              error: `falta elegir en "${g.name}" (mínimo ${needsMin}).`,
-              missing_group: { id: g.id, name: g.name, min: needsMin, max: g.max_selection },
-            });
-          }
-          if (count > g.max_selection) {
-            return JSON.stringify({
-              error: `elegiste demasiadas opciones en "${g.name}" (máximo ${g.max_selection}).`,
-              group: { id: g.id, name: g.name, max: g.max_selection },
-            });
-          }
+          const needsMin = g.is_required
+            ? Math.max(1, g.min_selection)
+            : g.min_selection;
+          let reason: "missing" | "too_many" | null = null;
+          if (count < needsMin) reason = "missing";
+          else if (count > g.max_selection) reason = "too_many";
+          if (!reason) continue;
+
+          const mods = (
+            (Array.isArray(g.modifiers) ? g.modifiers : []) as Array<{
+              id: string;
+              name: string;
+              price_delta_cents: number;
+              is_available: boolean;
+            }>
+          )
+            .filter((m) => m.is_available)
+            .map((m) => ({
+              id: m.id,
+              name: m.name,
+              price_delta_cents: m.price_delta_cents,
+              price_delta_ars:
+                m.price_delta_cents === 0
+                  ? null
+                  : formatArs(m.price_delta_cents),
+            }));
+          missing.push({
+            id: g.id,
+            name: g.name,
+            min: needsMin,
+            max: g.max_selection,
+            required: g.is_required,
+            reason,
+            modifiers: mods,
+          });
+        }
+        if (missing.length > 0) {
+          return JSON.stringify({
+            needs_options: true,
+            product_id: product.id,
+            product_name: product.name,
+            message:
+              "Este producto requiere elegir opciones. Pregúntale al cliente qué prefiere usando los datos de `groups` y después volvé a llamar add_to_cart con los modifier_ids correspondientes. NO le digas al cliente que hubo un error — es solo que faltan opciones.",
+            groups: missing,
+          });
         }
       } else if (selectedIds.length > 0) {
         return JSON.stringify({

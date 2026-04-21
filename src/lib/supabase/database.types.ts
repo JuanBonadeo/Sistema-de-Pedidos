@@ -7,6 +7,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
   graphql_public: {
     Tables: {
       [_ in never]: never
@@ -105,6 +110,7 @@ export type Database = {
       businesses: {
         Row: {
           address: string | null
+          cover_image_url: string | null
           created_at: string
           currency: string
           delivery_fee_cents: number
@@ -112,13 +118,12 @@ export type Database = {
           estimated_delivery_minutes: number | null
           id: string
           is_active: boolean
-          cover_image_url: string | null
           lat: number | null
           lng: number | null
           logo_url: string | null
           min_order_cents: number
-          mp_access_token: string | null
           mp_accepts_payments: boolean
+          mp_access_token: string | null
           mp_public_key: string | null
           mp_webhook_secret: string | null
           name: string
@@ -130,6 +135,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          cover_image_url?: string | null
           created_at?: string
           currency?: string
           delivery_fee_cents?: number
@@ -137,13 +143,12 @@ export type Database = {
           estimated_delivery_minutes?: number | null
           id?: string
           is_active?: boolean
-          cover_image_url?: string | null
           lat?: number | null
           lng?: number | null
           logo_url?: string | null
           min_order_cents?: number
-          mp_access_token?: string | null
           mp_accepts_payments?: boolean
+          mp_access_token?: string | null
           mp_public_key?: string | null
           mp_webhook_secret?: string | null
           name: string
@@ -155,6 +160,7 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          cover_image_url?: string | null
           created_at?: string
           currency?: string
           delivery_fee_cents?: number
@@ -162,13 +168,12 @@ export type Database = {
           estimated_delivery_minutes?: number | null
           id?: string
           is_active?: boolean
-          cover_image_url?: string | null
           lat?: number | null
           lng?: number | null
           logo_url?: string | null
           min_order_cents?: number
-          mp_access_token?: string | null
           mp_accepts_payments?: boolean
+          mp_access_token?: string | null
           mp_public_key?: string | null
           mp_webhook_secret?: string | null
           name?: string
@@ -211,6 +216,150 @@ export type Database = {
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_configs: {
+        Row: {
+          business_id: string
+          system_prompt: string
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          system_prompt?: string
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          system_prompt?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_configs_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: true
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_contacts: {
+        Row: {
+          business_id: string
+          channel: string
+          created_at: string
+          display_name: string | null
+          id: string
+          identifier: string
+        }
+        Insert: {
+          business_id: string
+          channel: string
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          identifier: string
+        }
+        Update: {
+          business_id?: string
+          channel?: string
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          identifier?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_contacts_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_conversations: {
+        Row: {
+          business_id: string
+          cart_state: Json
+          cart_token: string | null
+          closed_at: string | null
+          contact_id: string
+          created_at: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          cart_state?: Json
+          cart_token?: string | null
+          closed_at?: string | null
+          contact_id: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          cart_state?: Json
+          cart_token?: string | null
+          closed_at?: string | null
+          contact_id?: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_conversations_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chatbot_conversations_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "chatbot_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chatbot_messages: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          metadata: Json | null
+          role: string
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          role: string
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chatbot_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "chatbot_conversations"
             referencedColumns: ["id"]
           },
         ]
@@ -831,4 +980,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

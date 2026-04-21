@@ -11,6 +11,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   LogOut,
+  MessageSquare,
   Package,
   Settings,
   ShoppingBag,
@@ -47,6 +48,12 @@ function buildNav(slug: string, showBusinessTools: boolean): NavItem[] {
       label: "Reportes",
       icon: <BarChart3 className="size-5" />,
       match: (p) => p.startsWith(`/${slug}/admin/reportes`),
+    },
+    {
+      href: `/${slug}/admin/chatbot`,
+      label: "Chatbot",
+      icon: <MessageSquare className="size-5" />,
+      match: (p) => p.startsWith(`/${slug}/admin/chatbot`),
     },
   ];
   if (showBusinessTools) {

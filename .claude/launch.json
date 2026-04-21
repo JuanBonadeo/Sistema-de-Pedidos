@@ -4,8 +4,8 @@
     {
       "name": "next-dev",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
-      "port": 3000,
+      "runtimeArgs": ["dev", "--port", "3333"],
+      "port": 3333,
       "autoPort": true
     }
   ]

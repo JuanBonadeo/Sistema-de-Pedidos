@@ -4,7 +4,8 @@
       "Bash(pnpm --version)",
       "Bash(supabase --version)",
       "Bash(docker --version)",
-      "WebFetch(domain:api.anthropic.com)"
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(pnpm add *)"
     ]
   }
 }

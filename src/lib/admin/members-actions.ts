@@ -13,6 +13,13 @@ const InviteInput = z.object({
   role: z.enum(["admin", "staff"]),
 });
 
+export type InvitePayload = {
+  email: string;
+  role: "admin" | "staff";
+  isNewUser: boolean;
+  inviteLink: string | null;
+};
+
 async function assertCanManage(businessSlug: string) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -57,7 +64,7 @@ async function assertCanManage(businessSlug: string) {
 
 export async function inviteBusinessMemberByAdmin(
   input: unknown,
-): Promise<ActionResult<null>> {
+): Promise<ActionResult<InvitePayload>> {
   const parsed = InviteInput.safeParse(input);
   if (!parsed.success) return actionError("Datos inválidos.");
   const { business_slug, email, role } = parsed.data;
@@ -75,16 +82,28 @@ export async function inviteBusinessMemberByAdmin(
   );
 
   const siteUrl = getSiteUrl();
+  const redirectTo = `${siteUrl}/${business_slug}/admin`;
+
+  let inviteLink: string | null = null;
+  let isNewUser = false;
+
   if (!user) {
-    const { data: invite, error: inviteErr } =
-      await service.auth.admin.inviteUserByEmail(email, {
-        redirectTo: `${siteUrl}/${business_slug}/admin`,
+    // Usuario nuevo → link de invitación que pide setear contraseña.
+    const { data: linkData, error: linkErr } =
+      await service.auth.admin.generateLink({
+        type: "invite",
+        email,
+        options: { redirectTo },
       });
-    if (inviteErr || !invite.user) {
-      console.error("inviteUserByEmail", inviteErr);
-      return actionError("No pudimos enviar la invitación.");
+    if (linkErr || !linkData.user) {
+      console.error("generateLink invite", linkErr);
+      return actionError(
+        linkErr?.message ?? "No pudimos generar la invitación.",
+      );
     }
-    user = invite.user;
+    user = linkData.user;
+    inviteLink = linkData.properties?.action_link ?? null;
+    isNewUser = true;
   }
 
   const { error: userUpsertErr } = await service
@@ -105,8 +124,30 @@ export async function inviteBusinessMemberByAdmin(
     return actionError("No pudimos asignar al miembro.");
   }
 
+  // Si el usuario ya existía, igual generamos un magic link para que pueda
+  // entrar directo sin contraseña — útil si nunca se logueó todavía.
+  if (!isNewUser) {
+    const { data: magicData, error: magicErr } =
+      await service.auth.admin.generateLink({
+        type: "magiclink",
+        email,
+        options: { redirectTo },
+      });
+    if (magicErr) {
+      console.error("generateLink magiclink", magicErr);
+      // No bloqueamos — el acceso ya quedó asignado. Simplemente no hay link.
+    } else {
+      inviteLink = magicData.properties?.action_link ?? null;
+    }
+  }
+
   revalidatePath(`/${business_slug}/admin/usuarios`);
-  return actionOk(null);
+  return actionOk({
+    email,
+    role,
+    isNewUser,
+    inviteLink,
+  });
 }
 
 export async function removeBusinessMemberByAdmin(

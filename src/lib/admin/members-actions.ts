@@ -82,15 +82,18 @@ export async function inviteBusinessMemberByAdmin(
   );
 
   const siteUrl = getSiteUrl();
-  // El auth/callback canjea el PKCE code y redirige al `next` una vez listo.
-  // Usuarios nuevos pasan por /admin/bienvenida para setear contraseña.
-  // Existentes entran directo al panel.
-  const callbackInvite = `${siteUrl}/auth/callback?next=${encodeURIComponent(
-    `/${business_slug}/admin/bienvenida`,
-  )}`;
-  const callbackMagic = `${siteUrl}/auth/callback?next=${encodeURIComponent(
-    `/${business_slug}/admin`,
-  )}`;
+  // Usamos /auth/confirm con verifyOtp + token_hash en lugar del action_link
+  // crudo que devuelve Supabase, porque los links admin-generados no tienen
+  // code_verifier (PKCE) en el navegador del invitado y exchangeCodeForSession
+  // fallaría.
+  const buildConfirmUrl = (
+    tokenHash: string,
+    type: "invite" | "magiclink",
+    next: string,
+  ) =>
+    `${siteUrl}/auth/confirm?token_hash=${encodeURIComponent(
+      tokenHash,
+    )}&type=${type}&next=${encodeURIComponent(next)}`;
 
   let inviteLink: string | null = null;
   let isNewUser = false;
@@ -101,7 +104,7 @@ export async function inviteBusinessMemberByAdmin(
       await service.auth.admin.generateLink({
         type: "invite",
         email,
-        options: { redirectTo: callbackInvite },
+        options: { redirectTo: `${siteUrl}/${business_slug}/admin/bienvenida` },
       });
     if (linkErr || !linkData.user) {
       console.error("generateLink invite", linkErr);
@@ -110,7 +113,14 @@ export async function inviteBusinessMemberByAdmin(
       );
     }
     user = linkData.user;
-    inviteLink = linkData.properties?.action_link ?? null;
+    const hashed = linkData.properties?.hashed_token;
+    if (hashed) {
+      inviteLink = buildConfirmUrl(
+        hashed,
+        "invite",
+        `/${business_slug}/admin/bienvenida`,
+      );
+    }
     isNewUser = true;
   }
 
@@ -135,17 +145,35 @@ export async function inviteBusinessMemberByAdmin(
   // Si el usuario ya existía, igual generamos un magic link para que pueda
   // entrar directo sin contraseña — útil si nunca se logueó todavía.
   if (!isNewUser) {
+    // Si nunca completó la bienvenida (no tiene welcomed_at), igual lo
+    // ruteamos a bienvenida así setea contraseña. Si ya está welcomed,
+    // entra derecho al panel.
+    const wasWelcomed = Boolean(
+      (user!.user_metadata as Record<string, unknown> | null)?.welcomed_at,
+    );
+    const next = wasWelcomed
+      ? `/${business_slug}/admin`
+      : `/${business_slug}/admin/bienvenida`;
+
     const { data: magicData, error: magicErr } =
       await service.auth.admin.generateLink({
         type: "magiclink",
         email,
-        options: { redirectTo: callbackMagic },
+        options: { redirectTo: `${siteUrl}${next}` },
       });
     if (magicErr) {
       console.error("generateLink magiclink", magicErr);
-      // No bloqueamos — el acceso ya quedó asignado. Simplemente no hay link.
     } else {
-      inviteLink = magicData.properties?.action_link ?? null;
+      const hashed = magicData.properties?.hashed_token;
+      if (hashed) {
+        inviteLink = buildConfirmUrl(hashed, "magiclink", next);
+      }
+    }
+
+    // Si no había seteado contraseña, marcamos al usuario como "pending welcome"
+    // para que la UI lo comunique correctamente.
+    if (!wasWelcomed) {
+      isNewUser = true;
     }
   }
 

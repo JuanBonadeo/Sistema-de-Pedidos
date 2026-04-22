@@ -23,6 +23,7 @@ export async function middleware(request: NextRequest) {
   // platform admin at root, platform login, platform business CRUD).
   const isGlobalRoute =
     pathname === "/auth/callback" ||
+    pathname === "/auth/confirm" ||
     pathname === "/" ||
     pathname === "/login" ||
     pathname.startsWith("/negocios");

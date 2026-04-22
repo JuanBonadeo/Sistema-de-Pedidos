@@ -40,24 +40,40 @@ export async function completeWelcome(
   const { error } = await service.auth.admin.updateUserById(user.id, {
     password,
     user_metadata: {
-      ...user.user_metadata,
+      ...(user.user_metadata ?? {}),
       ...(full_name ? { full_name } : {}),
       welcomed_at: new Date().toISOString(),
     },
   });
   if (error) {
-    console.error("completeWelcome updateUserById", error);
-    return actionError("No pudimos guardar la contraseña. Intentá de nuevo.");
+    console.error("completeWelcome updateUserById", {
+      message: error.message,
+      status: error.status,
+      code: error.code,
+    });
+    // Mostramos el error real de Supabase (por ej. policy de password, rate
+    // limit, etc.) en vez de un mensaje genérico.
+    return actionError(
+      error.message || "No pudimos guardar la contraseña. Intentá de nuevo.",
+    );
   }
 
   if (full_name) {
-    await service
+    const { error: upsertErr } = await service
       .from("users")
       .upsert(
         { id: user.id, email: user.email ?? "", full_name },
         { onConflict: "id" },
       );
+    if (upsertErr) {
+      console.error("completeWelcome users upsert", upsertErr);
+      // No bloqueamos — la contraseña ya se guardó.
+    }
   }
+
+  // Refrescamos la sesión para que el cliente vea el cambio de user_metadata
+  // (welcomed_at) sin tener que volver a loguearse.
+  await supabase.auth.refreshSession();
 
   return actionOk(null);
 }

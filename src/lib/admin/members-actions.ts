@@ -82,7 +82,15 @@ export async function inviteBusinessMemberByAdmin(
   );
 
   const siteUrl = getSiteUrl();
-  const redirectTo = `${siteUrl}/${business_slug}/admin`;
+  // El auth/callback canjea el PKCE code y redirige al `next` una vez listo.
+  // Usuarios nuevos pasan por /admin/bienvenida para setear contraseña.
+  // Existentes entran directo al panel.
+  const callbackInvite = `${siteUrl}/auth/callback?next=${encodeURIComponent(
+    `/${business_slug}/admin/bienvenida`,
+  )}`;
+  const callbackMagic = `${siteUrl}/auth/callback?next=${encodeURIComponent(
+    `/${business_slug}/admin`,
+  )}`;
 
   let inviteLink: string | null = null;
   let isNewUser = false;
@@ -93,7 +101,7 @@ export async function inviteBusinessMemberByAdmin(
       await service.auth.admin.generateLink({
         type: "invite",
         email,
-        options: { redirectTo },
+        options: { redirectTo: callbackInvite },
       });
     if (linkErr || !linkData.user) {
       console.error("generateLink invite", linkErr);
@@ -131,7 +139,7 @@ export async function inviteBusinessMemberByAdmin(
       await service.auth.admin.generateLink({
         type: "magiclink",
         email,
-        options: { redirectTo },
+        options: { redirectTo: callbackMagic },
       });
     if (magicErr) {
       console.error("generateLink magiclink", magicErr);

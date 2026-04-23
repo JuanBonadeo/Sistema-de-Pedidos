@@ -20,6 +20,26 @@ export type InvitePayload = {
   inviteLink: string | null;
 };
 
+const CreateWithPasswordInput = z.object({
+  business_slug: z.string().min(1),
+  email: z.string().email("Email inválido."),
+  password: z.string().min(8, "Contraseña muy corta (mínimo 8).").max(72),
+  role: z.enum(["admin", "staff"]),
+  full_name: z
+    .string()
+    .trim()
+    .max(80)
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
+});
+
+export type CreateMemberPayload = {
+  email: string;
+  password: string;
+  role: "admin" | "staff";
+  wasCreated: boolean;
+};
+
 async function assertCanManage(businessSlug: string) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -183,6 +203,112 @@ export async function inviteBusinessMemberByAdmin(
     role,
     isNewUser,
     inviteLink,
+  });
+}
+
+/**
+ * Crea directo el usuario con email + contraseña fija (sin mail, sin link).
+ * Pensado para que el admin comparta credenciales por WhatsApp o cualquier
+ * canal. El usuario arranca con `welcomed_at` seteado para saltear la
+ * pantalla de bienvenida — ya tiene contraseña.
+ */
+export async function createBusinessMemberWithPassword(
+  input: unknown,
+): Promise<ActionResult<CreateMemberPayload>> {
+  const parsed = CreateWithPasswordInput.safeParse(input);
+  if (!parsed.success) {
+    return actionError(
+      parsed.error.issues[0]?.message ?? "Datos inválidos.",
+    );
+  }
+  const { business_slug, email, password, role, full_name } = parsed.data;
+
+  const guard = await assertCanManage(business_slug);
+  if (!guard.ok) return actionError(guard.error);
+
+  const service = createSupabaseServiceClient();
+
+  const {
+    data: { users: allUsers },
+  } = await service.auth.admin.listUsers({ perPage: 200 });
+  const existing = allUsers.find(
+    (u) => u.email?.toLowerCase() === email.toLowerCase(),
+  );
+
+  let userId: string;
+  let wasCreated = false;
+
+  if (existing) {
+    // Actualizamos la contraseña del usuario existente así el admin puede
+    // compartir la nueva. También marcamos welcomed_at si no lo tenía.
+    const { error: updErr } = await service.auth.admin.updateUserById(
+      existing.id,
+      {
+        password,
+        email_confirm: true,
+        user_metadata: {
+          ...(existing.user_metadata ?? {}),
+          ...(full_name ? { full_name } : {}),
+          welcomed_at:
+            (existing.user_metadata as Record<string, unknown> | null)
+              ?.welcomed_at ?? new Date().toISOString(),
+        },
+      },
+    );
+    if (updErr) {
+      console.error("createBusinessMemberWithPassword update", updErr);
+      return actionError(updErr.message || "No pudimos actualizar el usuario.");
+    }
+    userId = existing.id;
+  } else {
+    const { data: created, error: createErr } =
+      await service.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          ...(full_name ? { full_name } : {}),
+          welcomed_at: new Date().toISOString(),
+        },
+      });
+    if (createErr || !created.user) {
+      console.error("createBusinessMemberWithPassword create", createErr);
+      return actionError(createErr?.message || "No pudimos crear el usuario.");
+    }
+    userId = created.user.id;
+    wasCreated = true;
+  }
+
+  const { error: userUpsertErr } = await service
+    .from("users")
+    .upsert(
+      { id: userId, email, ...(full_name ? { full_name } : {}) },
+      { onConflict: "id" },
+    );
+  if (userUpsertErr) {
+    console.error("users upsert", userUpsertErr);
+    return actionError("No pudimos registrar el usuario.");
+  }
+
+  const { error: buErr } = await service.from("business_users").upsert(
+    {
+      business_id: guard.businessId,
+      user_id: userId,
+      role,
+    },
+    { onConflict: "business_id,user_id" },
+  );
+  if (buErr) {
+    console.error("business_users upsert", buErr);
+    return actionError("No pudimos asignar al miembro.");
+  }
+
+  revalidatePath(`/${business_slug}/admin/usuarios`);
+  return actionOk({
+    email,
+    password,
+    role,
+    wasCreated,
   });
 }
 

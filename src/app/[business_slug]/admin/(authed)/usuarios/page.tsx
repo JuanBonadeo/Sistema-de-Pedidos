@@ -44,12 +44,15 @@ export default async function UsuariosPage({
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,320px)]">
         <Surface padding="default">
           <SurfaceHeader
-            eyebrow="Invitación"
-            title="Sumar miembro"
-            description="Le mandamos un mail con un link para que configure su contraseña."
+            eyebrow="Sumar miembro"
+            title="Crear acceso"
+            description="Armá el usuario con contraseña y compartila por WhatsApp, o generá un link de invitación."
           />
           <div className="mt-5">
-            <InviteUserForm slug={business_slug} />
+            <InviteUserForm
+              slug={business_slug}
+              businessName={business.name}
+            />
           </div>
         </Surface>
 

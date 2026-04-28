@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { BrandStyle } from "@/components/admin/shell/brand-style";
 import { canManageBusiness, ensureAdminAccess } from "@/lib/admin/context";
+import { getPendingOrderCount } from "@/lib/admin/orders-query";
 import { getBusiness, getBusinessSettings } from "@/lib/tenant";
 
 export default async function AdminAuthedLayout({
@@ -16,7 +17,10 @@ export default async function AdminAuthedLayout({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  const ctx = await ensureAdminAccess(business.id, business_slug);
+  const [ctx, pendingCount] = await Promise.all([
+    ensureAdminAccess(business.id, business_slug),
+    getPendingOrderCount(business.id, business.timezone),
+  ]);
   const settings = getBusinessSettings(business);
 
   return (
@@ -30,12 +34,15 @@ export default async function AdminAuthedLayout({
       />
       <AdminSidebar
         slug={business_slug}
+        businessId={business.id}
         businessName={business.name}
         businessLogoUrl={business.logo_url}
         userEmail={ctx.userEmail}
         userName={ctx.userName}
         isPlatformAdmin={ctx.isPlatformAdmin}
         canManageBusiness={canManageBusiness(ctx)}
+        initialPendingCount={pendingCount}
+        isActive={business.is_active ?? true}
       />
       <div className="min-w-0 flex-1">{children}</div>
     </div>

@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { I } from "@/components/delivery/primitives";
 import { formatCurrency } from "@/lib/currency";
 import { createOrder } from "@/lib/orders/create-order";
+import { previewPromoCode } from "@/lib/promos/preview-action";
 import { cartTotal, useCart } from "@/stores/cart";
 
 type PaymentId = "mp" | "cash" | "pickup-cash";
@@ -21,6 +23,7 @@ export function CheckoutForm({
   mpEnabled = false,
   initialName = "",
   initialEmail = "",
+  initialPhone = "",
 }: {
   slug: string;
   businessName: string;
@@ -31,6 +34,7 @@ export function CheckoutForm({
   mpEnabled?: boolean;
   initialName?: string;
   initialEmail?: string;
+  initialPhone?: string;
 }) {
   const router = useRouter();
   const items = useCart(slug, (s) => s.items);
@@ -42,7 +46,7 @@ export function CheckoutForm({
   const [apt, setApt] = useState("");
   const [notes, setNotes] = useState("");
   const [name, setName] = useState(initialName);
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(initialPhone);
   const [email] = useState(initialEmail);
   const [payment, setPayment] = useState<PaymentId>(mpEnabled ? "mp" : "cash");
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -52,10 +56,87 @@ export function CheckoutForm({
     name?: string;
   }>({});
 
+  // ── Promo code state ────────────────────────────────────────────────────
+  // The customer types a code, presses "Aplicar" → server validates and
+  // returns the discount preview. The `applied` value is what we send to
+  // createOrder; the server re-validates atomically on submit.
+  const [promoInput, setPromoInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<{
+    code: string;
+    discount_cents: number;
+    free_shipping: boolean;
+  } | null>(null);
+  const [promoChecking, setPromoChecking] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
+
   const isPickup = mode === "pickup";
   const subtotal = cartTotal(items);
-  const deliveryFee = isPickup ? 0 : deliveryFeeCents;
-  const total = subtotal + deliveryFee;
+  const baseDeliveryFee = isPickup ? 0 : deliveryFeeCents;
+  // free_shipping: el descuento se "absorbe" haciendo el envío 0
+  const deliveryFee =
+    appliedPromo?.free_shipping && !isPickup ? 0 : baseDeliveryFee;
+  // Para el resto de tipos de descuento, restamos del total
+  const discount =
+    appliedPromo && !appliedPromo.free_shipping
+      ? appliedPromo.discount_cents
+      : 0;
+  const total = Math.max(0, subtotal + deliveryFee - discount);
+
+  const checkPromo = async () => {
+    const code = promoInput.trim();
+    if (!code) {
+      setPromoError("Ingresá un código.");
+      return;
+    }
+    setPromoChecking(true);
+    setPromoError(null);
+    const result = await previewPromoCode({
+      business_slug: slug,
+      code,
+      subtotal_cents: subtotal,
+      delivery_fee_cents: baseDeliveryFee,
+    });
+    setPromoChecking(false);
+    if (!result.ok) {
+      setAppliedPromo(null);
+      setPromoError(result.error);
+      return;
+    }
+    setAppliedPromo(result.data);
+    setPromoInput(result.data.code);
+  };
+
+  const removePromo = () => {
+    setAppliedPromo(null);
+    setPromoInput("");
+    setPromoError(null);
+  };
+
+  // Re-validate when subtotal/delivery changes (item added/removed) so
+  // free_shipping or min_order rules stay correct.
+  useEffect(() => {
+    if (!appliedPromo) return;
+    let cancelled = false;
+    (async () => {
+      const result = await previewPromoCode({
+        business_slug: slug,
+        code: appliedPromo.code,
+        subtotal_cents: subtotal,
+        delivery_fee_cents: baseDeliveryFee,
+      });
+      if (cancelled) return;
+      if (!result.ok) {
+        setAppliedPromo(null);
+        setPromoError(result.error);
+      } else {
+        setAppliedPromo(result.data);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subtotal, baseDeliveryFee]);
 
   useEffect(() => {
     if (isPickup && payment === "cash") setPayment("pickup-cash");
@@ -101,53 +182,87 @@ export function CheckoutForm({
       return;
     }
     setSubmitting(true);
-    try {
-      const result = await createOrder({
-        business_slug: slug,
-        delivery_type: mode,
-        customer_name: name.trim(),
-        customer_phone: phone.trim(),
-        customer_email: email.trim() || undefined,
-        delivery_address: isPickup
-          ? undefined
-          : `${address.trim()}${apt.trim() ? ` · ${apt.trim()}` : ""}`,
-        delivery_notes: notes.trim() || undefined,
-        payment_method: payment === "mp" ? "mp" : "cash",
-        items: items.map((i) =>
-          i.kind === "daily_menu" && i.daily_menu_id
-            ? {
-                kind: "daily_menu" as const,
-                daily_menu_id: i.daily_menu_id,
-                quantity: i.quantity,
-                notes: i.notes,
-              }
-            : {
-                // Back-compat: ítems sin kind se tratan como producto normal.
-                product_id: i.product_id as string,
-                quantity: i.quantity,
-                notes: i.notes,
-                modifier_ids: i.modifiers.map((m) => m.modifier_id),
-              },
-        ),
-      });
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      clearCart();
-      // If MP returned a redirect URL, kick the user to Checkout Pro.
-      // Otherwise (cash / pickup-cash) go straight to the tracking page.
-      if (result.data.mp_init_point) {
-        window.location.href = result.data.mp_init_point;
-        return;
-      }
-      router.push(`/${slug}/confirmacion/${result.data.order_id}`);
-    } finally {
+    const result = await createOrder({
+      business_slug: slug,
+      delivery_type: mode,
+      customer_name: name.trim(),
+      customer_phone: phone.trim(),
+      customer_email: email.trim() || undefined,
+      delivery_address: isPickup
+        ? undefined
+        : `${address.trim()}${apt.trim() ? ` · ${apt.trim()}` : ""}`,
+      delivery_notes: notes.trim() || undefined,
+      payment_method: payment === "mp" ? "mp" : "cash",
+      promo_code: appliedPromo?.code,
+      items: items.map((i) =>
+        i.kind === "daily_menu" && i.daily_menu_id
+          ? {
+              kind: "daily_menu" as const,
+              daily_menu_id: i.daily_menu_id,
+              quantity: i.quantity,
+              notes: i.notes,
+            }
+          : {
+              // Back-compat: ítems sin kind se tratan como producto normal.
+              product_id: i.product_id as string,
+              quantity: i.quantity,
+              notes: i.notes,
+              modifier_ids: i.modifiers.map((m) => m.modifier_id),
+            },
+      ),
+    });
+    if (!result.ok) {
+      toast.error(result.error);
       setSubmitting(false);
+      return;
     }
+    // Success: keep `submitting` true so the transitional UI (spinner) stays
+    // visible until navigation completes. Otherwise clearing the cart would
+    // flip items to empty and briefly show the "carrito vacío" state.
+    clearCart();
+    if (result.data.mp_init_point) {
+      window.location.href = result.data.mp_init_point;
+      return;
+    }
+    router.push(`/${slug}/confirmacion/${result.data.order_id}`);
   };
 
   if (items.length === 0) {
+    // Transitional state after a successful order: cart was just cleared but
+    // navigation to /confirmacion or MP is still in flight. Show a spinner
+    // instead of the "carrito vacío" emptiness — it reads as progress.
+    if (submitting) {
+      return (
+        <div
+          style={{
+            maxWidth: 520,
+            margin: "0 auto",
+            minHeight: "100vh",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--ink-2)",
+            padding: 32,
+            gap: 16,
+          }}
+        >
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              border: "3px solid var(--hairline)",
+              borderTopColor: "var(--accent)",
+              borderRadius: "50%",
+              animation: "spin 0.8s linear infinite",
+            }}
+          />
+          <div style={{ fontSize: 14 }}>Procesando tu pedido…</div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      );
+    }
+    // True empty state — user landed on /checkout with nothing in cart.
     return (
       <div
         style={{
@@ -155,14 +270,63 @@ export function CheckoutForm({
           margin: "0 auto",
           minHeight: "100vh",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          color: "var(--ink-2)",
           padding: 32,
+          gap: 18,
           textAlign: "center",
         }}
       >
-        Tu carrito está vacío.
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 99,
+            background: "var(--hairline)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {I.bag("var(--ink-2)", 24)}
+        </div>
+        <div>
+          <div
+            className="d-display"
+            style={{ fontSize: 24, color: "var(--ink)", lineHeight: 1.1 }}
+          >
+            Nada en el carrito
+          </div>
+          <div
+            style={{
+              fontSize: 13,
+              color: "var(--ink-2)",
+              marginTop: 6,
+              maxWidth: 260,
+            }}
+          >
+            Volvé al menú para elegir qué pedir.
+          </div>
+        </div>
+        <Link
+          href={`/${slug}/menu`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: 44,
+            padding: "0 20px",
+            borderRadius: 12,
+            background: "var(--accent)",
+            color: "#fff",
+            fontSize: 14,
+            fontWeight: 600,
+            textDecoration: "none",
+          }}
+        >
+          Ver el menú
+        </Link>
       </div>
     );
   }
@@ -289,9 +453,22 @@ export function CheckoutForm({
           <SummaryRow label="Subtotal" value={formatCurrency(subtotal)} muted />
           <SummaryRow
             label={isPickup ? "Retiro" : "Envío"}
-            value={isPickup ? "Gratis" : formatCurrency(deliveryFee)}
+            value={
+              isPickup
+                ? "Gratis"
+                : appliedPromo?.free_shipping
+                  ? "Gratis"
+                  : formatCurrency(deliveryFee)
+            }
             muted
           />
+          {appliedPromo && !appliedPromo.free_shipping && discount > 0 && (
+            <SummaryRow
+              label={`Cupón ${appliedPromo.code}`}
+              value={`-${formatCurrency(discount)}`}
+              muted
+            />
+          )}
           <SummaryRow label="Total" value={formatCurrency(total)} />
         </div>
       )}
@@ -485,6 +662,138 @@ export function CheckoutForm({
             style={inputStyle(!!errors.phone)}
           />
         </Field>
+      </Section>
+
+      <Section title="Cupón de descuento">
+        {appliedPromo ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "12px 14px",
+              background: "rgba(34, 197, 94, 0.08)",
+              border: "1px solid rgba(34, 197, 94, 0.25)",
+              borderRadius: 12,
+            }}
+          >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 20,
+                height: 20,
+                borderRadius: 999,
+                background: "#16A34A",
+                color: "#fff",
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+              aria-hidden
+            >
+              ✓
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#15803D",
+                  fontFamily: "ui-monospace, monospace",
+                  letterSpacing: 0.5,
+                }}
+              >
+                {appliedPromo.code}
+              </div>
+              <div style={{ fontSize: 11, color: "#15803D", marginTop: 1 }}>
+                {appliedPromo.free_shipping
+                  ? "Envío gratis aplicado"
+                  : `Te ahorrás ${formatCurrency(appliedPromo.discount_cents)}`}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={removePromo}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#15803D",
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: 2,
+              }}
+            >
+              Quitar
+            </button>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                value={promoInput}
+                onChange={(e) =>
+                  setPromoInput(e.target.value.toUpperCase().slice(0, 30))
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    checkPromo();
+                  }
+                }}
+                placeholder="Ej: VUELVE10"
+                style={{
+                  flex: 1,
+                  height: 44,
+                  padding: "0 14px",
+                  border: "1px solid var(--hairline-2)",
+                  borderRadius: 12,
+                  fontSize: 14,
+                  fontFamily: "ui-monospace, monospace",
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                  background: "#fff",
+                  color: "var(--ink)",
+                  outline: "none",
+                }}
+              />
+              <button
+                type="button"
+                onClick={checkPromo}
+                disabled={promoChecking || !promoInput.trim()}
+                style={{
+                  height: 44,
+                  padding: "0 18px",
+                  background: "var(--ink)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 12,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor:
+                    promoChecking || !promoInput.trim() ? "not-allowed" : "pointer",
+                  opacity: promoChecking || !promoInput.trim() ? 0.5 : 1,
+                }}
+              >
+                {promoChecking ? "…" : "Aplicar"}
+              </button>
+            </div>
+            {promoError && (
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  color: "#DC2626",
+                }}
+              >
+                {promoError}
+              </div>
+            )}
+          </>
+        )}
       </Section>
 
       <Section title="Método de pago">

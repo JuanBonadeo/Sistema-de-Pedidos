@@ -182,16 +182,37 @@ export async function updateProduct(
 export async function deleteProduct(
   businessSlug: string,
   id: string,
-): Promise<ActionResult<null>> {
+): Promise<ActionResult<{ soft_deleted: boolean }>> {
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("products").delete().eq("id", id);
-  if (error) {
-    console.error("deleteProduct", error);
-    return actionError("No pudimos borrar el producto.");
+
+  if (!error) {
+    revalidatePath(`/${businessSlug}/admin/catalogo`);
+    revalidatePath(`/${businessSlug}/menu`);
+    return actionOk({ soft_deleted: false });
   }
-  revalidatePath(`/${businessSlug}/admin/catalogo`);
-  revalidatePath(`/${businessSlug}/menu`);
-  return actionOk(null);
+
+  // FK violation: el producto tiene pedidos asociados. Hacemos soft-delete
+  // (is_active=false + is_available=false) para que no aparezca en el menú
+  // ni en el catálogo activo, pero el historial de pedidos queda intacto.
+  // Nota: una vez aplicada la migration 0020, los FKs son ON DELETE SET NULL
+  // y este branch deja de ejecutarse — el delete duro funciona siempre.
+  if (error.code === "23503") {
+    const { error: softErr } = await supabase
+      .from("products")
+      .update({ is_active: false, is_available: false })
+      .eq("id", id);
+    if (softErr) {
+      console.error("deleteProduct soft-delete", softErr);
+      return actionError("No pudimos borrar el producto.");
+    }
+    revalidatePath(`/${businessSlug}/admin/catalogo`);
+    revalidatePath(`/${businessSlug}/menu`);
+    return actionOk({ soft_deleted: true });
+  }
+
+  console.error("deleteProduct", error);
+  return actionError("No pudimos borrar el producto.");
 }
 
 export async function toggleProductAvailability(

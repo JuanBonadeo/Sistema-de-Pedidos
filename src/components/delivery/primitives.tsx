@@ -19,12 +19,10 @@ export function ImageTile({
   sizes?: string;
   priority?: boolean;
 }) {
-  const stripe = `repeating-linear-gradient(135deg, ${tone} 0 10px, color-mix(in oklch, ${tone} 90%, #000) 10px 20px)`;
   return (
     <div
       className={className}
       style={{
-        background: src ? undefined : stripe,
         borderRadius: radius,
         position: "relative",
         overflow: "hidden",

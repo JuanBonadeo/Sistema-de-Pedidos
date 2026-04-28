@@ -37,6 +37,12 @@ export const CreateOrderInput = z
     delivery_address: z.string().max(200).optional(),
     delivery_notes: z.string().max(500).optional(),
     payment_method: z.enum(["cash", "mp"]).optional(),
+    /**
+     * Optional promo code typed by the customer in checkout. The DB lookup
+     * is case-insensitive — we don't normalize here. Empty strings are
+     * treated as "no code" by persist-order.
+     */
+    promo_code: z.string().trim().max(40).optional(),
     items: z.array(OrderItemInput).min(1),
   })
   .superRefine((data, ctx) => {

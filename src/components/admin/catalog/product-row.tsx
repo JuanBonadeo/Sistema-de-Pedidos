@@ -67,7 +67,13 @@ export function ProductRow({
         toast.error(r.error);
         return;
       }
-      toast.success("Eliminado.");
+      // Si tenía pedidos asociados se hizo soft-delete (queda archivado, no
+      // visible en menú ni catálogo, pero el historial de pedidos lo conserva).
+      toast.success(
+        r.data.soft_deleted
+          ? "Archivado. El producto tenía pedidos, se desactivó en lugar de borrarse."
+          : "Eliminado.",
+      );
       setConfirmOpen(false);
       router.refresh();
     });

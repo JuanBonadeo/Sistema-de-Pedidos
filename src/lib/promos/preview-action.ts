@@ -1,0 +1,52 @@
+"use server";
+
+import { actionError, actionOk, type ActionResult } from "@/lib/actions";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
+
+import { validatePromoCode } from "./validate";
+
+/**
+ * Server action used by the checkout UI to preview a promo code BEFORE the
+ * customer submits the order. Pure read — does NOT increment uses_count.
+ *
+ * The actual validation + increment happens atomically inside persist-order
+ * when the order is created. This action is ergonomic only — it lets us show
+ * "✓ VUELVE10 · -$1500" while the customer is still editing.
+ */
+export async function previewPromoCode(input: {
+  business_slug: string;
+  code: string;
+  subtotal_cents: number;
+  delivery_fee_cents: number;
+}): Promise<
+  ActionResult<{
+    code: string;
+    discount_cents: number;
+    free_shipping: boolean;
+  }>
+> {
+  if (!input.code?.trim()) return actionError("Ingresá un código.");
+  const service = createSupabaseServiceClient();
+
+  // Resolve business
+  const { data: business } = await service
+    .from("businesses")
+    .select("id")
+    .eq("slug", input.business_slug)
+    .maybeSingle();
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const result = await validatePromoCode(service, {
+    businessId: business.id,
+    code: input.code,
+    subtotalCents: input.subtotal_cents,
+    deliveryFeeCents: input.delivery_fee_cents,
+  });
+
+  if (!result.ok) return actionError(result.error);
+  return actionOk({
+    code: result.promo.code,
+    discount_cents: result.promo.discount_cents,
+    free_shipping: result.promo.free_shipping,
+  });
+}

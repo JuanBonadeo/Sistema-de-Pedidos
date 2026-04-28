@@ -244,7 +244,7 @@ export function MenuClient({
           <div
             className="d-display"
             style={{
-              fontSize: 28,
+              fontSize: 32,
               lineHeight: 1.05,
               color: "var(--ink)",
             }}

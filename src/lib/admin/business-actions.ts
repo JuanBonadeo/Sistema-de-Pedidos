@@ -4,6 +4,15 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { actionError, actionOk, type ActionResult } from "@/lib/actions";
+import {
+  DENSITY_SCALE,
+  FONT_KEYS,
+  ICON_STROKE_SCALE,
+  ICON_STYLE_SCALE,
+  MODE_SCALE,
+  RADIUS_SCALE,
+  SHADOW_SCALE,
+} from "@/lib/branding/tokens";
 import { RESERVED_SLUGS, SLUG_PATTERN } from "@/lib/reserved-slugs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -11,6 +20,13 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service";
 const HexColor = z
   .string()
   .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Color inválido.");
+const OptionalHex = HexColor.optional();
+const OptionalUrl = z
+  .string()
+  .url()
+  .optional()
+  .transform((v) => (v === "" ? null : (v ?? null)))
+  .nullable();
 
 const UpdateInput = z.object({
   business_slug: z.string().min(1),
@@ -58,6 +74,35 @@ const UpdateInput = z.object({
     .nullable(),
   primary_color: HexColor,
   primary_foreground: HexColor,
+  // Extended brand palette (all optional)
+  secondary_color: OptionalHex,
+  secondary_foreground: OptionalHex,
+  accent_color: OptionalHex,
+  accent_foreground: OptionalHex,
+  background_color: OptionalHex,
+  background_color_dark: OptionalHex,
+  surface_color: OptionalHex,
+  muted_color: OptionalHex,
+  border_color: OptionalHex,
+  success_color: OptionalHex,
+  warning_color: OptionalHex,
+  destructive_color: OptionalHex,
+  // Typography
+  font_heading: z.enum(FONT_KEYS).optional(),
+  font_body: z.enum(FONT_KEYS).optional(),
+  // Shape
+  radius_scale: z.enum(RADIUS_SCALE).optional(),
+  shadow_scale: z.enum(SHADOW_SCALE).optional(),
+  density: z.enum(DENSITY_SCALE).optional(),
+  // Iconography
+  icon_stroke_width: z.enum(ICON_STROKE_SCALE).optional(),
+  icon_style: z.enum(ICON_STYLE_SCALE).optional(),
+  // Mode
+  default_mode: z.enum(MODE_SCALE).optional(),
+  // Logo variants
+  logo_mark_url: OptionalUrl,
+  logo_mono_url: OptionalUrl,
+  favicon_url: OptionalUrl,
   delivery_fee_cents: z.coerce
     .number()
     .int("Tiene que ser un número entero.")
@@ -131,6 +176,29 @@ async function assertCanManage(businessSlug: string) {
   };
 }
 
+export async function toggleBusinessOpen(
+  slug: string,
+  open: boolean,
+): Promise<ActionResult<null>> {
+  const guard = await assertCanManage(slug);
+  if (!guard.ok) return actionError(guard.error);
+
+  const service = createSupabaseServiceClient();
+  const { error } = await service
+    .from("businesses")
+    .update({ is_active: open })
+    .eq("id", guard.businessId);
+
+  if (error) {
+    console.error("toggleBusinessOpen", error);
+    return actionError("No pudimos actualizar el estado del negocio.");
+  }
+
+  // Invalidate public routes so the menu reflects the new state immediately.
+  revalidatePath(`/${slug}`, "layout");
+  return actionOk(null);
+}
+
 export async function updateBusinessSettings(
   input: unknown,
 ): Promise<ActionResult<{ slug: string }>> {
@@ -150,6 +218,29 @@ export async function updateBusinessSettings(
     cover_image_url,
     primary_color,
     primary_foreground,
+    secondary_color,
+    secondary_foreground,
+    accent_color,
+    accent_foreground,
+    background_color,
+    background_color_dark,
+    surface_color,
+    muted_color,
+    border_color,
+    success_color,
+    warning_color,
+    destructive_color,
+    font_heading,
+    font_body,
+    radius_scale,
+    shadow_scale,
+    density,
+    icon_stroke_width,
+    icon_style,
+    default_mode,
+    logo_mark_url,
+    logo_mono_url,
+    favicon_url,
     delivery_fee_cents,
     min_order_cents,
     estimated_delivery_minutes,
@@ -189,12 +280,43 @@ export async function updateBusinessSettings(
   }
 
   const service = createSupabaseServiceClient();
+  // Only keep optional branding keys that were provided; undefined values are
+  // filtered so the JSONB doesn't accumulate nulls for fields the user didn't
+  // touch. The layout reads missing tokens as defaults from BRANDING_DEFAULTS.
+  const brandingPatch = Object.fromEntries(
+    Object.entries({
+      secondary_color,
+      secondary_foreground,
+      accent_color,
+      accent_foreground,
+      background_color,
+      background_color_dark,
+      surface_color,
+      muted_color,
+      border_color,
+      success_color,
+      warning_color,
+      destructive_color,
+      font_heading,
+      font_body,
+      radius_scale,
+      shadow_scale,
+      density,
+      icon_stroke_width,
+      icon_style,
+      default_mode,
+      logo_mark_url,
+      logo_mono_url,
+      favicon_url,
+    }).filter(([, v]) => v !== undefined),
+  );
   const nextSettings = {
     ...guard.currentSettings,
     primary_color,
     primary_foreground,
     // Mirror logo into settings for legacy consumers; column is the source of truth.
     logo_url,
+    ...brandingPatch,
   };
 
   const { error } = await service

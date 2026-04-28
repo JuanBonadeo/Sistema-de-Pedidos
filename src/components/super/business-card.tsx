@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowUpRight, Settings, Store } from "lucide-react";
+import { ArrowUpRight, Store } from "lucide-react";
 
 import { formatCurrency } from "@/lib/currency";
 import type { PlatformBusiness } from "@/lib/platform/queries";
@@ -16,16 +16,14 @@ function initials(name: string): string {
 
 export function BusinessCard({ business }: { business: PlatformBusiness }) {
   return (
-    <article
+    <Link
       className={
-        "group relative flex flex-col gap-5 overflow-hidden rounded-2xl bg-white p-5 ring-1 ring-zinc-200/70 transition hover:ring-zinc-300"
+        "group relative flex cursor-pointer flex-col gap-5 overflow-hidden rounded-2xl bg-white p-5 ring-1 ring-zinc-200/70 transition hover:ring-zinc-300"
       }
+      href={`/${business.slug}/admin`}
+      aria-label={`Entrar al panel de ${business.name}`}
     >
-      <Link
-        href={`/${business.slug}/admin`}
-        aria-label={`Entrar al panel de ${business.name}`}
-        className="absolute inset-0 z-0"
-      />
+
 
       <header className="relative flex items-start gap-3">
         <div className="relative size-12 shrink-0 overflow-hidden rounded-xl bg-zinc-100 text-zinc-600 ring-1 ring-zinc-200">
@@ -88,14 +86,7 @@ export function BusinessCard({ business }: { business: PlatformBusiness }) {
         />
       </div>
 
-      <footer className="relative flex items-center justify-between">
-        <Link
-          href={`/negocios/${business.id}`}
-          className="relative z-10 inline-flex items-center gap-1 text-xs text-zinc-500 transition hover:text-zinc-900"
-        >
-          <Settings className="size-3" strokeWidth={1.75} />
-          Gestionar
-        </Link>
+      <footer className="relative flex items-center justify-end">
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-900">
           Entrar al panel
           <span className="flex size-6 items-center justify-center rounded-full bg-zinc-900 text-zinc-50 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
@@ -103,7 +94,7 @@ export function BusinessCard({ business }: { business: PlatformBusiness }) {
           </span>
         </span>
       </footer>
-    </article>
+    </Link>
   );
 }
 

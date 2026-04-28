@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { CheckoutForm } from "@/components/checkout/checkout-form";
 import { listUserAddresses } from "@/lib/customers/addresses";
+import { getCustomerProfile } from "@/lib/customers/profile";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBusiness } from "@/lib/tenant";
 
@@ -23,11 +24,28 @@ export default async function CheckoutPage({
     redirect(`/${business_slug}/login?next=${next}`);
   }
 
-  const savedAddresses = await listUserAddresses(user.id, business.id);
+  const [savedAddresses, profile] = await Promise.all([
+    listUserAddresses(user.id, business.id),
+    getCustomerProfile(user.id, business.id),
+  ]);
 
   const mpEnabled = Boolean(
     business.mp_accepts_payments && business.mp_access_token,
   );
+
+  // Prefer the customer row (set on previous orders) over session metadata —
+  // the customer row reflects the last name/phone the user actually typed.
+  const initialName =
+    profile.name ??
+    (user.user_metadata?.full_name as string | undefined) ??
+    (user.user_metadata?.name as string | undefined) ??
+    "";
+  const initialEmail = profile.email ?? user.email ?? "";
+  const initialPhone =
+    profile.phone ??
+    (user.phone as string | undefined) ??
+    (user.user_metadata?.phone as string | undefined) ??
+    "";
 
   return (
     <CheckoutForm
@@ -38,12 +56,9 @@ export default async function CheckoutPage({
       estimatedMinutes={business.estimated_delivery_minutes}
       savedAddresses={savedAddresses}
       mpEnabled={mpEnabled}
-      initialName={
-        (user.user_metadata?.full_name as string | undefined) ??
-        (user.user_metadata?.name as string | undefined) ??
-        ""
-      }
-      initialEmail={user.email ?? ""}
+      initialName={initialName}
+      initialEmail={initialEmail}
+      initialPhone={initialPhone}
     />
   );
 }

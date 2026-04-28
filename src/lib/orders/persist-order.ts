@@ -4,6 +4,7 @@ import { actionError, actionOk, type ActionResult } from "@/lib/actions";
 import { currentDayOfWeek } from "@/lib/day-of-week";
 import { formatCurrency } from "@/lib/currency";
 import { createPreference } from "@/lib/payments/mercadopago";
+import { validatePromoCode } from "@/lib/promos/validate";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
 import type { CreateOrderInput } from "./schema";
@@ -273,7 +274,36 @@ export async function persistOrder(
     deliveryFeeCents = Number(business.delivery_fee_cents ?? 0);
   }
 
-  const totalCents = subtotalCents + deliveryFeeCents;
+  // ── Promo code validation (Fase 2) ─────────────────────────────────────
+  // Validamos ANTES de calcular total. El uses_count se incrementa después
+  // del insert, atómicamente, vía la RPC `increment_promo_use` — así si el
+  // insert de la orden falla, no contamos el uso.
+  let discountCents = 0;
+  let promoCodeId: string | null = null;
+  let promoCodeSnapshot: string | null = null;
+  if (data.promo_code) {
+    const validation = await validatePromoCode(supabase, {
+      businessId: business.id,
+      code: data.promo_code,
+      subtotalCents,
+      deliveryFeeCents,
+    });
+    if (!validation.ok) {
+      return actionError(validation.error);
+    }
+    discountCents = validation.promo.discount_cents;
+    promoCodeId = validation.promo.promo_code_id;
+    promoCodeSnapshot = validation.promo.code;
+    // Si el cupón es free_shipping, ya seteó discount_cents = deliveryFeeCents.
+    // Lo aplicamos como "delivery_fee = 0" visualmente para que el cliente vea
+    // "Envío: gratis" en el detalle, en lugar de "Envío $X · Descuento -$X".
+    if (validation.promo.free_shipping) {
+      deliveryFeeCents = 0;
+      discountCents = 0;
+    }
+  }
+
+  const totalCents = Math.max(0, subtotalCents + deliveryFeeCents - discountCents);
 
   const { data: customer, error: customerErr } = await supabase
     .from("customers")
@@ -294,28 +324,69 @@ export async function persistOrder(
     return actionError("No pudimos guardar tus datos.");
   }
 
+  // Cast: `promo_code_id`, `promo_code_snapshot`, `discount_cents` were added
+  // by migration 0018. Once `database.types.ts` is regenerated this cast can
+  // be removed and the call inline-typed.
+  const orderInsert = {
+    order_number: 0,
+    business_id: business.id,
+    customer_id: customer.id,
+    customer_name: data.customer_name,
+    customer_phone: data.customer_phone,
+    delivery_type: data.delivery_type,
+    delivery_address: data.delivery_address ?? null,
+    delivery_notes: data.delivery_notes ?? null,
+    subtotal_cents: subtotalCents,
+    delivery_fee_cents: deliveryFeeCents,
+    discount_cents: discountCents,
+    total_cents: totalCents,
+    payment_method: paymentMethod,
+    payment_status: "pending",
+    promo_code_id: promoCodeId,
+    promo_code_snapshot: promoCodeSnapshot,
+  };
   const { data: order, error: orderErr } = await supabase
     .from("orders")
-    .insert({
-      order_number: 0,
-      business_id: business.id,
-      customer_id: customer.id,
-      customer_name: data.customer_name,
-      customer_phone: data.customer_phone,
-      delivery_type: data.delivery_type,
-      delivery_address: data.delivery_address ?? null,
-      delivery_notes: data.delivery_notes ?? null,
-      subtotal_cents: subtotalCents,
-      delivery_fee_cents: deliveryFeeCents,
-      total_cents: totalCents,
-      payment_method: paymentMethod,
-      payment_status: "pending",
-    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .insert(orderInsert as any)
     .select("id, order_number")
     .single();
   if (orderErr || !order) {
     console.error("order insert", orderErr);
     return actionError("No pudimos crear el pedido.");
+  }
+
+  // ── Atomic increment of promo uses_count (after order is committed) ────
+  // Si el RPC devuelve false (race condition: alguien ganó la carrera y agotó
+  // el cupón entre nuestro check y el insert), revertimos el promo en la orden
+  // para que el reporte sea honesto. La orden queda creada igual — el dueño
+  // puede ofrecer el descuento manualmente.
+  if (promoCodeId) {
+    // RPC `increment_promo_use` is defined in migration 0018; cast bypasses the
+    // typed RPC enum until database.types.ts is regenerated.
+    const { data: incremented } = await (
+      supabase.rpc as unknown as (
+        fn: string,
+        params: Record<string, unknown>,
+      ) => Promise<{ data: boolean | null; error: unknown }>
+    )("increment_promo_use", {
+      p_promo_id: promoCodeId,
+      p_business_id: business.id,
+    });
+    if (incremented === false) {
+      console.warn("promo race lost", { orderId: order.id, promoCodeId });
+      const revertPatch = {
+        promo_code_id: null,
+        promo_code_snapshot: null,
+        discount_cents: 0,
+        total_cents: subtotalCents + deliveryFeeCents,
+      };
+      await supabase
+        .from("orders")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update(revertPatch as any)
+        .eq("id", order.id);
+    }
   }
 
   // Persist the delivery address for this customer, idempotently. We dedupe

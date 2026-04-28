@@ -37,7 +37,12 @@ export default async function MenuPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isOpen = computeIsOpen(menu.hours, business.timezone);
+  // If the owner manually closed the business (is_active = false), treat it as
+  // closed regardless of the business-hours schedule so the cart is disabled
+  // and the "Cerrado" banner is shown. Orders are also blocked server-side in
+  // persist-order.ts, but disabling the UI avoids confusion for the customer.
+  const isOpen =
+    (business.is_active ?? true) && computeIsOpen(menu.hours, business.timezone);
   const tagline =
     (business.settings as { tagline?: string } | null)?.tagline ??
     business.address ??

@@ -84,40 +84,44 @@ export function ProductCard({
           )}
         </div>
       </div>
-      <div style={{ position: "relative", flexShrink: 0 }}>
-        <ImageTile
-          src={product.image_url}
-          alt={product.name}
-          tone="#D9C9A8"
-          sizes="88px"
-          style={{ width: 88, height: 88 }}
-        />
-        {interactive && (
-          <div
-            style={{
-              position: "absolute",
-              right: -6,
-              bottom: -6,
-              width: 32,
-              height: 32,
-              borderRadius: 99,
-              background: "#fff",
-              border: "1px solid var(--hairline-2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {cartQty > 0 ? (
-              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>
-                {cartQty}
-              </span>
-            ) : (
-              I.plus("var(--ink)", 16)
-            )}
-          </div>
-        )}
-      </div>
+      {(product.image_url || interactive) && (
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          {product.image_url && (
+            <ImageTile
+              src={product.image_url}
+              alt={product.name}
+              tone="#D9C9A8"
+              sizes="88px"
+              style={{ width: 88, height: 88 }}
+            />
+          )}
+          {interactive && (
+            <div
+              style={{
+                position: product.image_url ? "absolute" : "static",
+                right: -6,
+                bottom: -6,
+                width: 32,
+                height: 32,
+                borderRadius: 99,
+                background: "#fff",
+                border: "1px solid var(--hairline-2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {cartQty > 0 ? (
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>
+                  {cartQty}
+                </span>
+              ) : (
+                I.plus("var(--ink)", 16)
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </button>
   );
 }

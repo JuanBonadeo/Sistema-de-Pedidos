@@ -98,14 +98,16 @@ export function DailyMenuSheet({
 
         <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
           <div style={{ position: "relative" }}>
-            <ImageTile
-              src={menu.image_url}
-              alt={menu.name}
-              tone="#E9C88A"
-              radius={0}
-              sizes="520px"
-              style={{ height: 200, marginTop: 10 }}
-            />
+            {menu.image_url && (
+              <ImageTile
+                src={menu.image_url}
+                alt={menu.name}
+                tone="#E9C88A"
+                radius={0}
+                sizes="520px"
+                style={{ height: 200, marginTop: 10 }}
+              />
+            )}
             <button
               onClick={() => onOpenChange(false)}
               aria-label="Cerrar"

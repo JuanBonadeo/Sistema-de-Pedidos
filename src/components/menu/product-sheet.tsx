@@ -142,14 +142,16 @@ export function ProductSheet({
 
         <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
           <div style={{ position: "relative" }}>
-            <ImageTile
-              src={product.image_url}
-              alt={product.name}
-              tone="#D9C9A8"
-              radius={0}
-              sizes="520px"
-              style={{ height: 200, marginTop: 10 }}
-            />
+            {product.image_url && (
+              <ImageTile
+                src={product.image_url}
+                alt={product.name}
+                tone="#D9C9A8"
+                radius={0}
+                sizes="520px"
+                style={{ height: 200, marginTop: 10 }}
+              />
+            )}
             <button
               onClick={() => onOpenChange(false)}
               aria-label="Cerrar"

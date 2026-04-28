@@ -165,13 +165,15 @@ export function CartPageClient({
                   borderBottom: "1px solid var(--hairline)",
                 }}
               >
-                <ImageTile
-                  src={it.image_url}
-                  alt={it.product_name}
-                  tone="#D9C9A8"
-                  sizes="56px"
-                  style={{ width: 56, height: 56, flexShrink: 0 }}
-                />
+                {it.image_url && (
+                  <ImageTile
+                    src={it.image_url}
+                    alt={it.product_name}
+                    tone="#D9C9A8"
+                    sizes="56px"
+                    style={{ width: 56, height: 56, flexShrink: 0 }}
+                  />
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{

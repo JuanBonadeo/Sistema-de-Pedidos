@@ -112,13 +112,15 @@ function DailyMenuCard({
         opacity: disabled ? 0.6 : 1,
       }}
     >
-      <ImageTile
-        src={menu.image_url}
-        alt={menu.name}
-        tone="#E9C88A"
-        sizes="96px"
-        style={{ width: 96, height: 96, borderRadius: 10, flexShrink: 0 }}
-      />
+      {menu.image_url && (
+        <ImageTile
+          src={menu.image_url}
+          alt={menu.name}
+          tone="#E9C88A"
+          sizes="96px"
+          style={{ width: 96, height: 96, borderRadius: 10, flexShrink: 0 }}
+        />
+      )}
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <div
           style={{

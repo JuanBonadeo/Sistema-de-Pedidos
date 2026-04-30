@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { CustomerDetailView } from "@/components/admin/customers/customer-detail";
-import { PageShell } from "@/components/admin/shell/page-shell";
+import { CustomerChatbotView } from "@/components/admin/customers/customer-chatbot-view";
 import { ensureAdminAccess } from "@/lib/admin/context";
 import {
   getCustomerChatbotConversation,
@@ -11,7 +10,7 @@ import { getBusiness } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
-export default async function CustomerDetailPage({
+export default async function CustomerChatbotPage({
   params,
 }: {
   params: Promise<{ business_slug: string; id: string }>;
@@ -24,21 +23,21 @@ export default async function CustomerDetailPage({
   const customer = await getCustomerDetail(business.id, id);
   if (!customer) notFound();
 
-  const chatbotConversation = await getCustomerChatbotConversation(
+  const conversation = await getCustomerChatbotConversation(
     business.id,
     customer.phone,
   );
 
   return (
-    <PageShell width="wide" className="space-y-6">
-      <CustomerDetailView
-        slug={business_slug}
-        timezone={business.timezone}
-        customer={customer}
-        businessName={business.name}
-        businessLogoUrl={business.logo_url ?? null}
-        chatbotConversation={chatbotConversation}
-      />
-    </PageShell>
+    <CustomerChatbotView
+      slug={business_slug}
+      timezone={business.timezone}
+      businessName={business.name}
+      businessLogoUrl={business.logo_url ?? null}
+      customerId={customer.id}
+      customerName={customer.name}
+      customerPhone={customer.phone}
+      conversation={conversation}
+    />
   );
 }

@@ -433,3 +433,152 @@ export async function getCustomerDetail(
     top_products,
   };
 }
+
+// ─── Chatbot conversation ──────────────────────────────────────────────────
+//
+// Devuelve la conversación más reciente del cliente con el chatbot del negocio.
+// Hace match por `chatbot_contacts.identifier` con el `phone` del cliente,
+// comparando dígitos (los teléfonos vienen en formato libre, "+54 9 11..."
+// vs "+5491122..." vs "1122...").
+
+export type CustomerChatbotMessage = {
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+export type CustomerChatbotConversation = {
+  conversation_id: string;
+  contact_identifier: string;
+  contact_display_name: string | null;
+  channel: string;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+  messages: CustomerChatbotMessage[];
+};
+
+export async function getCustomerChatbotConversation(
+  businessId: string,
+  customerPhone: string,
+): Promise<CustomerChatbotConversation | null> {
+  const digits = customerPhone.replace(/\D/g, "");
+  if (!digits) return null;
+
+  const supabase = await createSupabaseServerClient();
+
+  // Filtramos por igualdad-de-dígitos en JS para evitar falsos positivos
+  // (un identifier "1122" no debería matchear "11221234").
+  const { data: contacts } = await supabase
+    .from("chatbot_contacts")
+    .select("id, identifier, display_name, channel")
+    .eq("business_id", businessId);
+
+  const candidates = (contacts ?? []).filter(
+    (c) => c.identifier.replace(/\D/g, "") === digits,
+  );
+  if (candidates.length === 0) return null;
+
+  const contactIds = candidates.map((c) => c.id);
+  const { data: convs } = await supabase
+    .from("chatbot_conversations")
+    .select("id, contact_id, created_at, updated_at, closed_at")
+    .in("contact_id", contactIds)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  const conv = convs?.[0];
+  if (!conv) return null;
+
+  const contact =
+    candidates.find((c) => c.id === conv.contact_id) ?? candidates[0];
+
+  const { data: msgs } = await supabase
+    .from("chatbot_messages")
+    .select("role, content, created_at")
+    .eq("conversation_id", conv.id)
+    .order("created_at", { ascending: true });
+
+  const messages: CustomerChatbotMessage[] = (msgs ?? [])
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+      created_at: m.created_at,
+    }));
+
+  return {
+    conversation_id: conv.id,
+    contact_identifier: contact.identifier,
+    contact_display_name: contact.display_name,
+    channel: contact.channel,
+    created_at: conv.created_at,
+    updated_at: conv.updated_at,
+    closed_at: conv.closed_at,
+    messages,
+  };
+}
+
+// Para la card de la demo: agarra un cliente con conversación reciente para
+// deep-linkear a /admin/clientes/{id}/chatbot. Si ningún cliente matchea, cae
+// al cliente más reciente del negocio (la página del chatbot mostrará el
+// estado vacío). Usa service client porque la demo es pública (sin auth).
+export async function getSampleCustomerForChatbotDemo(
+  businessId: string,
+): Promise<{ id: string; hasConversation: boolean } | null> {
+  const { createSupabaseServiceClient } = await import("@/lib/supabase/service");
+  const service = createSupabaseServiceClient();
+
+  const { data: convs } = await service
+    .from("chatbot_conversations")
+    .select("contact_id, updated_at")
+    .eq("business_id", businessId)
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  const contactIds = Array.from(
+    new Set((convs ?? []).map((c) => c.contact_id).filter(Boolean)),
+  );
+
+  if (contactIds.length > 0) {
+    const [{ data: contacts }, { data: customers }] = await Promise.all([
+      service
+        .from("chatbot_contacts")
+        .select("id, identifier")
+        .in("id", contactIds),
+      service
+        .from("customers")
+        .select("id, phone")
+        .eq("business_id", businessId),
+    ]);
+
+    const customerByDigits = new Map<string, string>();
+    for (const c of customers ?? []) {
+      const digits = c.phone.replace(/\D/g, "");
+      if (digits && !customerByDigits.has(digits)) {
+        customerByDigits.set(digits, c.id);
+      }
+    }
+    const contactsById = new Map(
+      (contacts ?? []).map((c) => [c.id, c.identifier] as const),
+    );
+
+    for (const conv of convs ?? []) {
+      const ident = contactsById.get(conv.contact_id);
+      if (!ident) continue;
+      const digits = ident.replace(/\D/g, "");
+      const customerId = customerByDigits.get(digits);
+      if (customerId) return { id: customerId, hasConversation: true };
+    }
+  }
+
+  const { data: fallback } = await service
+    .from("customers")
+    .select("id")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return fallback ? { id: fallback.id, hasConversation: false } : null;
+}
+

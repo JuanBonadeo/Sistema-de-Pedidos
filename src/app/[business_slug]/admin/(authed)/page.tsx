@@ -16,6 +16,7 @@ import { DashboardHeader } from "@/components/admin/dashboard/dashboard-header";
 import { HourlyHeatmap } from "@/components/admin/dashboard/hourly-heatmap";
 import { RecentOrders } from "@/components/admin/dashboard/recent-orders";
 import { RevenueChart } from "@/components/admin/dashboard/revenue-chart";
+import { SalonStatsSection } from "@/components/admin/dashboard/salon-stats";
 import { StatTile } from "@/components/admin/dashboard/stat-tile";
 import { TopProductsList } from "@/components/admin/dashboard/top-products-list";
 import { PageShell } from "@/components/admin/shell/page-shell";
@@ -26,6 +27,7 @@ import {
   getHourlyHeatmap,
 } from "@/lib/admin/dashboard-query";
 import { getTodayOrders } from "@/lib/admin/orders-query";
+import { getSalonStats } from "@/lib/admin/reports-query";
 import { currentDayOfWeek } from "@/lib/day-of-week";
 import { formatCurrency } from "@/lib/currency";
 import { getBusiness } from "@/lib/tenant";
@@ -59,11 +61,12 @@ export default async function AdminDashboardPage({
 
   const ctx = await ensureAdminAccess(business.id, business_slug);
 
-  const [overview, heatmap, menus, orders] = await Promise.all([
+  const [overview, heatmap, menus, orders, salon] = await Promise.all([
     getDashboardOverview(business.id, business.timezone),
     getHourlyHeatmap(business.id, business.timezone),
     getAdminDailyMenus(business.id),
     getTodayOrders(business.id, business.timezone),
+    getSalonStats(business.id, business.timezone),
   ]);
 
   const todayDow = currentDayOfWeek(business.timezone);
@@ -145,6 +148,10 @@ export default async function AdminDashboardPage({
           />
         </div>
       </section>
+
+      {salon.totalTables > 0 ? (
+        <SalonStatsSection data={salon} />
+      ) : null}
 
       <section className="grid gap-5 lg:grid-cols-5">
         <div className="lg:col-span-3">

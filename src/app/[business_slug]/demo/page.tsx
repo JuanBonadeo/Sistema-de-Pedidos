@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogIn,
   Megaphone,
+  MessageCircle,
   Receipt,
   Settings,
   ShieldCheck,
@@ -21,6 +22,7 @@ import {
   Utensils,
 } from "lucide-react";
 
+import { getSampleCustomerForChatbotDemo } from "@/lib/admin/customers-query";
 import { getBusiness } from "@/lib/tenant";
 
 type Role = {
@@ -47,6 +49,8 @@ export default async function DemoHubPage({
   const { business_slug } = await params;
   const business = await getBusiness(business_slug);
   if (!business) notFound();
+
+  const chatbotSample = await getSampleCustomerForChatbotDemo(business.id);
 
   const roles: Role[] = [
     {
@@ -187,6 +191,17 @@ export default async function DemoHubPage({
       description: "Acceso simple sin contraseñas que recordar.",
       icon: LogIn,
     },
+    ...(chatbotSample
+      ? [
+          {
+            href: `/${business_slug}/admin/clientes/${chatbotSample.id}/chatbot`,
+            title: "Chat con el bot",
+            description:
+              "El cliente pide por WhatsApp y el bot le arma el carrito.",
+            icon: MessageCircle,
+          },
+        ]
+      : []),
   ];
 
   return (

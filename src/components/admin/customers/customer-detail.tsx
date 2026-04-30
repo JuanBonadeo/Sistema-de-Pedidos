@@ -16,8 +16,12 @@ import {
   Timer,
 } from "lucide-react";
 
+import { CustomerChatbotSection } from "@/components/admin/customers/customer-chatbot-modal";
 import { SegmentChip } from "@/components/admin/customers/customers-list-client";
-import type { CustomerDetail } from "@/lib/admin/customers-query";
+import type {
+  CustomerChatbotConversation,
+  CustomerDetail,
+} from "@/lib/admin/customers-query";
 import { formatCurrency } from "@/lib/currency";
 import { STATUS_META } from "@/lib/orders/status-meta";
 import { cn } from "@/lib/utils";
@@ -26,10 +30,16 @@ export function CustomerDetailView({
   slug,
   timezone,
   customer,
+  businessName,
+  businessLogoUrl,
+  chatbotConversation,
 }: {
   slug: string;
   timezone: string;
   customer: CustomerDetail;
+  businessName: string;
+  businessLogoUrl: string | null;
+  chatbotConversation: CustomerChatbotConversation | null;
 }) {
   const initials = getInitials(customer.name ?? customer.phone);
   const createdLabel = formatInTimeZone(
@@ -239,6 +249,18 @@ export function CustomerDetailView({
           )}
         </div>
       </section>
+
+      {/* ── Chatbot ─────────────────────────────────────────────────────── */}
+      <CustomerChatbotSection
+        conversation={chatbotConversation}
+        businessName={businessName}
+        businessLogoUrl={businessLogoUrl}
+        customerName={customer.name}
+        customerPhone={customer.phone}
+        customerId={customer.id}
+        slug={slug}
+        timezone={timezone}
+      />
 
       {/* ── Orders ──────────────────────────────────────────────────────── */}
       <section className="rounded-2xl bg-white ring-1 ring-zinc-200/70">

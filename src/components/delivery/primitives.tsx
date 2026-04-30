@@ -3,7 +3,7 @@ import Image from "next/image";
 export function ImageTile({
   src,
   alt,
-  tone = "#D9C9A8",
+  tone: _tone = "#D9C9A8",
   className = "",
   style,
   radius = 12,

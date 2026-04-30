@@ -84,7 +84,7 @@ export async function generateProductImages(input: {
   let found = 0;
   let notFound = 0;
   let errors = 0;
-  let skippedExisting = 0;
+  const skippedExisting = 0;
 
   for (const product of products) {
     if (!onlyMissing && product.image_url) {

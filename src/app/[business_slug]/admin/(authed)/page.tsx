@@ -6,18 +6,25 @@ import {
   Flame,
   Receipt,
   Timer,
+  Users,
+  Wallet,
 } from "lucide-react";
 
+import { ChannelDonut } from "@/components/admin/dashboard/channel-donut";
 import { DailyMenuPreview } from "@/components/admin/dashboard/daily-menu-preview";
 import { DashboardHeader } from "@/components/admin/dashboard/dashboard-header";
+import { HourlyHeatmap } from "@/components/admin/dashboard/hourly-heatmap";
 import { RecentOrders } from "@/components/admin/dashboard/recent-orders";
-import { RevenueSparkline } from "@/components/admin/dashboard/revenue-sparkline";
+import { RevenueChart } from "@/components/admin/dashboard/revenue-chart";
 import { StatTile } from "@/components/admin/dashboard/stat-tile";
 import { TopProductsList } from "@/components/admin/dashboard/top-products-list";
 import { PageShell } from "@/components/admin/shell/page-shell";
 import { ensureAdminAccess } from "@/lib/admin/context";
 import { getAdminDailyMenus } from "@/lib/admin/daily-menu-query";
-import { getDashboardOverview } from "@/lib/admin/dashboard-query";
+import {
+  getDashboardOverview,
+  getHourlyHeatmap,
+} from "@/lib/admin/dashboard-query";
 import { getTodayOrders } from "@/lib/admin/orders-query";
 import { currentDayOfWeek } from "@/lib/day-of-week";
 import { formatCurrency } from "@/lib/currency";
@@ -52,8 +59,9 @@ export default async function AdminDashboardPage({
 
   const ctx = await ensureAdminAccess(business.id, business_slug);
 
-  const [overview, menus, orders] = await Promise.all([
+  const [overview, heatmap, menus, orders] = await Promise.all([
     getDashboardOverview(business.id, business.timezone),
+    getHourlyHeatmap(business.id, business.timezone),
     getAdminDailyMenus(business.id),
     getTodayOrders(business.id, business.timezone),
   ]);
@@ -70,7 +78,7 @@ export default async function AdminDashboardPage({
         isActive={business.is_active ?? true}
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatTile
           eyebrow="Pedidos hoy"
           value={overview.today.orderCount.toString()}
@@ -82,11 +90,29 @@ export default async function AdminDashboardPage({
         <StatTile
           eyebrow="Ingresos hoy"
           value={formatCurrency(overview.today.revenueCents)}
-          sub={`ticket prom. ${formatCurrency(overview.today.averageTicketCents)}`}
           icon={<CircleDollarSign className="size-4" strokeWidth={1.75} />}
           trend={trend(
             overview.today.revenueCents,
             overview.yesterday.revenueCents,
+          )}
+        />
+        <StatTile
+          eyebrow="Ticket promedio"
+          value={formatCurrency(overview.today.averageTicketCents)}
+          icon={<Wallet className="size-4" strokeWidth={1.75} />}
+          trend={trend(
+            overview.today.averageTicketCents,
+            overview.yesterday.averageTicketCents,
+          )}
+        />
+        <StatTile
+          eyebrow="Clientes nuevos"
+          value={overview.today.newCustomerCount.toString()}
+          sub="primer registro hoy"
+          icon={<Users className="size-4" strokeWidth={1.75} />}
+          trend={trend(
+            overview.today.newCustomerCount,
+            overview.yesterday.newCustomerCount,
           )}
         />
         <StatTile
@@ -102,14 +128,14 @@ export default async function AdminDashboardPage({
         <StatTile
           eyebrow="Cancelados hoy"
           value={overview.today.cancelledCount.toString()}
-          sub="pedidos no facturados"
+          sub="no facturados"
           icon={<Timer className="size-4" strokeWidth={1.75} />}
         />
       </section>
 
       <section className="grid gap-5 lg:grid-cols-5">
         <div className="lg:col-span-3">
-          <RevenueSparkline data={overview.week.dailyRevenue} />
+          <RevenueChart data={overview.month.dailyRevenue} />
         </div>
         <div className="lg:col-span-2">
           <DailyMenuPreview
@@ -117,6 +143,20 @@ export default async function AdminDashboardPage({
             menus={menus}
             todayDow={todayDow}
           />
+        </div>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-5">
+        <div className="lg:col-span-3">
+          <HourlyHeatmap
+            cells={heatmap.cells}
+            maxCount={heatmap.maxCount}
+            totalOrders={heatmap.totalOrders}
+            rangeDays={heatmap.rangeDays}
+          />
+        </div>
+        <div className="lg:col-span-2">
+          <ChannelDonut data={overview.channelBreakdown} rangeDays={30} />
         </div>
       </section>
 

@@ -9,17 +9,25 @@ export type DashboardOverview = {
     activeOrderCount: number;
     cancelledCount: number;
     averageTicketCents: number;
+    newCustomerCount: number;
   };
   yesterday: {
     orderCount: number;
     revenueCents: number;
+    averageTicketCents: number;
+    newCustomerCount: number;
   };
-  week: {
+  month: {
     orderCount: number;
     revenueCents: number;
     dailyRevenue: { date: string; revenueCents: number; orders: number }[];
   };
-  topProducts: { name: string; quantity: number }[];
+  channelBreakdown: {
+    delivery: { count: number; revenueCents: number };
+    pickup: { count: number; revenueCents: number };
+    dine_in: { count: number; revenueCents: number };
+  };
+  topProducts: { name: string; quantity: number; revenueCents: number }[];
 };
 
 function startOfDayUtc(tz: string, daysAgo = 0): Date {
@@ -58,6 +66,8 @@ function dayKey(date: Date, tz: string): string {
   return `${pick("year")}-${pick("month")}-${pick("day")}`;
 }
 
+const DAYS_IN_MONTH_RANGE = 30;
+
 export async function getDashboardOverview(
   businessId: string,
   timezone: string,
@@ -66,35 +76,49 @@ export async function getDashboardOverview(
 
   const startToday = startOfDayUtc(timezone, 0);
   const startYesterday = startOfDayUtc(timezone, 1);
-  const start7d = startOfDayUtc(timezone, 6);
+  const startMonth = startOfDayUtc(timezone, DAYS_IN_MONTH_RANGE - 1);
 
-  const { data: weekRows } = await supabase
-    .from("orders")
-    .select("created_at, total_cents, status")
-    .eq("business_id", businessId)
-    .gte("created_at", start7d.toISOString());
+  const [ordersRes, todayItemsRes, customersRes] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("created_at, total_cents, status, delivery_type")
+      .eq("business_id", businessId)
+      .gte("created_at", startMonth.toISOString()),
+    supabase
+      .from("order_items")
+      .select(
+        "product_name, quantity, subtotal_cents, orders!inner(business_id, created_at, status)",
+      )
+      .eq("orders.business_id", businessId)
+      .gte("orders.created_at", startToday.toISOString())
+      .neq("orders.status", "cancelled"),
+    supabase
+      .from("customers")
+      .select("created_at")
+      .eq("business_id", businessId)
+      .gte("created_at", startYesterday.toISOString()),
+  ]);
 
-  const { data: todayItems } = await supabase
-    .from("order_items")
-    .select("product_name, quantity, orders!inner(business_id, created_at, status)")
-    .eq("orders.business_id", businessId)
-    .gte("orders.created_at", startToday.toISOString())
-    .neq("orders.status", "cancelled");
-
-  type Row = { created_at: string; total_cents: number; status: string };
-  const rows: Row[] = (weekRows ?? []).map((r) => ({
+  type OrderRow = {
+    created_at: string;
+    total_cents: number;
+    status: string;
+    delivery_type: string;
+  };
+  const orders: OrderRow[] = (ordersRes.data ?? []).map((r) => ({
     created_at: r.created_at,
     total_cents: Number(r.total_cents),
     status: r.status as string,
+    delivery_type: (r.delivery_type as string) ?? "delivery",
   }));
 
-  const inRange = (r: Row, start: Date, end?: Date) => {
+  const inRange = (r: OrderRow, start: Date, end?: Date) => {
     const t = new Date(r.created_at).getTime();
     return t >= start.getTime() && (!end || t < end.getTime());
   };
 
-  const todayRows = rows.filter((r) => inRange(r, startToday));
-  const yesterdayRows = rows.filter((r) =>
+  const todayRows = orders.filter((r) => inRange(r, startToday));
+  const yesterdayRows = orders.filter((r) =>
     inRange(r, startYesterday, startToday),
   );
 
@@ -103,8 +127,16 @@ export async function getDashboardOverview(
     (s, r) => s + r.total_cents,
     0,
   );
-  const todayCancelled = todayRows.filter((r) => r.status === "cancelled").length;
-  const activeStatuses = new Set(["pending", "confirmed", "preparing", "ready", "on_the_way"]);
+  const todayCancelled = todayRows.filter(
+    (r) => r.status === "cancelled",
+  ).length;
+  const activeStatuses = new Set([
+    "pending",
+    "confirmed",
+    "preparing",
+    "ready",
+    "on_the_way",
+  ]);
   const activeOrderCount = todayRows.filter((r) =>
     activeStatuses.has(r.status),
   ).length;
@@ -117,15 +149,21 @@ export async function getDashboardOverview(
     0,
   );
 
-  const weekNotCancelled = rows.filter((r) => r.status !== "cancelled");
-  const weekRevenue = weekNotCancelled.reduce((s, r) => s + r.total_cents, 0);
+  const monthNotCancelled = orders.filter((r) => r.status !== "cancelled");
+  const monthRevenue = monthNotCancelled.reduce(
+    (s, r) => s + r.total_cents,
+    0,
+  );
 
-  const dailyBuckets = new Map<string, { revenueCents: number; orders: number }>();
-  for (let i = 6; i >= 0; i--) {
+  const dailyBuckets = new Map<
+    string,
+    { revenueCents: number; orders: number }
+  >();
+  for (let i = DAYS_IN_MONTH_RANGE - 1; i >= 0; i--) {
     const d = startOfDayUtc(timezone, i);
     dailyBuckets.set(dayKey(d, timezone), { revenueCents: 0, orders: 0 });
   }
-  for (const r of weekNotCancelled) {
+  for (const r of monthNotCancelled) {
     const k = dayKey(new Date(r.created_at), timezone);
     const bucket = dailyBuckets.get(k);
     if (bucket) {
@@ -134,16 +172,53 @@ export async function getDashboardOverview(
     }
   }
 
-  const productCounts = new Map<string, number>();
-  for (const it of todayItems ?? []) {
+  const channelBreakdown = {
+    delivery: { count: 0, revenueCents: 0 },
+    pickup: { count: 0, revenueCents: 0 },
+    dine_in: { count: 0, revenueCents: 0 },
+  };
+  for (const r of monthNotCancelled) {
+    const key = (r.delivery_type as keyof typeof channelBreakdown) ?? "delivery";
+    if (key in channelBreakdown) {
+      channelBreakdown[key].count += 1;
+      channelBreakdown[key].revenueCents += r.total_cents;
+    }
+  }
+
+  const productCounts = new Map<
+    string,
+    { quantity: number; revenueCents: number }
+  >();
+  for (const it of todayItemsRes.data ?? []) {
     const name = (it as { product_name: string }).product_name;
     const qty = Number((it as { quantity: number }).quantity) || 0;
-    productCounts.set(name, (productCounts.get(name) ?? 0) + qty);
+    const sub = Number((it as { subtotal_cents: number }).subtotal_cents) || 0;
+    const existing = productCounts.get(name) ?? {
+      quantity: 0,
+      revenueCents: 0,
+    };
+    existing.quantity += qty;
+    existing.revenueCents += sub;
+    productCounts.set(name, existing);
   }
   const topProducts = Array.from(productCounts.entries())
-    .map(([name, quantity]) => ({ name, quantity }))
+    .map(([name, v]) => ({
+      name,
+      quantity: v.quantity,
+      revenueCents: v.revenueCents,
+    }))
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 5);
+
+  const customers = customersRes.data ?? [];
+  const newCustomersToday = customers.filter((c) => {
+    const t = new Date(c.created_at as string).getTime();
+    return t >= startToday.getTime();
+  }).length;
+  const newCustomersYesterday = customers.filter((c) => {
+    const t = new Date(c.created_at as string).getTime();
+    return t >= startYesterday.getTime() && t < startToday.getTime();
+  }).length;
 
   return {
     today: {
@@ -155,20 +230,108 @@ export async function getDashboardOverview(
         todayNotCancelled.length > 0
           ? Math.round(todayRevenue / todayNotCancelled.length)
           : 0,
+      newCustomerCount: newCustomersToday,
     },
     yesterday: {
       orderCount: yesterdayNotCancelled.length,
       revenueCents: yesterdayRevenue,
+      averageTicketCents:
+        yesterdayNotCancelled.length > 0
+          ? Math.round(yesterdayRevenue / yesterdayNotCancelled.length)
+          : 0,
+      newCustomerCount: newCustomersYesterday,
     },
-    week: {
-      orderCount: weekNotCancelled.length,
-      revenueCents: weekRevenue,
+    month: {
+      orderCount: monthNotCancelled.length,
+      revenueCents: monthRevenue,
       dailyRevenue: Array.from(dailyBuckets.entries()).map(([date, v]) => ({
         date,
         revenueCents: v.revenueCents,
         orders: v.orders,
       })),
     },
+    channelBreakdown,
     topProducts,
   };
+}
+
+export type HourlyHeatmapCell = {
+  dow: number;
+  hour: number;
+  orderCount: number;
+  revenueCents: number;
+};
+
+export type HourlyHeatmap = {
+  cells: HourlyHeatmapCell[];
+  maxCount: number;
+  totalOrders: number;
+  rangeDays: number;
+};
+
+const HEATMAP_DAYS = 90;
+
+export async function getHourlyHeatmap(
+  businessId: string,
+  timezone: string,
+): Promise<HourlyHeatmap> {
+  const supabase = await createSupabaseServerClient();
+  const start = startOfDayUtc(timezone, HEATMAP_DAYS - 1);
+
+  const { data } = await supabase
+    .from("orders")
+    .select("created_at, total_cents, status")
+    .eq("business_id", businessId)
+    .neq("status", "cancelled")
+    .gte("created_at", start.toISOString());
+
+  const grid = new Map<string, HourlyHeatmapCell>();
+  for (let dow = 0; dow < 7; dow++) {
+    for (let hour = 0; hour < 24; hour++) {
+      grid.set(`${dow}-${hour}`, {
+        dow,
+        hour,
+        orderCount: 0,
+        revenueCents: 0,
+      });
+    }
+  }
+
+  const dowFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+  });
+  const hourFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    hour12: false,
+  });
+  const dowMap: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
+
+  for (const row of data ?? []) {
+    const date = new Date(row.created_at as string);
+    const dowName = dowFmt.format(date);
+    const dow = dowMap[dowName] ?? 0;
+    const hourStr = hourFmt.format(date).replace(/\D/g, "");
+    const hour = Number(hourStr) % 24;
+    const cell = grid.get(`${dow}-${hour}`);
+    if (cell) {
+      cell.orderCount += 1;
+      cell.revenueCents += Number(row.total_cents) || 0;
+    }
+  }
+
+  const cells = Array.from(grid.values());
+  const maxCount = cells.reduce((m, c) => Math.max(m, c.orderCount), 0);
+  const totalOrders = cells.reduce((s, c) => s + c.orderCount, 0);
+
+  return { cells, maxCount, totalOrders, rangeDays: HEATMAP_DAYS };
 }

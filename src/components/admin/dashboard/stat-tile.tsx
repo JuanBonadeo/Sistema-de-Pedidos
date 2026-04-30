@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -31,8 +32,9 @@ export function StatTile({
   return (
     <div
       className={cn(
-        "group relative flex flex-col justify-between gap-6 rounded-2xl p-5 transition",
-        !isAccent && "bg-white ring-1 ring-zinc-200/70 hover:ring-zinc-300",
+        "group relative flex flex-col justify-between gap-5 rounded-2xl p-5 transition",
+        !isAccent &&
+          "bg-white ring-1 ring-zinc-200/70 hover:ring-zinc-300 hover:shadow-sm",
         isDark && "bg-zinc-900 text-zinc-50 ring-1 ring-zinc-900",
       )}
       style={
@@ -68,20 +70,10 @@ export function StatTile({
         ) : null}
       </div>
       <div>
-        <div className="text-3xl font-semibold tracking-tight tabular-nums">
+        <div className="text-[1.75rem] font-semibold leading-none tracking-tight tabular-nums sm:text-3xl">
           {value}
         </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          {sub ? (
-            <span
-              className={cn(
-                "text-xs",
-                isAccent ? "opacity-80" : "text-zinc-500",
-              )}
-            >
-              {sub}
-            </span>
-          ) : null}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           {trend ? (
             <span
               className={cn(
@@ -98,12 +90,24 @@ export function StatTile({
                 isAccent && "bg-white/15 text-current",
               )}
             >
-              {trend.direction === "up"
-                ? "↗"
-                : trend.direction === "down"
-                  ? "↘"
-                  : "→"}
+              {trend.direction === "up" ? (
+                <TrendingUp className="size-3" strokeWidth={2.25} />
+              ) : trend.direction === "down" ? (
+                <TrendingDown className="size-3" strokeWidth={2.25} />
+              ) : (
+                <Minus className="size-3" strokeWidth={2.25} />
+              )}
               {trend.label}
+            </span>
+          ) : null}
+          {sub ? (
+            <span
+              className={cn(
+                "text-xs",
+                isAccent ? "opacity-80" : "text-zinc-500",
+              )}
+            >
+              {sub}
             </span>
           ) : null}
         </div>

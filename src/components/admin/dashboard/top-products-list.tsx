@@ -1,10 +1,14 @@
 import { Flame } from "lucide-react";
 
-export function TopProductsList({
-  products,
-}: {
-  products: { name: string; quantity: number }[];
-}) {
+import { formatCurrency } from "@/lib/currency";
+
+type Product = {
+  name: string;
+  quantity: number;
+  revenueCents: number;
+};
+
+export function TopProductsList({ products }: { products: Product[] }) {
   const max = Math.max(1, ...products.map((p) => p.quantity));
 
   return (
@@ -28,30 +32,48 @@ export function TopProductsList({
           </p>
         </div>
       ) : (
-        <ol className="mt-5 space-y-3">
-          {products.map((p, i) => (
-            <li key={p.name} className="grid gap-1.5">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="flex min-w-0 items-baseline gap-2">
-                  <span className="text-xs font-semibold tabular-nums text-zinc-400">
-                    {String(i + 1).padStart(2, "0")}
+        <ol className="mt-5 space-y-3.5">
+          {products.map((p, i) => {
+            const pct = (p.quantity / max) * 100;
+            return (
+              <li key={p.name} className="grid gap-1.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="flex min-w-0 items-baseline gap-2.5">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-[0.65rem] font-bold tabular-nums text-zinc-500">
+                      {i + 1}
+                    </span>
+                    <span className="truncate text-sm font-medium text-zinc-900">
+                      {p.name}
+                    </span>
                   </span>
-                  <span className="truncate text-sm font-medium text-zinc-900">
-                    {p.name}
+                  <span className="shrink-0 text-right">
+                    <span className="block text-sm font-semibold tabular-nums text-zinc-900">
+                      {p.quantity}
+                      <span className="ml-1 text-[0.65rem] font-medium uppercase tracking-wide text-zinc-400">
+                        u
+                      </span>
+                    </span>
+                    <span className="block text-[0.65rem] tabular-nums text-zinc-500">
+                      {formatCurrency(p.revenueCents)}
+                    </span>
                   </span>
-                </span>
-                <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-900">
-                  {p.quantity}
-                </span>
-              </div>
-              <div className="h-1 w-full rounded-full bg-zinc-100">
-                <div
-                  className="h-1 rounded-full bg-zinc-900 transition-all duration-700"
-                  style={{ width: `${(p.quantity / max) * 100}%` }}
-                />
-              </div>
-            </li>
-          ))}
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${pct}%`,
+                      background:
+                        i === 0
+                          ? "var(--brand, #18181b)"
+                          : "#18181b",
+                      opacity: i === 0 ? 1 : 0.85 - i * 0.08,
+                    }}
+                  />
+                </div>
+              </li>
+            );
+          })}
         </ol>
       )}
     </section>

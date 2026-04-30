@@ -5,7 +5,6 @@ import {
   Bot,
   CalendarDays,
   ChefHat,
-  CheckCircle2,
   ClipboardList,
   Contact,
   LayoutDashboard,
@@ -166,12 +165,6 @@ export default async function DemoHubPage({
       title: "Pago online",
       description: "Cobrás antes de que el pedido entre a cocina.",
       icon: ClipboardList,
-    },
-    {
-      href: `/${business_slug}/confirmacion`,
-      title: "Seguimiento",
-      description: "El cliente sabe en qué estado va su pedido en cada momento.",
-      icon: CheckCircle2,
     },
     {
       href: `/${business_slug}/reservar`,

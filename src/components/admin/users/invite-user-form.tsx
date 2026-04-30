@@ -35,38 +35,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  BUSINESS_ROLES,
   createBusinessMemberWithPassword,
   inviteBusinessMemberByAdmin,
-  type BusinessRoleInput,
   type CreateMemberPayload,
   type InvitePayload,
 } from "@/lib/admin/members-actions";
+import {
+  BUSINESS_ROLES,
+  ROLE_META,
+  type BusinessRoleInput,
+} from "@/lib/admin/roles";
 import { cn } from "@/lib/utils";
 
 type Mode = "password" | "link";
-
-const ROLE_META: Record<
-  BusinessRoleInput,
-  { label: string; description: string }
-> = {
-  admin: {
-    label: "Admin",
-    description: "Manage total: catálogo, equipo, configuración y pagos.",
-  },
-  staff: {
-    label: "Staff",
-    description: "Operativo general: pedidos en vivo, reservas y clientes.",
-  },
-  mozo: {
-    label: "Mozo",
-    description: "Solo /mozo: plano de mesas, reservas y alta en mesa.",
-  },
-  cocina: {
-    label: "Cocina",
-    description: "Solo /cocina: kanban de comandas y avance de items.",
-  },
-};
 
 function RoleSelect({
   value,

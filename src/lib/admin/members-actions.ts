@@ -6,9 +6,7 @@ import { z } from "zod";
 import { actionError, actionOk, type ActionResult } from "@/lib/actions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
-
-export const BUSINESS_ROLES = ["admin", "staff", "mozo", "cocina"] as const;
-export type BusinessRoleInput = (typeof BUSINESS_ROLES)[number];
+import { BUSINESS_ROLES, type BusinessRoleInput } from "@/lib/admin/roles";
 
 const InviteInput = z.object({
   business_slug: z.string().min(1),

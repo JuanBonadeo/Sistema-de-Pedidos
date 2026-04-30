@@ -10,6 +10,7 @@ import {
   BarChart3,
   Bell,
   BellOff,
+  CalendarDays,
   ChevronsLeft,
   ChevronsRight,
   History,
@@ -77,6 +78,12 @@ function buildNav(slug: string, showBusinessTools: boolean): NavItem[] {
       match: (p) =>
         p.startsWith(`${adminBase}/catalogo`) ||
         p.startsWith(`${adminBase}/menu-del-dia`),
+    },
+    {
+      href: `${adminBase}/reservas`,
+      label: "Reservas",
+      icon: <CalendarDays className="size-5" strokeWidth={1.75} />,
+      match: (p) => p.startsWith(`${adminBase}/reservas`),
     },
     {
       href: `${adminBase}/promociones`,

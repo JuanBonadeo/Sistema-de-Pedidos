@@ -1,0 +1,63 @@
+import { notFound } from "next/navigation";
+import { fromZonedTime } from "date-fns-tz";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { AdminDayList } from "@/components/reservations/admin-day-list";
+import { PageHeader, PageShell } from "@/components/admin/shell/page-shell";
+import { ensureAdminAccess } from "@/lib/admin/context";
+import type { Reservation } from "@/lib/reservations/types";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { getBusiness } from "@/lib/tenant";
+
+export const dynamic = "force-dynamic";
+
+function todayInTz(timezone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+export default async function AdminReservasPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ business_slug: string }>;
+  searchParams: Promise<{ date?: string }>;
+}) {
+  const { business_slug } = await params;
+  const { date: dateQuery } = await searchParams;
+  const business = await getBusiness(business_slug);
+  if (!business) notFound();
+  await ensureAdminAccess(business.id, business_slug);
+
+  const date = dateQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateQuery)
+    ? dateQuery
+    : todayInTz(business.timezone);
+
+  const dayStart = fromZonedTime(`${date}T00:00:00`, business.timezone);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+  const service = createSupabaseServiceClient() as unknown as SupabaseClient;
+  const { data } = await service
+    .from("reservations")
+    .select("*, tables(label)")
+    .eq("business_id", business.id)
+    .gte("starts_at", dayStart.toISOString())
+    .lt("starts_at", dayEnd.toISOString())
+    .order("starts_at", { ascending: true });
+  const rows = (data ?? []) as (Reservation & { tables: { label: string } | null })[];
+
+  return (
+    <PageShell width="wide" className="space-y-6">
+      <PageHeader
+        eyebrow="Reservas"
+        title="Reservas del día"
+        description="Lista por hora con estado actual. Usá el plano y la configuración desde los botones de arriba."
+      />
+      <AdminDayList slug={business_slug} date={date} rows={rows} timezone={business.timezone} />
+    </PageShell>
+  );
+}

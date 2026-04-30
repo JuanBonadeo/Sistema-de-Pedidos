@@ -1,0 +1,60 @@
+import type { FloorTable, Reservation } from "@/lib/reservations/types";
+import { LIVE_RESERVATION_STATUSES } from "@/lib/reservations/types";
+
+export type AssignTableParams = {
+  tables: FloorTable[];
+  reservations: Pick<Reservation, "table_id" | "starts_at" | "ends_at" | "status">[];
+  partySize: number;
+  /** New reservation window — DON'T pre-add buffer; pass it via bufferMs. */
+  windowStart: Date;
+  windowEnd: Date;
+  /** Turnover gap added to existing reservations' ends. Defaults to 0. */
+  bufferMs?: number;
+};
+
+/**
+ * Picks the smallest table that fits the party and has no live reservation
+ * overlapping the window. "Smallest" = fewest seats; ties break by table id
+ * (deterministic, so retries pick a different one than the one we just lost).
+ *
+ * Returns the table or null if nothing fits.
+ *
+ * NOTE: this is a best-effort pre-flight check. The DB exclusion constraint
+ * on reservations is the source of truth for concurrent inserts; the caller
+ * MUST handle 23P01 (exclusion violation) by retrying with the next smallest
+ * table or returning "no hay lugar".
+ */
+export function pickTable(params: AssignTableParams): FloorTable | null {
+  const { tables, reservations, partySize, windowStart, windowEnd, bufferMs = 0 } = params;
+
+  const candidates = tables
+    .filter((t) => t.status === "active" && t.seats >= partySize)
+    .sort((a, b) => (a.seats - b.seats) || a.id.localeCompare(b.id));
+
+  for (const table of candidates) {
+    const conflict = reservations.some((r) => {
+      if (r.table_id !== table.id) return false;
+      if (!LIVE_RESERVATION_STATUSES.includes(r.status)) return false;
+      const rs = new Date(r.starts_at);
+      const re = new Date(new Date(r.ends_at).getTime() + bufferMs);
+      return rs < windowEnd && windowStart < re;
+    });
+    if (!conflict) return table;
+  }
+  return null;
+}
+
+/**
+ * Same shape as pickTable but excludes a set of table ids that the caller
+ * already tried (and lost the race for). Used to drive retries after a
+ * 23P01 from the DB.
+ */
+export function pickTableExcluding(
+  params: AssignTableParams,
+  excludeIds: Set<string>,
+): FloorTable | null {
+  return pickTable({
+    ...params,
+    tables: params.tables.filter((t) => !excludeIds.has(t.id)),
+  });
+}

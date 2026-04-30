@@ -38,11 +38,19 @@ export function ProductForm({
   businessId,
   categories,
   product,
+  onSuccess,
+  onCancel,
+  hideActions = false,
+  formId,
 }: {
   slug: string;
   businessId: string;
   categories: AdminCategory[];
   product?: AdminProduct;
+  onSuccess?: () => void;
+  onCancel?: () => void;
+  hideActions?: boolean;
+  formId?: string;
 }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -109,8 +117,12 @@ export function ProductForm({
         return;
       }
       toast.success(product ? "Actualizado." : "Creado.");
-      router.push(`/${slug}/admin/catalogo`);
       router.refresh();
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        router.push(`/${slug}/admin/catalogo`);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -118,7 +130,11 @@ export function ProductForm({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form
+        id={formId}
+        onSubmit={form.handleSubmit(onSubmit)}
+        className="space-y-6"
+      >
         <FormField
           control={form.control}
           name="image_url"
@@ -289,18 +305,20 @@ export function ProductForm({
 
         <ModifierGroupsEditor />
 
-        <div className="flex gap-2">
-          <Button type="submit" disabled={submitting}>
-            {submitting ? "Guardando…" : product ? "Guardar" : "Crear"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.back()}
-          >
-            Cancelar
-          </Button>
-        </div>
+        {!hideActions && (
+          <div className="flex gap-2">
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Guardando…" : product ? "Guardar" : "Crear"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => (onCancel ? onCancel() : router.back())}
+            >
+              Cancelar
+            </Button>
+          </div>
+        )}
       </form>
     </Form>
   );

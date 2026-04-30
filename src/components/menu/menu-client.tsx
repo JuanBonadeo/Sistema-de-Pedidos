@@ -268,6 +268,37 @@ export function MenuClient({
             </>
           )}
           <StatusDot status={isOpen ? "open" : "closed"} />
+          <span style={{ color: "var(--hairline-2)" }}>·</span>
+          <Link
+            href={`/${slug}/reservar`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--primary)",
+              textDecoration: "none",
+              letterSpacing: -0.1,
+            }}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <rect x="3" y="5" width="18" height="16" rx="2" />
+              <path d="M3 10h18M8 3v4M16 3v4" />
+            </svg>
+            Reservar mesa
+            {I.chevRight("var(--primary)", 12)}
+          </Link>
         </div>
         {hasDelivery && (
           <div

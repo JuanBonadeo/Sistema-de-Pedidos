@@ -13,9 +13,18 @@ export type FloorPlan = {
   name: string;
   width: number;
   height: number;
+  background_image_url: string | null;
+  background_opacity: number;
   created_at: string;
   updated_at: string;
 };
+
+export type OperationalStatus =
+  | "libre"
+  | "ocupada"
+  | "esperando_pedido"
+  | "esperando_cuenta"
+  | "limpiar";
 
 export type FloorTable = {
   id: string;
@@ -30,6 +39,10 @@ export type FloorTable = {
   rotation: number;
   status: TableStatus;
   created_at: string;
+  // Added in migration 0023 — optional so existing code without these columns compiles
+  operational_status?: OperationalStatus;
+  current_order_id?: string | null;
+  opened_at?: string | null;
 };
 
 /**

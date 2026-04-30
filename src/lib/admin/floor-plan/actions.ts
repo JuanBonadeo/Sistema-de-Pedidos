@@ -87,6 +87,8 @@ export async function saveFloorPlan(input: unknown): Promise<ActionResult<{ id: 
         name: parsed.data.name,
         width: parsed.data.width,
         height: parsed.data.height,
+        background_image_url: parsed.data.background_image_url,
+        background_opacity: parsed.data.background_opacity,
       })
       .eq("id", planId);
     if (error) {
@@ -101,6 +103,8 @@ export async function saveFloorPlan(input: unknown): Promise<ActionResult<{ id: 
         name: parsed.data.name,
         width: parsed.data.width,
         height: parsed.data.height,
+        background_image_url: parsed.data.background_image_url,
+        background_opacity: parsed.data.background_opacity,
       })
       .select("id")
       .single();

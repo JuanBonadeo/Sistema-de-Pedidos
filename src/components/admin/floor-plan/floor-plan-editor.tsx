@@ -1,13 +1,28 @@
 "use client";
 
-import { useEffect, useRef, useTransition } from "react";
-import { Circle, RectangleHorizontal, Save, Square, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  Circle,
+  Copy,
+  Grid3x3,
+  Image as ImageIcon,
+  Maximize2,
+  RectangleHorizontal,
+  RotateCcw,
+  Save,
+  Square,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveFloorPlan } from "@/lib/admin/floor-plan/actions";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { cn } from "@/lib/utils";
 import type { FloorPlan, FloorTable, TableShape as TableShapeType } from "@/lib/reservations/types";
 
 import { TableShape } from "./table-shape";
@@ -15,20 +30,26 @@ import { useFloorPlanStore } from "./use-floor-plan-store";
 
 type Props = {
   businessSlug: string;
+  businessId: string;
   plan: FloorPlan;
   tables: FloorTable[];
 };
 
 const GRID = 10;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 3;
 
 function snap(v: number, free: boolean): number {
   if (free) return Math.round(v);
   return Math.round(v / GRID) * GRID;
 }
 
-export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
+export function FloorPlanEditor({ businessSlug, businessId, plan, tables }: Props) {
   const init = useFloorPlanStore((s) => s.init);
   const setName = useFloorPlanStore((s) => s.setName);
+  const setCanvasSize = useFloorPlanStore((s) => s.setCanvasSize);
+  const setBackgroundImage = useFloorPlanStore((s) => s.setBackgroundImage);
+  const setBackgroundOpacity = useFloorPlanStore((s) => s.setBackgroundOpacity);
   const addTable = useFloorPlanStore((s) => s.addTable);
   const select = useFloorPlanStore((s) => s.select);
   const updateSelected = useFloorPlanStore((s) => s.updateSelected);
@@ -36,16 +57,23 @@ export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
   const resizeSelected = useFloorPlanStore((s) => s.resizeSelected);
   const rotateSelected = useFloorPlanStore((s) => s.rotateSelected);
   const deleteSelected = useFloorPlanStore((s) => s.deleteSelected);
+  const duplicateSelected = useFloorPlanStore((s) => s.duplicateSelected);
   const markClean = useFloorPlanStore((s) => s.markClean);
 
   const width = useFloorPlanStore((s) => s.width);
   const height = useFloorPlanStore((s) => s.height);
   const name = useFloorPlanStore((s) => s.name);
+  const backgroundImageUrl = useFloorPlanStore((s) => s.backgroundImageUrl);
+  const backgroundOpacity = useFloorPlanStore((s) => s.backgroundOpacity);
   const allTables = useFloorPlanStore((s) => s.tables);
   const selectedLocalId = useFloorPlanStore((s) => s.selectedLocalId);
   const dirty = useFloorPlanStore((s) => s.dirty);
 
   const [pending, startTransition] = useTransition();
+  const [showGrid, setShowGrid] = useState(true);
+  const [zoom, setZoom] = useState(1);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<{
     mode: "move" | "resize" | "rotate";
@@ -55,8 +83,23 @@ export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
   } | null>(null);
 
   useEffect(() => {
-    init({ width: plan.width, height: plan.height, name: plan.name, tables });
-  }, [init, plan.height, plan.name, plan.width, tables]);
+    init({
+      width: plan.width,
+      height: plan.height,
+      name: plan.name,
+      backgroundImageUrl: plan.background_image_url,
+      backgroundOpacity: plan.background_opacity,
+      tables,
+    });
+  }, [
+    init,
+    plan.background_image_url,
+    plan.background_opacity,
+    plan.height,
+    plan.name,
+    plan.width,
+    tables,
+  ]);
 
   const selected = allTables.find((t) => t._localId === selectedLocalId) ?? null;
 
@@ -146,7 +189,6 @@ export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
       const cx = snap0.x + snap0.width / 2;
       const cy = snap0.y + snap0.height / 2;
       const angle = (Math.atan2(p.y - cy, p.x - cx) * 180) / Math.PI;
-      // Handle is at "top" of the table; default angle for top is -90deg.
       const deg = angle + 90;
       rotateSelected(free ? deg : Math.round(deg / 15) * 15);
     }
@@ -158,18 +200,75 @@ export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const isField =
+        target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
       if (e.key === "Delete" || e.key === "Backspace") {
-        const target = e.target as HTMLElement | null;
-        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
+        if (isField) return;
         if (selectedLocalId) {
           e.preventDefault();
           deleteSelected();
         }
       }
+      if ((e.key === "d" || e.key === "D") && (e.metaKey || e.ctrlKey)) {
+        if (isField) return;
+        if (selectedLocalId) {
+          e.preventDefault();
+          duplicateSelected();
+        }
+      }
+      if (e.key === "Escape") {
+        select(null);
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedLocalId, deleteSelected]);
+  }, [selectedLocalId, deleteSelected, duplicateSelected, select]);
+
+  async function onUploadBackground(file: File) {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Solo imágenes (PNG, JPG, etc).");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Máximo 8MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+      const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage
+        .from("floor-plans")
+        .upload(path, file, { cacheControl: "3600", upsert: false });
+      if (error) {
+        console.error(error);
+        toast.error("No pudimos subir la imagen.");
+        return;
+      }
+      const { data } = supabase.storage.from("floor-plans").getPublicUrl(path);
+      setBackgroundImage(data.publicUrl);
+
+      // try to auto-fit canvas to image aspect ratio
+      const img = new Image();
+      img.onload = () => {
+        if (img.naturalWidth && img.naturalHeight) {
+          const aspect = img.naturalWidth / img.naturalHeight;
+          const targetW = 1200;
+          const targetH = Math.round(targetW / aspect);
+          if (Math.abs(targetH - height) > 50 || Math.abs(targetW - width) > 50) {
+            setCanvasSize(targetW, targetH);
+          }
+        }
+      };
+      img.src = data.publicUrl;
+      toast.success("Imagen cargada. Ajustá la opacidad y dibujá las mesas encima.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   function onSave() {
     startTransition(async () => {
@@ -178,6 +277,8 @@ export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
         name,
         width,
         height,
+        background_image_url: backgroundImageUrl,
+        background_opacity: backgroundOpacity,
         tables: allTables.map((t) => ({
           id: t.id,
           label: t.label,
@@ -200,111 +301,369 @@ export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
     });
   }
 
+  const totalSeats = useMemo(
+    () => allTables.filter((t) => t.status === "active").reduce((sum, t) => sum + t.seats, 0),
+    [allTables],
+  );
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
       <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => addTable("circle")}
-          >
-            <Circle className="size-4" /> Mesa redonda
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => addTable("square")}
-          >
-            <Square className="size-4" /> Mesa cuadrada
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => addTable("rect")}
-          >
-            <RectangleHorizontal className="size-4" /> Mesa rectangular
-          </Button>
+        {/* Toolbar */}
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1.5 rounded-lg border bg-card/95 p-2 shadow-sm backdrop-blur">
+          <ToolGroup label="Mesas">
+            <ToolbarButton onClick={() => addTable("circle")} icon={<Circle className="size-4" />}>
+              Redonda
+            </ToolbarButton>
+            <ToolbarButton onClick={() => addTable("square")} icon={<Square className="size-4" />}>
+              Cuadrada
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => addTable("rect")}
+              icon={<RectangleHorizontal className="size-4" />}
+            >
+              Rectangular
+            </ToolbarButton>
+          </ToolGroup>
+
+          <Divider />
+
+          <ToolGroup label="Plano">
+            <ToolbarButton
+              icon={<ImageIcon className="size-4" />}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? "Subiendo…" : backgroundImageUrl ? "Cambiar foto" : "Subir foto"}
+            </ToolbarButton>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onUploadBackground(f);
+              }}
+            />
+            <ToolbarButton
+              icon={<Grid3x3 className="size-4" />}
+              onClick={() => setShowGrid((g) => !g)}
+              active={showGrid}
+            >
+              Grilla
+            </ToolbarButton>
+          </ToolGroup>
+
+          <Divider />
+
+          <ToolGroup label="Zoom">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setZoom((z) => Math.max(MIN_ZOOM, +(z - 0.1).toFixed(2)))}
+              aria-label="Zoom out"
+            >
+              <ZoomOut className="size-4" />
+            </Button>
+            <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
+              {Math.round(zoom * 100)}%
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setZoom((z) => Math.min(MAX_ZOOM, +(z + 0.1).toFixed(2)))}
+              aria-label="Zoom in"
+            >
+              <ZoomIn className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setZoom(1)}
+              aria-label="Resetear zoom"
+            >
+              <Maximize2 className="size-4" />
+            </Button>
+          </ToolGroup>
+
           <div className="ms-auto flex items-center gap-2">
-            {dirty ? <span className="text-xs text-muted-foreground">Cambios sin guardar</span> : null}
+            {dirty ? (
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                Cambios sin guardar
+              </span>
+            ) : null}
             <Button type="button" size="sm" onClick={onSave} disabled={pending || !dirty}>
               <Save className="size-4" /> Guardar
             </Button>
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-lg border bg-card">
-          <svg
-            ref={svgRef}
-            viewBox={`0 0 ${width} ${height}`}
-            className="block aspect-[10/7] w-full bg-muted/20"
-            onPointerMove={onSvgPointerMove}
-            onPointerUp={onSvgPointerUp}
-            onPointerLeave={onSvgPointerUp}
-            onClick={(e) => {
-              if (e.target === svgRef.current) select(null);
+        {/* Canvas */}
+        <div className="relative overflow-auto rounded-xl border bg-muted/30 p-4 shadow-inner">
+          <div
+            className="relative mx-auto"
+            style={{
+              width: `${zoom * 100}%`,
+              maxWidth: "none",
+              transition: "width 80ms ease-out",
             }}
           >
-            {/* grid */}
-            <defs>
-              <pattern id="fp-grid" width={GRID * 5} height={GRID * 5} patternUnits="userSpaceOnUse">
-                <path
-                  d={`M ${GRID * 5} 0 L 0 0 0 ${GRID * 5}`}
-                  className="fill-none stroke-border/40"
-                  strokeWidth={1}
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${width} ${height}`}
+              className="block aspect-auto w-full rounded-lg border bg-background shadow-sm"
+              style={{ aspectRatio: `${width}/${height}` }}
+              onPointerMove={onSvgPointerMove}
+              onPointerUp={onSvgPointerUp}
+              onPointerLeave={onSvgPointerUp}
+              onClick={(e) => {
+                if (e.target === svgRef.current) select(null);
+              }}
+            >
+              <defs>
+                <pattern id="fp-grid" width={GRID * 5} height={GRID * 5} patternUnits="userSpaceOnUse">
+                  <path
+                    d={`M ${GRID * 5} 0 L 0 0 0 ${GRID * 5}`}
+                    className="fill-none stroke-border/40"
+                    strokeWidth={1}
+                  />
+                </pattern>
+                <pattern
+                  id="fp-grid-major"
+                  width={GRID * 25}
+                  height={GRID * 25}
+                  patternUnits="userSpaceOnUse"
+                >
+                  <path
+                    d={`M ${GRID * 25} 0 L 0 0 0 ${GRID * 25}`}
+                    className="fill-none stroke-border/70"
+                    strokeWidth={1.2}
+                  />
+                </pattern>
+              </defs>
+
+              {/* background photo */}
+              {backgroundImageUrl ? (
+                <image
+                  href={backgroundImageUrl}
+                  x={0}
+                  y={0}
+                  width={width}
+                  height={height}
+                  preserveAspectRatio="xMidYMid slice"
+                  opacity={backgroundOpacity / 100}
                 />
-              </pattern>
-            </defs>
-            <rect width={width} height={height} fill="url(#fp-grid)" />
+              ) : null}
 
-            {allTables.map((t) => (
-              <TableShape
-                key={t._localId}
-                table={t}
-                selected={t._localId === selectedLocalId}
-                onPointerDown={onTablePointerDown(t._localId)}
+              {/* grid */}
+              {showGrid ? (
+                <>
+                  <rect width={width} height={height} fill="url(#fp-grid)" />
+                  <rect width={width} height={height} fill="url(#fp-grid-major)" />
+                </>
+              ) : null}
+
+              {/* canvas border */}
+              <rect
+                x={0.5}
+                y={0.5}
+                width={width - 1}
+                height={height - 1}
+                className="fill-none stroke-border/60"
+                strokeDasharray="4 6"
               />
-            ))}
 
-            {selected ? <SelectionHandles
-              table={selected}
-              onResize={onResizeHandlePointerDown}
-              onRotate={onRotateHandlePointerDown}
-            /> : null}
-          </svg>
+              {allTables.map((t) => (
+                <TableShape
+                  key={t._localId}
+                  table={t}
+                  selected={t._localId === selectedLocalId}
+                  onPointerDown={onTablePointerDown(t._localId)}
+                />
+              ))}
+
+              {selected ? (
+                <SelectionHandles
+                  table={selected}
+                  onResize={onResizeHandlePointerDown}
+                  onRotate={onRotateHandlePointerDown}
+                />
+              ) : null}
+            </svg>
+          </div>
+
+          {/* Stats overlay */}
+          <div className="pointer-events-none absolute bottom-3 left-3 flex gap-2 text-xs">
+            <span className="rounded-md bg-card/90 px-2 py-1 shadow-sm backdrop-blur">
+              {allTables.length} mesa{allTables.length === 1 ? "" : "s"}
+            </span>
+            <span className="rounded-md bg-card/90 px-2 py-1 shadow-sm backdrop-blur">
+              {totalSeats} comensales
+            </span>
+          </div>
         </div>
+
         <p className="text-xs text-muted-foreground">
-          Tip: Shift mientras arrastrás desactiva el snap a grilla. Suprimir borra la mesa seleccionada.
+          Tip: Shift mientras arrastrás desactiva el snap a grilla. Suprimir borra,
+          ⌘/Ctrl+D duplica, Escape deselecciona.
         </p>
       </div>
 
-      <aside className="space-y-3 rounded-lg border bg-card p-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="fp-name">Nombre del plano</Label>
-          <Input
-            id="fp-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={60}
-          />
+      {/* Sidebar */}
+      <aside className="space-y-4">
+        {/* Plan settings card */}
+        <div className="space-y-3 rounded-xl border bg-card p-4 shadow-sm">
+          <h3 className="text-sm font-semibold">Plano</h3>
+          <div className="space-y-1.5">
+            <Label htmlFor="fp-name">Nombre</Label>
+            <Input
+              id="fp-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={60}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="fp-w">Ancho</Label>
+              <Input
+                id="fp-w"
+                type="number"
+                min={200}
+                max={5000}
+                step={50}
+                value={width}
+                onChange={(e) => setCanvasSize(Math.max(200, Number(e.target.value) || width), height)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="fp-h">Alto</Label>
+              <Input
+                id="fp-h"
+                type="number"
+                min={200}
+                max={5000}
+                step={50}
+                value={height}
+                onChange={(e) => setCanvasSize(width, Math.max(200, Number(e.target.value) || height))}
+              />
+            </div>
+          </div>
+
+          {/* Background controls */}
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                Foto del plano
+              </Label>
+              {backgroundImageUrl ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setBackgroundImage(null)}
+                  aria-label="Quitar foto"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              ) : null}
+            </div>
+
+            {backgroundImageUrl ? (
+              <div className="space-y-2">
+                <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={backgroundImageUrl}
+                    alt="Plano"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="fp-opacity" className="text-xs">
+                      Opacidad
+                    </Label>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {backgroundOpacity}%
+                    </span>
+                  </div>
+                  <input
+                    id="fp-opacity"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={backgroundOpacity}
+                    onChange={(e) => setBackgroundOpacity(Number(e.target.value))}
+                    className="w-full accent-primary"
+                  />
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className={cn(
+                  "flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-border/60 bg-muted/30 px-3 py-6 text-center transition hover:border-primary/50 hover:bg-muted/50",
+                  uploading && "opacity-50",
+                )}
+              >
+                <ImageIcon className="size-6 text-muted-foreground" />
+                <span className="text-xs font-medium">
+                  {uploading ? "Subiendo…" : "Subir foto del plano"}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  PNG, JPG. Máx 8MB. Usala como referencia para dibujar las mesas encima.
+                </span>
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* Selected table card */}
         {selected ? (
-          <div className="space-y-3 border-t pt-3">
+          <div className="space-y-3 rounded-xl border bg-card p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Mesa seleccionada</h3>
-              <Button
-                type="button"
-                size="icon-xs"
-                variant="ghost"
-                onClick={() => deleteSelected()}
-                aria-label="Eliminar mesa"
-              >
-                <Trash2 className="size-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => duplicateSelected()}
+                  aria-label="Duplicar mesa"
+                  title="Duplicar (⌘D)"
+                >
+                  <Copy className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => updateSelected({ rotation: 0 })}
+                  aria-label="Resetear rotación"
+                  title="Resetear rotación"
+                >
+                  <RotateCcw className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => deleteSelected()}
+                  aria-label="Eliminar mesa"
+                  title="Eliminar"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="fp-label">Nombre</Label>
@@ -324,14 +683,16 @@ export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
                   min={1}
                   max={50}
                   value={selected.seats}
-                  onChange={(e) => updateSelected({ seats: Math.max(1, Number(e.target.value) || 1) })}
+                  onChange={(e) =>
+                    updateSelected({ seats: Math.max(1, Number(e.target.value) || 1) })
+                  }
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="fp-shape">Forma</Label>
                 <select
                   id="fp-shape"
-                  className="h-8 w-full rounded-lg border bg-transparent px-2 text-sm"
+                  className="h-9 w-full rounded-lg border bg-transparent px-2 text-sm"
                   value={selected.shape}
                   onChange={(e) => updateSelected({ shape: e.target.value as TableShapeType })}
                 >
@@ -341,30 +702,128 @@ export function FloorPlanEditor({ businessSlug, plan, tables }: Props) {
                 </select>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="fp-tw">Ancho</Label>
+                <Input
+                  id="fp-tw"
+                  type="number"
+                  min={20}
+                  value={selected.width}
+                  onChange={(e) =>
+                    resizeSelected(
+                      Math.max(20, Number(e.target.value) || selected.width),
+                      selected.height,
+                    )
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fp-th">Alto</Label>
+                <Input
+                  id="fp-th"
+                  type="number"
+                  min={20}
+                  value={selected.height}
+                  onChange={(e) =>
+                    resizeSelected(
+                      selected.width,
+                      Math.max(20, Number(e.target.value) || selected.height),
+                    )
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="fp-rot">Rotación</Label>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {selected.rotation}°
+                </span>
+              </div>
+              <input
+                id="fp-rot"
+                type="range"
+                min={0}
+                max={359}
+                step={5}
+                value={selected.rotation}
+                onChange={(e) => rotateSelected(Number(e.target.value))}
+                className="w-full accent-primary"
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="fp-status">Estado</Label>
               <select
                 id="fp-status"
-                className="h-8 w-full rounded-lg border bg-transparent px-2 text-sm"
+                className="h-9 w-full rounded-lg border bg-transparent px-2 text-sm"
                 value={selected.status}
-                onChange={(e) => updateSelected({ status: e.target.value as "active" | "disabled" })}
+                onChange={(e) =>
+                  updateSelected({ status: e.target.value as "active" | "disabled" })
+                }
               >
                 <option value="active">Activa</option>
                 <option value="disabled">Deshabilitada</option>
               </select>
             </div>
             <p className="text-xs text-muted-foreground">
-              Las mesas deshabilitadas no se ofrecen en el motor de reservas pero
-              conservan el historial.
+              Las deshabilitadas no se ofrecen en el motor de reservas pero conservan
+              el historial.
             </p>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            Seleccioná una mesa para editarla, o agregá una nueva con la barra superior.
-          </p>
+          <div className="rounded-xl border border-dashed bg-card/50 p-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              Seleccioná una mesa para editarla, o agregá una nueva desde la barra superior.
+            </p>
+          </div>
         )}
       </aside>
     </div>
+  );
+}
+
+function ToolGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div
+      className="flex items-center gap-1"
+      role="group"
+      aria-label={label}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Divider() {
+  return <div className="mx-1 h-6 w-px bg-border" />;
+}
+
+function ToolbarButton({
+  children,
+  onClick,
+  icon,
+  active,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  icon: React.ReactNode;
+  active?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active ? "secondary" : "ghost"}
+      size="sm"
+      onClick={onClick}
+      disabled={disabled}
+      className="gap-1.5"
+    >
+      {icon}
+      <span className="hidden sm:inline">{children}</span>
+    </Button>
   );
 }
 
@@ -383,26 +842,31 @@ function SelectionHandles({
   const handleSize = 12;
   return (
     <g transform={transform} style={{ touchAction: "none" }}>
+      {/* selection outline */}
+      <rect
+        x={-2}
+        y={-2}
+        width={table.width + 4}
+        height={table.height + 4}
+        className="pointer-events-none fill-none stroke-primary/60"
+        strokeDasharray="3 3"
+        strokeWidth={1}
+        rx={4}
+      />
       {/* resize bottom-right */}
       <rect
         x={table.width - handleSize / 2}
         y={table.height - handleSize / 2}
         width={handleSize}
         height={handleSize}
+        rx={2}
         className="fill-primary stroke-primary-foreground"
         strokeWidth={1.5}
         style={{ cursor: "nwse-resize" }}
         onPointerDown={onResize}
       />
       {/* rotation arm + handle */}
-      <line
-        x1={cx}
-        y1={0}
-        x2={cx}
-        y2={-24}
-        className="stroke-primary"
-        strokeWidth={2}
-      />
+      <line x1={cx} y1={0} x2={cx} y2={-24} className="stroke-primary" strokeWidth={2} />
       <circle
         cx={cx}
         cy={-28}

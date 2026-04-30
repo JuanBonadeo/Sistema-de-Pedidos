@@ -17,14 +17,64 @@ type Column = {
   key: string;
   label: string;
   statuses: OrderStatus[];
+  accent: string;
+  ring: string;
+  countBg: string;
+  countText: string;
+  emptyHint: string;
 };
 
 const COLUMNS: Column[] = [
-  { key: "new", label: "Nuevos", statuses: ["pending", "confirmed"] },
-  { key: "preparing", label: "Preparando", statuses: ["preparing"] },
-  { key: "ready", label: "Listos", statuses: ["ready"] },
-  { key: "on_the_way", label: "En camino", statuses: ["on_the_way"] },
-  { key: "delivered", label: "Entregados", statuses: ["delivered"] },
+  {
+    key: "new",
+    label: "Nuevos",
+    statuses: ["pending", "confirmed"],
+    accent: "bg-blue-500",
+    ring: "ring-blue-500/30",
+    countBg: "bg-blue-50",
+    countText: "text-blue-700",
+    emptyHint: "Sin pedidos nuevos",
+  },
+  {
+    key: "preparing",
+    label: "Preparando",
+    statuses: ["preparing"],
+    accent: "bg-amber-500",
+    ring: "ring-amber-500/30",
+    countBg: "bg-amber-50",
+    countText: "text-amber-800",
+    emptyHint: "Cocina libre",
+  },
+  {
+    key: "ready",
+    label: "Listos",
+    statuses: ["ready"],
+    accent: "bg-emerald-500",
+    ring: "ring-emerald-500/30",
+    countBg: "bg-emerald-50",
+    countText: "text-emerald-800",
+    emptyHint: "Nada listo aún",
+  },
+  {
+    key: "on_the_way",
+    label: "En camino",
+    statuses: ["on_the_way"],
+    accent: "bg-indigo-500",
+    ring: "ring-indigo-500/30",
+    countBg: "bg-indigo-50",
+    countText: "text-indigo-800",
+    emptyHint: "Sin envíos activos",
+  },
+  {
+    key: "delivered",
+    label: "Entregados",
+    statuses: ["delivered"],
+    accent: "bg-zinc-300",
+    ring: "ring-zinc-300/40",
+    countBg: "bg-zinc-100",
+    countText: "text-zinc-700",
+    emptyHint: "Todavía no se entregó nada",
+  },
 ];
 
 function playBeep(): void {
@@ -105,16 +155,11 @@ export function OrdersRealtimeBoard({
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
-    // Unique topic per effect run — avoids "cannot add callbacks after
-    // subscribe" when React Strict Mode double-mounts, since the client
-    // caches channels by topic.
     const topic = `orders:${businessId}:${Math.random().toString(36).slice(2, 10)}`;
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let cancelled = false;
 
     (async () => {
-      // Ensure the realtime socket authenticates with the current session,
-      // otherwise subscriptions register as anon and RLS hides events.
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -173,7 +218,6 @@ export function OrdersRealtimeBoard({
 
   const handleAdvance = useCallback(
     async (order: AdminOrder, next: OrderStatus) => {
-      // Optimistic update
       setOrders((prev) =>
         prev.map((o) => (o.id === order.id ? { ...o, status: next } : o)),
       );
@@ -184,7 +228,6 @@ export function OrdersRealtimeBoard({
       });
       if (!result.ok) {
         toast.error(result.error);
-        // revert
         setOrders((prev) =>
           prev.map((o) =>
             o.id === order.id ? { ...o, status: order.status } : o,
@@ -207,13 +250,10 @@ export function OrdersRealtimeBoard({
       const col = COLUMNS.find((c) => c.statuses.includes(order.status));
       if (col) groups[col.key].push(order);
     }
-    // Cap delivered column to the most recent 20
     groups["delivered"] = groups["delivered"].slice(0, 20);
     return groups;
   }, [orders]);
 
-  // Cancelled orders live outside the kanban — we show them in a separate
-  // collapsible section at the bottom so the admin can clean them up.
   const cancelledOrders = useMemo(
     () => orders.filter((o) => o.status === "cancelled"),
     [orders],
@@ -224,11 +264,16 @@ export function OrdersRealtimeBoard({
   ).length;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium">
-          {activeCount} pedido{activeCount === 1 ? "" : "s"} activos
-        </p>
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl font-bold tabular-nums tracking-tight">
+            {activeCount}
+          </span>
+          <span className="text-muted-foreground text-sm">
+            pedido{activeCount === 1 ? "" : "s"} en curso
+          </span>
+        </div>
         {!soundUnlocked && (
           <Button size="sm" variant="outline" onClick={unlockSound}>
             <Bell className="size-4" />
@@ -238,42 +283,56 @@ export function OrdersRealtimeBoard({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {COLUMNS.map((col) => (
-          <section
-            key={col.key}
-            className="flex min-w-0 flex-col gap-3"
-          >
-            <h2 className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-              {col.label}{" "}
-              <span className="text-foreground">
-                ({byColumn[col.key].length})
-              </span>
-            </h2>
-            <div className="grid gap-3">
-              {byColumn[col.key].map((order) => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  slug={slug}
-                  timezone={timezone}
-                  onAdvance={handleAdvance}
-                  isNew={newlyArrived.has(order.id)}
-                />
-              ))}
-              {byColumn[col.key].length === 0 && (
-                <p className="text-muted-foreground text-xs italic">—</p>
-              )}
-            </div>
-          </section>
-        ))}
+        {COLUMNS.map((col) => {
+          const items = byColumn[col.key];
+          return (
+            <section
+              key={col.key}
+              className="bg-muted/30 ring-border/60 flex min-w-0 flex-col gap-3 overflow-hidden rounded-2xl p-3 ring-1"
+            >
+              <div className="flex flex-col gap-2">
+                <div className={`h-1 w-10 rounded-full ${col.accent}`} />
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-foreground text-base font-bold tracking-tight">
+                    {col.label}
+                  </h2>
+                  <span
+                    className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-xs font-bold tabular-nums ${col.countBg} ${col.countText}`}
+                  >
+                    {items.length}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                {items.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    slug={slug}
+                    timezone={timezone}
+                    onAdvance={handleAdvance}
+                    isNew={newlyArrived.has(order.id)}
+                    columnRing={col.ring}
+                  />
+                ))}
+                {items.length === 0 && (
+                  <div className="border-border/60 text-muted-foreground/70 rounded-xl border border-dashed px-3 py-6 text-center text-xs">
+                    {col.emptyHint}
+                  </div>
+                )}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
       {cancelledOrders.length > 0 && (
-        <details className="group mt-4">
-          <summary className="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase tracking-wider">
+        <details className="group mt-2">
+          <summary className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase tracking-wider transition-colors">
             <span>Cancelados</span>
-            <span className="text-foreground">
-              ({cancelledOrders.length})
+            <span className="bg-rose-50 text-rose-700 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[0.65rem] font-bold tabular-nums">
+              {cancelledOrders.length}
             </span>
             <span className="text-muted-foreground/60 normal-case tracking-normal">
               · tocá para ver

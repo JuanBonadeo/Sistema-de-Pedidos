@@ -1,175 +1,91 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Pencil, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { ChevronRight, EyeOff, ImageOff } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { ProductDetailSheet } from "@/components/admin/catalog/product-detail-sheet";
+import type { AdminCategory, AdminProduct } from "@/lib/admin/catalog-query";
 import { formatCurrency } from "@/lib/currency";
-import {
-  deleteProduct,
-  toggleProductActive,
-  toggleProductAvailability,
-} from "@/lib/catalog/product-actions";
-import type { AdminProduct } from "@/lib/admin/catalog-query";
+import { cn } from "@/lib/utils";
 
 export function ProductRow({
   slug,
+  businessId,
   product,
+  categories,
 }: {
   slug: string;
+  businessId: string;
   product: AdminProduct;
+  categories: AdminCategory[];
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [available, setAvailable] = useState(product.is_available);
-  const [active, setActive] = useState(product.is_active);
-
-  const toggleAvailable = (value: boolean) => {
-    setAvailable(value);
-    startTransition(async () => {
-      const r = await toggleProductAvailability(slug, product.id, value);
-      if (!r.ok) {
-        toast.error(r.error);
-        setAvailable(!value);
-      }
-    });
-  };
-
-  const toggleActive = (value: boolean) => {
-    setActive(value);
-    startTransition(async () => {
-      const r = await toggleProductActive(slug, product.id, value);
-      if (!r.ok) {
-        toast.error(r.error);
-        setActive(!value);
-      }
-    });
-  };
-
-  const handleDelete = () => {
-    startTransition(async () => {
-      const r = await deleteProduct(slug, product.id);
-      if (!r.ok) {
-        toast.error(r.error);
-        return;
-      }
-      // Si tenía pedidos asociados se hizo soft-delete (queda archivado, no
-      // visible en menú ni catálogo, pero el historial de pedidos lo conserva).
-      toast.success(
-        r.data.soft_deleted
-          ? "Archivado. El producto tenía pedidos, se desactivó en lugar de borrarse."
-          : "Eliminado.",
-      );
-      setConfirmOpen(false);
-      router.refresh();
-    });
-  };
+  const [open, setOpen] = useState(false);
+  const dimmed = !product.is_active;
 
   return (
-    <li className="bg-card flex items-center gap-3 rounded-xl p-3">
-      <div className="bg-muted relative size-14 shrink-0 overflow-hidden rounded-lg">
-        {product.image_url && (
-          <Image
-            src={product.image_url}
-            alt={product.name}
-            fill
-            sizes="56px"
-            className="object-cover"
-          />
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-semibold">{product.name}</span>
-          {!active && (
-            <Badge variant="secondary" className="text-[0.65rem]">
-              OCULTO
-            </Badge>
+    <>
+      <li>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={cn(
+            "bg-card hover:bg-muted/40 group flex w-full items-center gap-3 rounded-xl p-3 text-left transition-colors",
+            "ring-border/60 ring-1",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            dimmed && "opacity-70",
           )}
-        </div>
-        <p className="text-muted-foreground text-sm">
-          {formatCurrency(product.price_cents)}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="size-4"
-            checked={available}
-            onChange={(e) => toggleAvailable(e.target.checked)}
-            disabled={pending}
-          />
-          Disp.
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="size-4"
-            checked={active}
-            onChange={(e) => toggleActive(e.target.checked)}
-            disabled={pending}
-          />
-          Activo
-        </label>
-        <Link
-          href={`/${slug}/admin/catalogo/productos/${product.id}`}
-          className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
-          aria-label="Editar"
         >
-          <Pencil className="size-3.5" />
-        </Link>
-        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <DialogTrigger
-            render={
-              <Button size="icon-sm" variant="ghost" aria-label="Eliminar">
-                <Trash2 className="size-3.5" />
-              </Button>
-            }
-          />
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Eliminar &quot;{product.name}&quot;</DialogTitle>
-            </DialogHeader>
-            <p className="text-muted-foreground text-sm">
-              Esta acción no se puede deshacer. Los pedidos existentes se
-              mantienen (tienen snapshot).
+          {product.image_url ? (
+            <div className="bg-muted relative size-12 shrink-0 overflow-hidden rounded-lg">
+              <Image
+                src={product.image_url}
+                alt=""
+                fill
+                sizes="48px"
+                className="object-cover"
+              />
+            </div>
+          ) : (
+            <div className="bg-muted/60 text-muted-foreground/60 flex size-12 shrink-0 items-center justify-center rounded-lg">
+              <ImageOff className="size-4" strokeWidth={1.5} />
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-foreground truncate text-sm font-semibold">
+                {product.name}
+              </span>
+              {dimmed && (
+                <EyeOff
+                  className="text-muted-foreground size-3 shrink-0"
+                  aria-label="Oculto"
+                />
+              )}
+              {!product.is_available && product.is_active && (
+                <span className="bg-amber-50 text-amber-800 inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider">
+                  Sin stock
+                </span>
+              )}
+            </div>
+            <p className="text-muted-foreground text-xs tabular-nums">
+              {formatCurrency(product.price_cents)}
             </p>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setConfirmOpen(false)}
-                disabled={pending}
-              >
-                Cancelar
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={pending}
-              >
-                Eliminar
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    </li>
+          </div>
+
+          <ChevronRight className="text-muted-foreground/40 size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+        </button>
+      </li>
+
+      <ProductDetailSheet
+        open={open}
+        onOpenChange={setOpen}
+        slug={slug}
+        businessId={businessId}
+        product={product}
+        categories={categories}
+      />
+    </>
   );
 }

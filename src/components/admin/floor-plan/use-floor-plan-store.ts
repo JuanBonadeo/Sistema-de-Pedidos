@@ -29,6 +29,8 @@ type State = {
   width: number;
   height: number;
   name: string;
+  backgroundImageUrl: string | null;
+  backgroundOpacity: number;
   tables: EditorTable[];
   selectedLocalId: string | null;
   tool: Tool;
@@ -36,9 +38,18 @@ type State = {
 };
 
 type Actions = {
-  init: (params: { width: number; height: number; name: string; tables: FloorTable[] }) => void;
+  init: (params: {
+    width: number;
+    height: number;
+    name: string;
+    backgroundImageUrl: string | null;
+    backgroundOpacity: number;
+    tables: FloorTable[];
+  }) => void;
   setName: (name: string) => void;
   setCanvasSize: (w: number, h: number) => void;
+  setBackgroundImage: (url: string | null) => void;
+  setBackgroundOpacity: (opacity: number) => void;
   setTool: (tool: Tool) => void;
   addTable: (shape: TableShape) => void;
   select: (localId: string | null) => void;
@@ -47,6 +58,7 @@ type Actions = {
   resizeSelected: (w: number, h: number) => void;
   rotateSelected: (deg: number) => void;
   deleteSelected: () => void;
+  duplicateSelected: () => void;
   markClean: () => void;
 };
 
@@ -66,16 +78,20 @@ export const useFloorPlanStore = create<State & Actions>((set, get) => ({
   width: 1000,
   height: 700,
   name: "Salón",
+  backgroundImageUrl: null,
+  backgroundOpacity: 60,
   tables: [],
   selectedLocalId: null,
   tool: "select",
   dirty: false,
 
-  init: ({ width, height, name, tables }) =>
+  init: ({ width, height, name, backgroundImageUrl, backgroundOpacity, tables }) =>
     set({
       width,
       height,
       name,
+      backgroundImageUrl,
+      backgroundOpacity,
       tables: tables.map((t) => ({
         id: t.id,
         _localId: makeLocalId(),
@@ -96,6 +112,11 @@ export const useFloorPlanStore = create<State & Actions>((set, get) => ({
   setName: (name) => set({ name, dirty: true }),
 
   setCanvasSize: (w, h) => set({ width: w, height: h, dirty: true }),
+
+  setBackgroundImage: (url) => set({ backgroundImageUrl: url, dirty: true }),
+
+  setBackgroundOpacity: (opacity) =>
+    set({ backgroundOpacity: Math.max(0, Math.min(100, Math.round(opacity))), dirty: true }),
 
   setTool: (tool) => set({ tool }),
 
@@ -174,6 +195,24 @@ export const useFloorPlanStore = create<State & Actions>((set, get) => ({
       selectedLocalId: null,
       dirty: true,
     });
+  },
+
+  duplicateSelected: () => {
+    const { selectedLocalId, tables, width, height } = get();
+    if (!selectedLocalId) return;
+    const src = tables.find((t) => t._localId === selectedLocalId);
+    if (!src) return;
+    const localId = makeLocalId();
+    const offset = 20;
+    const next: EditorTable = {
+      ...src,
+      id: undefined,
+      _localId: localId,
+      label: `${src.label} (copia)`,
+      x: Math.max(0, Math.min(width - src.width, src.x + offset)),
+      y: Math.max(0, Math.min(height - src.height, src.y + offset)),
+    };
+    set({ tables: [...tables, next], selectedLocalId: localId, dirty: true });
   },
 
   markClean: () => set({ dirty: false }),

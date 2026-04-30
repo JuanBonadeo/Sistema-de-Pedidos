@@ -1,38 +1,20 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { formatInTimeZone } from "date-fns-tz";
-import {
-  Bike,
-  CircleDollarSign,
-  CreditCard,
-  ShoppingBag,
-} from "lucide-react";
-import { toast } from "sonner";
+import { useEffect, useState } from "react";
+import { Bike, ShoppingBag, Sparkles } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/currency";
 import type { OrderStatus } from "@/lib/orders/status";
-import { updateOrderStatus } from "@/lib/orders/update-status";
 
 import type { AdminOrder } from "@/lib/admin/orders-query";
+
+import { OrderDetailSheet } from "./order-detail-sheet";
 
 const NEXT_LABEL: Partial<Record<OrderStatus, string>> = {
   pending: "Confirmar",
   confirmed: "Preparar",
-  preparing: "Marcar listo",
+  preparing: "Listo",
   ready: "En camino",
   on_the_way: "Entregar",
 };
@@ -45,25 +27,48 @@ const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
   on_the_way: "delivered",
 };
 
+function useElapsedMinutes(iso: string): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(i);
+  }, []);
+  return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
+}
+
+function formatElapsed(min: number): string {
+  if (min < 1) return "ahora";
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m === 0 ? `${h}h` : `${h}h${m}m`;
+}
+
+function elapsedTone(min: number, isTerminal: boolean): string {
+  if (isTerminal) return "text-muted-foreground";
+  if (min >= 30) return "text-rose-700";
+  if (min >= 15) return "text-amber-700";
+  return "text-muted-foreground";
+}
+
 export function OrderCard({
   order,
   slug,
   timezone,
   onAdvance,
   isNew = false,
+  columnRing = "ring-border",
 }: {
   order: AdminOrder;
   slug: string;
   timezone: string;
   onAdvance: (order: AdminOrder, next: OrderStatus) => void;
   isNew?: boolean;
+  columnRing?: string;
 }) {
-  const router = useRouter();
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [reason, setReason] = useState("");
-  const [pending, startTransition] = useTransition();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const elapsed = useElapsedMinutes(order.created_at);
 
-  // For pickup orders, skip the on_the_way step.
   const nextForDelivery =
     order.delivery_type === "pickup" && order.status === "ready"
       ? "delivered"
@@ -77,208 +82,107 @@ export function OrderCard({
   const isTerminal =
     order.status === "delivered" || order.status === "cancelled";
 
-  const handleCancel = () => {
-    if (!reason.trim()) {
-      toast.error("Ingresá un motivo.");
-      return;
-    }
-    startTransition(async () => {
-      const result = await updateOrderStatus({
-        order_id: order.id,
-        business_slug: slug,
-        next_status: "cancelled",
-        cancelled_reason: reason.trim(),
-      });
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Pedido cancelado.");
-      setCancelOpen(false);
-      setReason("");
-      router.refresh();
-    });
-  };
+  const ringClass = isNew
+    ? "ring-2 ring-emerald-500 shadow-[0_8px_24px_-8px_rgba(16,185,129,0.35)]"
+    : `ring-1 ${columnRing}`;
 
-  const shown = order.items.slice(0, 3);
-  const rest = order.items.length - shown.length;
+  const ChannelIcon = order.delivery_type === "delivery" ? Bike : ShoppingBag;
+  const firstItem = order.items[0];
+  const moreItems = order.items.length - 1;
 
   return (
-    <article
-      className={[
-        "bg-card grid gap-2 rounded-lg p-3 shadow-[0_1px_3px_rgba(19,27,46,0.04)]",
-        isNew ? "animate-[fadeIn_0.3s_ease-out]" : "",
-      ].join(" ")}
-    >
-      <header className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-primary text-lg font-extrabold">
+    <>
+      <article
+        role="button"
+        tabIndex={0}
+        onClick={() => setSheetOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setSheetOpen(true);
+          }
+        }}
+        className={[
+          "bg-card group relative flex cursor-pointer flex-col gap-2 rounded-xl p-3 text-left transition-all",
+          "shadow-[0_1px_2px_rgba(19,27,46,0.04)]",
+          "hover:-translate-y-px hover:shadow-[0_8px_20px_-8px_rgba(19,27,46,0.14)]",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2",
+          ringClass,
+          isNew ? "animate-[fadeIn_0.3s_ease-out]" : "",
+        ].join(" ")}
+      >
+        {isNew && (
+          <span className="absolute -top-2 left-3 inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider text-white shadow-sm">
+            <Sparkles className="size-3" />
+            Nuevo
+          </span>
+        )}
+
+        <header className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-foreground text-xl font-extrabold leading-none tracking-tight tabular-nums">
               #{order.order_number}
             </span>
-            <Badge
-              variant="secondary"
-              className="flex items-center gap-1 text-[0.65rem] uppercase tracking-wider"
+            <span
+              className={`text-xs font-medium tabular-nums ${elapsedTone(elapsed, isTerminal)}`}
             >
-              {order.delivery_type === "delivery" ? (
-                <Bike className="size-3" />
-              ) : (
-                <ShoppingBag className="size-3" />
-              )}
-              {order.delivery_type === "delivery" ? "Delivery" : "Retiro"}
-            </Badge>
-            <PaymentBadge
-              method={order.payment_method}
-              status={order.payment_status}
-            />
+              {formatElapsed(elapsed)}
+            </span>
           </div>
-          <p className="text-muted-foreground text-xs">
-            {formatInTimeZone(order.created_at, timezone, "HH:mm")}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2 text-xs">
-          <Link
-            href={`/${slug}/admin/pedidos/${order.id}`}
-            className="text-primary font-medium underline-offset-2 hover:underline"
-          >
-            Ver
-          </Link>
-          {!isTerminal && (
-            <>
-              <span className="text-muted-foreground/60" aria-hidden>
-                ·
+          <ChannelIcon
+            className="text-muted-foreground size-4 shrink-0"
+            aria-label={
+              order.delivery_type === "delivery" ? "Delivery" : "Retiro"
+            }
+          />
+        </header>
+
+        <p className="text-foreground truncate text-sm font-semibold leading-tight">
+          {order.customer_name}
+        </p>
+
+        {firstItem && (
+          <p className="text-muted-foreground truncate text-xs">
+            <span className="text-foreground/70 font-semibold tabular-nums">
+              {firstItem.quantity}×
+            </span>{" "}
+            {firstItem.product_name}
+            {moreItems > 0 && (
+              <span className="text-muted-foreground/70">
+                {" "}
+                · +{moreItems}
               </span>
-              <button
-                type="button"
-                onClick={() => setCancelOpen(true)}
-                className="text-rose-700 font-medium underline-offset-2 hover:underline"
-              >
-                Cancelar
-              </button>
-            </>
+            )}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between gap-2 pt-0.5">
+          <span className="text-foreground text-base font-bold tabular-nums">
+            {formatCurrency(order.total_cents)}
+          </span>
+          {advanceLabel && nextForDelivery && (
+            <Button
+              size="sm"
+              className="h-8 font-semibold"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAdvance(order, nextForDelivery);
+              }}
+            >
+              {advanceLabel}
+            </Button>
           )}
         </div>
-      </header>
+      </article>
 
-      <div>
-        <p className="text-sm font-medium">{order.customer_name}</p>
-        <a
-          href={`tel:${order.customer_phone}`}
-          className="text-muted-foreground text-xs"
-        >
-          {order.customer_phone}
-        </a>
-      </div>
-
-      <ul className="text-sm">
-        {shown.map((it, i) => (
-          <li key={i} className="text-muted-foreground truncate">
-            {it.quantity}× {it.product_name}
-          </li>
-        ))}
-        {rest > 0 && (
-          <li className="text-muted-foreground text-xs italic">
-            y {rest} más
-          </li>
-        )}
-      </ul>
-
-      <div className="flex items-center justify-between pt-1">
-        <span className="font-bold">{formatCurrency(order.total_cents)}</span>
-        {advanceLabel && nextForDelivery && (
-          <Button size="sm" onClick={() => onAdvance(order, nextForDelivery)}>
-            {advanceLabel}
-          </Button>
-        )}
-      </div>
-
-      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Cancelar pedido #{order.order_number}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor={`cancel-reason-${order.id}`}>Motivo</Label>
-            <Textarea
-              id={`cancel-reason-${order.id}`}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Sin stock, zona fuera de cobertura, etc."
-              maxLength={500}
-              rows={3}
-            />
-            <p className="text-muted-foreground text-xs">
-              El cliente ve este motivo en el tracker del pedido.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCancelOpen(false)}
-              disabled={pending}
-            >
-              Volver
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleCancel}
-              disabled={pending}
-            >
-              {pending ? "Cancelando…" : "Cancelar pedido"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </article>
-  );
-}
-
-function PaymentBadge({
-  method,
-  status,
-}: {
-  method: string | null | undefined;
-  status: string | null | undefined;
-}) {
-  if (!method || method !== "mp") return null;
-
-  const styles: Record<string, { bg: string; text: string; label: string }> = {
-    paid: {
-      bg: "bg-emerald-100",
-      text: "text-emerald-800",
-      label: "Pagado",
-    },
-    pending: {
-      bg: "bg-amber-100",
-      text: "text-amber-800",
-      label: "Pago pendiente",
-    },
-    failed: {
-      bg: "bg-rose-100",
-      text: "text-rose-800",
-      label: "Pago rechazado",
-    },
-    refunded: {
-      bg: "bg-zinc-200",
-      text: "text-zinc-700",
-      label: "Reembolsado",
-    },
-  };
-  const style = styles[status ?? "pending"] ?? styles.pending;
-
-  return (
-    <Badge
-      variant="secondary"
-      className={`flex items-center gap-1 border-transparent text-[0.65rem] uppercase tracking-wider ${style.bg} ${style.text}`}
-    >
-      {status === "paid" ? (
-        <CircleDollarSign className="size-3" />
-      ) : (
-        <CreditCard className="size-3" />
-      )}
-      MP · {style.label}
-    </Badge>
+      <OrderDetailSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        order={order}
+        slug={slug}
+        timezone={timezone}
+        onAdvance={onAdvance}
+      />
+    </>
   );
 }

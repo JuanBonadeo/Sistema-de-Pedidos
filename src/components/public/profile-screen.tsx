@@ -75,6 +75,8 @@ export function ProfileScreen({
         </div>
 
         <div style={{ padding: "0 24px" }}>
+          <MenuRow label="Reservar mesa" href={`/${slug}/reservar`} />
+          <MenuRow label="Mis reservas" href={`/${slug}/perfil/reservas`} />
           <MenuRow label="Mis pedidos" href={`/${slug}/perfil/pedidos`} />
           <MenuRow label="Direcciones" href={`/${slug}/perfil/direcciones`} />
           <MenuRow label="Métodos de pago" disabled />

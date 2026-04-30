@@ -23,6 +23,13 @@ export const SaveFloorPlanInputSchema = z.object({
   name: z.string().trim().min(1).max(60).default("Salón"),
   width: z.coerce.number().int().min(100).max(5000),
   height: z.coerce.number().int().min(100).max(5000),
+  background_image_url: z
+    .string()
+    .url()
+    .nullable()
+    .optional()
+    .transform((v) => v ?? null),
+  background_opacity: z.coerce.number().int().min(0).max(100).default(60),
   tables: z.array(FloorTableInputSchema).max(200),
 });
 

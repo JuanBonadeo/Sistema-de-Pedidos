@@ -21,7 +21,7 @@ export default async function AdminOrdersPage({
       <PageHeader
         eyebrow="Operación en vivo"
         title="Pedidos"
-        description="Actualiza automáticamente a medida que entran. Arrastrá entre columnas para cambiar el estado."
+        description="Se actualiza en vivo a medida que entran. Avanzá cada pedido con el botón de la tarjeta."
       />
       <OrdersRealtimeBoard
         businessId={business.id}

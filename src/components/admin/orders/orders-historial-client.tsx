@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { formatInTimeZone } from "date-fns-tz";
@@ -14,11 +13,11 @@ import {
   Search,
   ShoppingBag,
   Tag,
-  Wallet,
   X,
 } from "lucide-react";
 
 import { FilterPills } from "@/components/admin/filters/filter-pills";
+import { OrderDetailSheet } from "@/components/admin/order-detail-sheet";
 import {
   Select,
   SelectContent,
@@ -36,6 +35,7 @@ import type {
 import { formatCurrency } from "@/lib/currency";
 import type { OrderStatus } from "@/lib/orders/status";
 import { STATUS_META } from "@/lib/orders/status-meta";
+import { updateOrderStatus } from "@/lib/orders/update-status";
 import { cn } from "@/lib/utils";
 
 type Filters = {
@@ -92,13 +92,11 @@ export function OrdersHistorialClient({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  // Local search input (debounced into URL)
   const [searchInput, setSearchInput] = useState(initialFilters.search);
   useEffect(() => {
     setSearchInput(initialFilters.search);
   }, [initialFilters.search]);
 
-  // Debounce search → URL
   useEffect(() => {
     const t = setTimeout(() => {
       if (searchInput !== initialFilters.search) {
@@ -116,7 +114,6 @@ export function OrdersHistorialClient({
   ) => {
     const params = new URLSearchParams(searchParams.toString());
     if (value === null || value === "" || value === "all") {
-      // Don't pollute URL with default values ("all" is the default for every filter)
       params.delete(key);
     } else {
       params.set(key, value);
@@ -152,11 +149,38 @@ export function OrdersHistorialClient({
     initialFilters.paymentStatus !== "all" ||
     initialFilters.search.length > 0;
 
-  const { orders, total, page, pageCount } = initialResult;
+  const { orders: initialOrders, total, page, pageCount } = initialResult;
+
+  // Local mirror so optimistic status updates from the sheet reflect instantly.
+  const [orders, setOrders] = useState<AdminOrder[]>(initialOrders);
+  useEffect(() => setOrders(initialOrders), [initialOrders]);
+
+  const [activeOrder, setActiveOrder] = useState<AdminOrder | null>(null);
+
+  const handleAdvance = async (order: AdminOrder, next: OrderStatus) => {
+    setOrders((prev) =>
+      prev.map((o) => (o.id === order.id ? { ...o, status: next } : o)),
+    );
+    setActiveOrder((cur) =>
+      cur && cur.id === order.id ? { ...cur, status: next } : cur,
+    );
+    const r = await updateOrderStatus({
+      order_id: order.id,
+      business_slug: slug,
+      next_status: next,
+    });
+    if (!r.ok) {
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id ? { ...o, status: order.status } : o,
+        ),
+      );
+    }
+  };
 
   return (
     <div className="space-y-4">
-      {/* ── Top: search + secondary dropdowns + clear ─────────────────── */}
+      {/* ── Filter bar ────────────────────────────────────────────── */}
       <div
         className={cn(
           "flex flex-wrap items-center gap-1 rounded-full bg-white pl-4 pr-2 py-1.5",
@@ -215,7 +239,6 @@ export function OrdersHistorialClient({
         )}
       </div>
 
-      {/* ── Range pills + result count ────────────────────────────────── */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <FilterPills
           value={initialFilters.range}
@@ -238,48 +261,27 @@ export function OrdersHistorialClient({
         </p>
       </div>
 
-      {/* ── Table ─────────────────────────────────────────────────────── */}
+      {/* ── List ─────────────────────────────────────────────────── */}
       {orders.length === 0 ? (
         <EmptyState hasFilters={hasActiveFilters} />
       ) : (
-        <div
+        <ul
           className={cn(
-            "overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200/70",
+            "divide-border/60 overflow-hidden rounded-2xl bg-white divide-y ring-1 ring-zinc-200/70",
             isPending && "opacity-50 transition-opacity",
           )}
         >
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-left text-base">
-              <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50/80">
-                  <Th className="w-20">#</Th>
-                  <Th className="w-36">Fecha</Th>
-                  <Th>Cliente</Th>
-                  <Th className="w-24">Tipo</Th>
-                  <Th>Items</Th>
-                  <Th className="w-36">Estado</Th>
-                  <Th className="w-36">Pago</Th>
-                  <Th className="w-32 text-right">Total</Th>
-                  <Th className="w-10" />
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o, idx) => (
-                  <OrderRow
-                    key={o.id}
-                    order={o}
-                    slug={slug}
-                    timezone={timezone}
-                    striped={idx % 2 === 1}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+          {orders.map((o) => (
+            <OrderRow
+              key={o.id}
+              order={o}
+              timezone={timezone}
+              onClick={() => setActiveOrder(o)}
+            />
+          ))}
+        </ul>
       )}
 
-      {/* ── Pagination ────────────────────────────────────────────────── */}
       {pageCount > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">
           <button
@@ -303,190 +305,82 @@ export function OrdersHistorialClient({
           </button>
         </div>
       )}
+
+      {activeOrder && (
+        <OrderDetailSheet
+          open={!!activeOrder}
+          onOpenChange={(o) => {
+            if (!o) setActiveOrder(null);
+          }}
+          order={activeOrder}
+          slug={slug}
+          timezone={timezone}
+          onAdvance={handleAdvance}
+        />
+      )}
     </div>
   );
 }
 
-// ─── Table header cell ───────────────────────────────────────────────────────
-
-function Th({
-  children,
-  className,
-}: {
-  children?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <th
-      className={cn(
-        "px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500",
-        className,
-      )}
-    >
-      {children}
-    </th>
-  );
-}
-
-// ─── Order row (entire row clickable) ─────────────────────────────────────────
-
 function OrderRow({
   order,
-  slug,
   timezone,
-  striped,
+  onClick,
 }: {
   order: AdminOrder;
-  slug: string;
   timezone: string;
-  striped: boolean;
+  onClick: () => void;
 }) {
   const meta = STATUS_META[order.status];
-  const isMp = order.payment_method === "mp";
-  const dateLabel = formatInTimeZone(
-    order.created_at,
-    timezone,
-    "d MMM · HH:mm",
-  );
-  const itemsSummary =
-    order.items.length === 0
-      ? "—"
-      : order.items
-          .slice(0, 2)
-          .map((i) => `${i.quantity}× ${i.product_name}`)
-          .join(", ") + (order.items.length > 2 ? `, +${order.items.length - 2}` : "");
-
-  // Row background: alternates white / brand-tinted.
-  // We use `oklch` instead of the global --brand-soft (which mixes in srgb at 8%
-  // and ends up looking gray when the primary is desaturated like navy/slate).
-  // oklch preserves the perceived hue, so the tint actually looks like the brand.
-  const rowStyle: React.CSSProperties = striped
-    ? {
-        background:
-          "color-mix(in oklch, var(--brand, #2563eb) 14%, white)",
-      }
-    : {};
+  const ChannelIcon = order.delivery_type === "delivery" ? Bike : ShoppingBag;
+  const dateLabel = formatInTimeZone(order.created_at, timezone, "d MMM · HH:mm");
+  const itemsCount = order.items.reduce((a, i) => a + i.quantity, 0);
 
   return (
-    <tr
-      onClick={() =>
-        (window.location.href = `/${slug}/admin/pedidos/${order.id}`)
-      }
-      style={rowStyle}
-      className={cn(
-        "cursor-pointer border-b border-zinc-100 transition-colors last:border-b-0",
-        "hover:bg-zinc-100/60",
-      )}
-    >
-      {/* # */}
-      <td className="px-4 py-3">
-        <Link
-          href={`/${slug}/admin/pedidos/${order.id}`}
-          onClick={(e) => e.stopPropagation()}
-          className="text-base font-semibold text-zinc-900 hover:underline"
-        >
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className="hover:bg-zinc-50/80 flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
+      >
+        <span className="text-zinc-900 w-16 shrink-0 text-base font-bold tabular-nums">
           #{order.order_number}
-        </Link>
-      </td>
-
-      {/* Fecha */}
-      <td className="px-4 py-3 text-sm text-zinc-600 tabular-nums">
-        {dateLabel}
-      </td>
-
-      {/* Cliente */}
-      <td className="px-4 py-3">
-        <p className="truncate text-base font-medium text-zinc-900">
-          {order.customer_name || "—"}
-        </p>
-        <p className="truncate text-xs text-zinc-500">
-          {order.customer_phone}
-        </p>
-      </td>
-
-      {/* Tipo */}
-      <td className="px-4 py-3">
-        <span
-          className="inline-flex items-center gap-1.5 text-sm text-zinc-700"
-          title={order.delivery_type === "delivery" ? "Delivery" : "Retiro"}
-        >
-          {order.delivery_type === "delivery" ? (
-            <>
-              <Bike className="size-4 text-zinc-400" strokeWidth={1.75} />
-              Envío
-            </>
-          ) : (
-            <>
-              <ShoppingBag className="size-4 text-zinc-400" strokeWidth={1.75} />
-              Retiro
-            </>
-          )}
         </span>
-      </td>
 
-      {/* Items */}
-      <td className="max-w-[320px] px-4 py-3">
-        <p className="truncate text-sm text-zinc-700">{itemsSummary}</p>
-      </td>
+        <div className="min-w-0 flex-1">
+          <p className="text-zinc-900 truncate text-sm font-semibold">
+            {order.customer_name || "Sin nombre"}
+          </p>
+          <p className="text-zinc-500 truncate text-xs tabular-nums">
+            {dateLabel} · {itemsCount} {itemsCount === 1 ? "ítem" : "ítems"}
+          </p>
+        </div>
 
-      {/* Estado */}
-      <td className="px-4 py-3">
+        <ChannelIcon
+          className="text-zinc-400 size-4 shrink-0"
+          strokeWidth={1.75}
+          aria-label={order.delivery_type === "delivery" ? "Delivery" : "Retiro"}
+        />
+
         <span
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
+            "hidden shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.65rem] font-semibold sm:inline-flex",
             meta.tone,
           )}
         >
           <span className={cn("size-1.5 rounded-full", meta.dot)} />
           {meta.label}
         </span>
-      </td>
 
-      {/* Pago */}
-      <td className="px-4 py-3">
-        <span className="inline-flex items-center gap-1.5 text-sm text-zinc-700">
-          {isMp ? (
-            <CreditCard className="size-4 text-zinc-400" />
-          ) : (
-            <Wallet className="size-4 text-zinc-400" />
-          )}
-          {isMp ? "MP" : "Efectivo"}
-          <PaymentDot status={order.payment_status} />
+        <span className="text-zinc-900 w-24 shrink-0 text-right text-sm font-bold tabular-nums">
+          {formatCurrency(order.total_cents)}
         </span>
-      </td>
 
-      {/* Total */}
-      <td className="px-4 py-3 text-right text-base font-semibold text-zinc-900 tabular-nums">
-        {formatCurrency(order.total_cents)}
-      </td>
-
-      {/* Arrow */}
-      <td className="px-4 py-3 text-right">
-        <ChevronRight className="ml-auto size-4 text-zinc-300" />
-      </td>
-    </tr>
+        <ChevronRight className="text-zinc-300 size-4 shrink-0" />
+      </button>
+    </li>
   );
 }
-
-function PaymentDot({ status }: { status: string }) {
-  const map: Record<string, { color: string; title: string }> = {
-    paid: { color: "bg-emerald-500", title: "Pagado" },
-    pending: { color: "bg-amber-500", title: "Pago pendiente" },
-    failed: { color: "bg-rose-500", title: "Pago fallido" },
-    refunded: { color: "bg-zinc-400", title: "Reembolsado" },
-  };
-  const meta = map[status];
-  if (!meta) return null;
-  return (
-    <span
-      title={meta.title}
-      aria-label={meta.title}
-      className={cn("ml-0.5 size-1.5 rounded-full", meta.color)}
-    />
-  );
-}
-
-// ─── Compact select (lives inside the pill-shaped filter bar) ────────────────
 
 function CompactSelect<T extends string>({
   value,
@@ -499,8 +393,6 @@ function CompactSelect<T extends string>({
   options: { value: T; label: string }[];
   icon?: React.ReactNode;
 }) {
-  // When set to "all", the select shows a neutral label so the bar feels calm.
-  // When set to a non-default, it pops with the chosen value visible.
   const active = value !== "all";
   return (
     <Select value={value} onValueChange={(v) => onChange(v as T)}>
@@ -524,8 +416,6 @@ function CompactSelect<T extends string>({
     </Select>
   );
 }
-
-// ─── Empty state ──────────────────────────────────────────────────────────────
 
 function EmptyState({ hasFilters }: { hasFilters: boolean }) {
   return (

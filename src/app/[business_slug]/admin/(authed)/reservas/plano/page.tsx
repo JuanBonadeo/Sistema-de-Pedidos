@@ -28,7 +28,12 @@ export default async function FloorPlanPage({
         description="Dibujá las mesas y guardá. El motor de reservas asigna automáticamente la mesa más chica que entre."
         back={{ href: `/${business_slug}/admin/reservas`, label: "Volver a reservas" }}
       />
-      <FloorPlanEditor businessSlug={business_slug} plan={plan} tables={tables} />
+      <FloorPlanEditor
+        businessSlug={business_slug}
+        businessId={business.id}
+        plan={plan}
+        tables={tables}
+      />
     </PageShell>
   );
 }

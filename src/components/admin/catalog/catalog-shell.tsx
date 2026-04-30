@@ -23,12 +23,14 @@ function isTab(value: string | null | undefined): value is Tab {
 
 function TabsInner({
   slug,
+  businessId,
   categories,
   products,
   menus,
   todayDow,
 }: {
   slug: string;
+  businessId: string;
   categories: AdminCategory[];
   products: AdminProduct[];
   menus: AdminDailyMenu[];
@@ -107,6 +109,7 @@ function TabsInner({
         {active === "productos" ? (
           <CatalogClient
             slug={slug}
+            businessId={businessId}
             categories={categories}
             products={products}
           />
@@ -156,6 +159,7 @@ function TabButton({
 
 export function CatalogShell(props: {
   slug: string;
+  businessId: string;
   categories: AdminCategory[];
   products: AdminProduct[];
   menus: AdminDailyMenu[];

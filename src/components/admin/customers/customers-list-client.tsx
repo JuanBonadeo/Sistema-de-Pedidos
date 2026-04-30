@@ -44,7 +44,7 @@ const SEGMENT_OPTIONS: { value: CustomerSegment | "all"; label: string }[] = [
   { value: "all", label: "Todos" },
   { value: "new", label: "Nuevos" },
   { value: "frequent", label: "Frecuentes" },
-  { value: "top", label: "Top spenders" },
+  { value: "top", label: "Top" },
   { value: "inactive", label: "Inactivos" },
   { value: "lost", label: "Perdidos" },
   { value: "regular", label: "Regulares" },
@@ -73,7 +73,6 @@ export function CustomersListClient({
   const [searchInput, setSearchInput] = useState(initialFilters.search);
   useEffect(() => setSearchInput(initialFilters.search), [initialFilters.search]);
 
-  // Debounce search → URL
   useEffect(() => {
     const t = setTimeout(() => {
       if (searchInput !== initialFilters.search) {
@@ -90,7 +89,6 @@ export function CustomersListClient({
     opts: { resetPage?: boolean } = {},
   ) => {
     const params = new URLSearchParams(searchParams.toString());
-    // Defaults that we don't surface in the URL
     const isDefault =
       value === null ||
       value === "" ||
@@ -132,7 +130,6 @@ export function CustomersListClient({
 
   return (
     <div className="space-y-4">
-      {/* ── Top: search + sort + clear (single floating pill) ─────────── */}
       <div
         className={cn(
           "flex items-center gap-1 rounded-full bg-white pl-4 pr-2 py-1.5",
@@ -160,7 +157,6 @@ export function CustomersListClient({
 
         <div className="mx-1 h-5 w-px bg-zinc-200" aria-hidden />
 
-        {/* Sort dropdown */}
         <Select
           value={initialFilters.sort}
           onValueChange={(v) => updateParam("sort", v)}
@@ -195,7 +191,6 @@ export function CustomersListClient({
         )}
       </div>
 
-      {/* ── Segment pills + result count ──────────────────────────────── */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <FilterPills
           value={initialFilters.segment}
@@ -214,45 +209,21 @@ export function CustomersListClient({
         </p>
       </div>
 
-      {/* ── Table ─────────────────────────────────────────────────────── */}
       {customers.length === 0 ? (
         <EmptyState hasFilters={hasActiveFilters} />
       ) : (
-        <div
+        <ul
           className={cn(
-            "overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200/70",
+            "divide-border/60 overflow-hidden rounded-2xl bg-white divide-y ring-1 ring-zinc-200/70",
             isPending && "opacity-50 transition-opacity",
           )}
         >
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-left text-base">
-              <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50/80">
-                  <Th>Cliente</Th>
-                  <Th className="w-24 text-right">Pedidos</Th>
-                  <Th className="w-36 text-right">Total gastado</Th>
-                  <Th className="w-32 text-right">Ticket prom.</Th>
-                  <Th className="w-36">Último pedido</Th>
-                  <Th className="w-56">Segmentos</Th>
-                  <Th className="w-10" />
-                </tr>
-              </thead>
-              <tbody>
-                {customers.map((c, idx) => (
-                  <CustomerRow
-                    key={c.id}
-                    customer={c}
-                    slug={slug}
-                    striped={idx % 2 === 1}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+          {customers.map((c) => (
+            <CustomerRow key={c.id} customer={c} slug={slug} />
+          ))}
+        </ul>
       )}
 
-      {/* ── Pagination ────────────────────────────────────────────────── */}
       {pageCount > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">
           <button
@@ -280,111 +251,61 @@ export function CustomersListClient({
   );
 }
 
-// ─── Table cells ──────────────────────────────────────────────────────────────
-
-function Th({
-  children,
-  className,
-}: {
-  children?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <th
-      className={cn(
-        "px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500",
-        className,
-      )}
-    >
-      {children}
-    </th>
-  );
-}
-
 function CustomerRow({
   customer,
   slug,
-  striped,
 }: {
   customer: CustomerListItem;
   slug: string;
-  striped: boolean;
 }) {
-  const initials = getInitials(customer.name ?? customer.phone);
+  const router = useRouter();
   const lastOrder = customer.last_order_at
-    ? formatInTimeZone(customer.last_order_at, "America/Argentina/Buenos_Aires", "d MMM yyyy", { locale: es })
-    : "—";
-
-  const rowStyle: React.CSSProperties = striped
-    ? { background: "color-mix(in oklch, var(--brand, #2563eb) 14%, white)" }
-    : {};
+    ? formatInTimeZone(
+        customer.last_order_at,
+        "America/Argentina/Buenos_Aires",
+        "d MMM yyyy",
+        { locale: es },
+      )
+    : null;
+  const primarySegment = customer.segments[0] ?? null;
 
   return (
-    <tr
-      onClick={() =>
-        (window.location.href = `/${slug}/admin/clientes/${customer.id}`)
-      }
-      style={rowStyle}
-      className={cn(
-        "cursor-pointer border-b border-zinc-100 transition-colors last:border-b-0",
-        "hover:bg-zinc-100/60",
-      )}
-    >
-      {/* Cliente */}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <span
-            className="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1 ring-black/10"
-            style={{
-              background: "var(--brand, #2563eb)",
-              color: "var(--brand-foreground, white)",
-            }}
-          >
-            {initials}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-base font-medium text-zinc-900">
+    <li>
+      <button
+        type="button"
+        onClick={() =>
+          router.push(`/${slug}/admin/clientes/${customer.id}`)
+        }
+        className="hover:bg-zinc-50/80 flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-zinc-900 truncate text-sm font-semibold">
               {customer.name || "Sin nombre"}
             </p>
-            <p className="truncate text-xs text-zinc-500">{customer.phone}</p>
+            {primarySegment && <SegmentChip segment={primarySegment} />}
           </div>
+          <p className="text-zinc-500 truncate text-xs tabular-nums">
+            {customer.phone}
+            {lastOrder && (
+              <span className="text-zinc-400"> · último {lastOrder}</span>
+            )}
+          </p>
         </div>
-      </td>
 
-      {/* Pedidos */}
-      <td className="px-4 py-3 text-right text-sm tabular-nums text-zinc-700">
-        {customer.order_count}
-      </td>
-
-      {/* Total gastado */}
-      <td className="px-4 py-3 text-right text-base font-semibold text-zinc-900 tabular-nums">
-        {formatCurrency(customer.total_spent_cents)}
-      </td>
-
-      {/* Ticket promedio */}
-      <td className="px-4 py-3 text-right text-sm text-zinc-600 tabular-nums">
-        {customer.order_count > 0
-          ? formatCurrency(customer.avg_ticket_cents)
-          : "—"}
-      </td>
-
-      {/* Último pedido */}
-      <td className="px-4 py-3 text-sm text-zinc-600">{lastOrder}</td>
-
-      {/* Segmentos */}
-      <td className="px-4 py-3">
-        <div className="flex flex-wrap gap-1">
-          {customer.segments.map((s) => (
-            <SegmentChip key={s} segment={s} />
-          ))}
+        <div className="hidden shrink-0 text-right sm:block">
+          <p className="text-zinc-900 text-base font-bold tabular-nums">
+            {formatCurrency(customer.total_spent_cents)}
+          </p>
+          <p className="text-zinc-500 text-xs tabular-nums">
+            {customer.order_count}{" "}
+            {customer.order_count === 1 ? "pedido" : "pedidos"}
+          </p>
         </div>
-      </td>
 
-      {/* Arrow */}
-      <td className="px-4 py-3 text-right">
-        <ChevronRight className="ml-auto size-4 text-zinc-300" />
-      </td>
-    </tr>
+        <ChevronRight className="text-zinc-300 size-4 shrink-0" />
+      </button>
+    </li>
   );
 }
 
@@ -393,7 +314,7 @@ export function SegmentChip({ segment }: { segment: CustomerSegment }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold",
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold",
         meta.tone,
       )}
     >
@@ -402,8 +323,6 @@ export function SegmentChip({ segment }: { segment: CustomerSegment }) {
     </span>
   );
 }
-
-// ─── Empty state ──────────────────────────────────────────────────────────────
 
 function EmptyState({ hasFilters }: { hasFilters: boolean }) {
   return (
@@ -420,18 +339,5 @@ function EmptyState({ hasFilters }: { hasFilters: boolean }) {
           : "Cuando alguien haga su primer pedido lo vas a ver acá."}
       </p>
     </div>
-  );
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getInitials(s: string): string {
-  return (
-    s
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]?.toUpperCase() ?? "")
-      .join("") || "?"
   );
 }

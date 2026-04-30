@@ -27,10 +27,12 @@ const UNCATEGORIZED = "__uncat__";
 
 export function CatalogClient({
   slug,
+  businessId,
   categories,
   products,
 }: {
   slug: string;
+  businessId: string;
   categories: AdminCategory[];
   products: AdminProduct[];
 }) {
@@ -175,7 +177,13 @@ export function CatalogClient({
           </li>
         ) : (
           filteredProducts.map((p) => (
-            <ProductRow key={p.id} slug={slug} product={p} />
+            <ProductRow
+              key={p.id}
+              slug={slug}
+              businessId={businessId}
+              product={p}
+              categories={categories}
+            />
           ))
         )}
       </ul>

@@ -26,6 +26,7 @@ export default async function CatalogPage({
     <PageShell width="default">
       <CatalogShell
         slug={business_slug}
+        businessId={business.id}
         categories={categories}
         products={products}
         menus={menus}

@@ -1,14 +1,15 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
-import { CheckCircle2 } from "lucide-react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { I } from "@/components/delivery/primitives";
 import { CancelReservationButton } from "@/components/reservations/cancel-reservation-button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { getBusiness } from "@/lib/tenant";
 import type { Reservation } from "@/lib/reservations/types";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +28,13 @@ export default async function ReservarConfirmacionPage({
   if (!id) redirect(`/${business_slug}/reservar`);
 
   const supabase = await createSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/${business_slug}/login?next=/${business_slug}/reservar/confirmacion?id=${id}`);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    redirect(
+      `/${business_slug}/login?next=/${business_slug}/reservar/confirmacion?id=${id}`,
+    );
 
   const service = createSupabaseServiceClient() as unknown as SupabaseClient;
   const { data } = await service
@@ -37,56 +43,358 @@ export default async function ReservarConfirmacionPage({
     .eq("id", id)
     .eq("business_id", business.id)
     .maybeSingle();
-  const reservation = data as (Reservation & { tables: { label: string } | null }) | null;
+  const reservation = data as
+    | (Reservation & { tables: { label: string } | null })
+    | null;
   if (!reservation || reservation.user_id !== user.id) notFound();
 
   const tz = business.timezone;
-  const dateLabel = formatInTimeZone(new Date(reservation.starts_at), tz, "EEEE d 'de' MMMM");
+  const dayLabel = formatInTimeZone(
+    new Date(reservation.starts_at),
+    tz,
+    "EEE d 'de' MMM",
+  );
   const timeLabel = formatInTimeZone(new Date(reservation.starts_at), tz, "HH:mm");
+  const isCancellable =
+    reservation.status === "confirmed" || reservation.status === "seated";
+  const cancelled = reservation.status === "cancelled";
+  const completed = reservation.status === "completed";
+  const noShow = reservation.status === "no_show";
+
+  // Eyebrow + big headline mirroring order-tracking visual hierarchy.
+  let eyebrow: string;
+  let bigLine: string;
+  let subLine: string;
+  if (cancelled) {
+    eyebrow = "Reserva cancelada";
+    bigLine = "Cancelada";
+    subLine = "Cuando quieras, armá una nueva.";
+  } else if (completed) {
+    eyebrow = "¡Gracias por la visita!";
+    bigLine = "Completada";
+    subLine = "Esperamos que la hayas pasado bien.";
+  } else if (noShow) {
+    eyebrow = "Reserva sin asistencia";
+    bigLine = "No asististe";
+    subLine = "Si fue un error, contactá al local.";
+  } else {
+    eyebrow = "Reserva confirmada";
+    bigLine = `${dayLabel} · ${timeLabel} hs`;
+    subLine = `Te esperamos en ${business.name}.`;
+  }
 
   return (
-    <main className="mx-auto w-full max-w-2xl space-y-6 px-4 py-10">
-      <div className="rounded-2xl border bg-card p-6">
-        <div className="mb-4 flex items-center gap-3 text-emerald-600">
-          <CheckCircle2 className="size-6" />
-          <h1 className="text-2xl font-semibold tracking-tight">Reserva confirmada</h1>
-        </div>
-        <dl className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Día</dt>
-            <dd className="font-medium capitalize">{dateLabel}</dd>
+    <div
+      style={{
+        maxWidth: 520,
+        margin: "0 auto",
+        minHeight: "100vh",
+        background: "var(--bg)",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          paddingTop: 16,
+          paddingBottom: 10,
+          paddingLeft: 8,
+          paddingRight: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          borderBottom: "1px solid var(--hairline)",
+        }}
+      >
+        <Link
+          href={`/${business_slug}/menu`}
+          aria-label="Cerrar"
+          style={{
+            width: 40,
+            height: 40,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {I.close("var(--ink)", 20)}
+        </Link>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: -0.1 }}>
+            Tu reserva
           </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Horario</dt>
-            <dd className="font-medium">{timeLabel}</dd>
+          <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+            #{reservation.id.slice(0, 8).toUpperCase()}
           </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Comensales</dt>
-            <dd className="font-medium">{reservation.party_size}</dd>
-          </div>
-          {reservation.tables ? (
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Mesa</dt>
-              <dd className="font-medium">{reservation.tables.label}</dd>
-            </div>
-          ) : null}
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Estado</dt>
-            <dd className="font-medium capitalize">{reservation.status}</dd>
-          </div>
-        </dl>
-        <div className="mt-6 flex flex-wrap items-center gap-2">
-          <Link
-            href={`/${business_slug}/perfil/reservas`}
-            className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted"
-          >
-            Mis reservas
-          </Link>
-          {reservation.status === "confirmed" || reservation.status === "seated" ? (
-            <CancelReservationButton id={reservation.id} />
-          ) : null}
         </div>
       </div>
-    </main>
+
+      {/* Big headline block */}
+      <div style={{ padding: "20px 16px 16px" }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+            color: cancelled ? "var(--ink-3)" : "var(--primary)",
+          }}
+        >
+          {eyebrow}
+        </div>
+        <div
+          className="d-display"
+          style={{
+            fontSize: 38,
+            lineHeight: 1.05,
+            color: "var(--ink)",
+            marginTop: 4,
+            textTransform: "capitalize",
+          }}
+        >
+          {bigLine}
+        </div>
+        <div
+          style={{
+            fontSize: 13,
+            color: "var(--ink-2)",
+            marginTop: 8,
+            lineHeight: 1.5,
+          }}
+        >
+          {subLine}
+        </div>
+      </div>
+
+      {/* Quick stats row (only when active) */}
+      {!cancelled && !completed && !noShow ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: 1,
+            margin: "0 16px 8px",
+            background: "var(--hairline)",
+            borderRadius: 14,
+            overflow: "hidden",
+            border: "1px solid var(--hairline)",
+          }}
+        >
+          <Stat label="Día" value={dayLabel} />
+          <Stat label="Hora" value={`${timeLabel}`} />
+          <Stat label="Personas" value={`${reservation.party_size}`} />
+        </div>
+      ) : null}
+
+      {/* Section spacer (8px solid divider, matching order-tracking) */}
+      <div style={{ borderTop: "8px solid #F3EEE4", marginTop: 16 }} />
+
+      {/* "En" — business block */}
+      <div style={{ padding: "16px" }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0.5,
+            textTransform: "uppercase",
+            color: "var(--ink-3)",
+            marginBottom: 8,
+          }}
+        >
+          En
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {business.logo_url ? (
+            <div
+              style={{
+                position: "relative",
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                overflow: "hidden",
+                flexShrink: 0,
+                border: "1px solid var(--hairline)",
+              }}
+            >
+              <Image
+                src={business.logo_url}
+                alt={business.name}
+                fill
+                sizes="44px"
+                style={{ objectFit: "cover" }}
+              />
+            </div>
+          ) : (
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: "#E8D9BA",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              {I.store("var(--ink)", 20)}
+            </div>
+          )}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div
+              style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: "var(--ink)",
+                letterSpacing: -0.1,
+              }}
+            >
+              {business.name}
+            </div>
+            {business.address ? (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--ink-2)",
+                  marginTop: 2,
+                  lineHeight: 1.4,
+                }}
+              >
+                {business.address}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {/* Section spacer */}
+      <div style={{ borderTop: "8px solid #F3EEE4" }} />
+
+      {/* Detail rows */}
+      <div style={{ padding: "8px 16px" }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0.5,
+            textTransform: "uppercase",
+            color: "var(--ink-3)",
+            padding: "8px 0",
+          }}
+        >
+          Detalles
+        </div>
+        <DetailRow label="A nombre de" value={reservation.customer_name} />
+        <DetailRow label="Teléfono" value={reservation.customer_phone} />
+        {reservation.tables ? (
+          <DetailRow label="Mesa" value={reservation.tables.label} />
+        ) : null}
+        {reservation.notes ? (
+          <DetailRow label="Notas" value={reservation.notes} />
+        ) : null}
+      </div>
+
+      {/* Footer actions */}
+      <div
+        style={{
+          padding: "16px",
+          marginTop: "auto",
+          borderTop: "1px solid var(--hairline)",
+          background: "var(--bg)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+        }}
+      >
+        <Link
+          href={`/${business_slug}/perfil/reservas`}
+          style={{
+            height: 48,
+            padding: "0 20px",
+            borderRadius: 12,
+            background: "var(--primary)",
+            color: "var(--primary-foreground)",
+            fontSize: 15,
+            fontWeight: 600,
+            letterSpacing: -0.1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            textDecoration: "none",
+          }}
+        >
+          Ver mis reservas
+        </Link>
+        {isCancellable ? <CancelReservationButton id={reservation.id} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        background: "var(--bg)",
+        padding: "12px 8px",
+        textAlign: "center",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          letterSpacing: 0.6,
+          color: "var(--ink-3)",
+        }}
+      >
+        {label}
+      </div>
+      <div
+        className="d-display"
+        style={{
+          fontSize: 18,
+          color: "var(--ink)",
+          marginTop: 4,
+          lineHeight: 1.1,
+          textTransform: "capitalize",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        padding: "12px 0",
+        borderBottom: "1px solid var(--hairline)",
+        display: "flex",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        gap: 12,
+      }}
+    >
+      <span style={{ fontSize: 13, color: "var(--ink-2)", flexShrink: 0 }}>
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: "var(--ink)",
+          textAlign: "right",
+          lineHeight: 1.3,
+        }}
+      >
+        {value}
+      </span>
+    </div>
   );
 }

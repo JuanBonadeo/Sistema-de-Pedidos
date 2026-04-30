@@ -35,11 +35,31 @@ export default async function CocinaPage({
     .gte("created_at", todayStart.toISOString())
     .order("created_at", { ascending: true });
 
+  type RawOrder = {
+    id: string;
+    order_number: number;
+    delivery_type: string;
+    created_at: string;
+    customer_name: string;
+    total_cents: number;
+    table: { label: string }[] | null;
+    items: {
+      id: string;
+      product_name: string;
+      quantity: number;
+      notes: string | null;
+      kitchen_status: "pending" | "preparing" | "ready" | "delivered";
+    }[];
+  };
+
   return (
     <CocinaClient
       businessSlug={business_slug}
       businessName={business.name}
-      orders={(orders ?? []) as OrderForCocina[]}
+      orders={((orders as unknown as RawOrder[]) ?? []).map((o) => ({
+        ...o,
+        table: Array.isArray(o.table) ? o.table[0] || null : (o.table as unknown as { label: string } | null),
+      })) as OrderForCocina[]}
     />
   );
 }

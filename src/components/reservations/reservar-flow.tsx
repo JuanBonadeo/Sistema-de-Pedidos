@@ -161,7 +161,6 @@ export function ReservarFlow({
       });
     }, 120);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, partySize, slug]);
 
   useEffect(() => {

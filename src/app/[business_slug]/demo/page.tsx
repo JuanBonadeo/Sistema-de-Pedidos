@@ -18,7 +18,6 @@ import {
   Tag,
   UserCircle,
   UtensilsCrossed,
-  Users,
   Utensils,
 } from "lucide-react";
 

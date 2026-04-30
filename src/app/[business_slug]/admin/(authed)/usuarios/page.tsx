@@ -32,6 +32,8 @@ export default async function UsuariosPage({
 
   const adminCount = members.filter((m) => m.role === "admin").length;
   const staffCount = members.filter((m) => m.role === "staff").length;
+  const mozoCount = members.filter((m) => m.role === "mozo").length;
+  const cocinaCount = members.filter((m) => m.role === "cocina").length;
 
   return (
     <PageShell width="default">
@@ -76,6 +78,22 @@ export default async function UsuariosPage({
               </dt>
               <dd className="mt-1 text-2xl font-semibold tabular-nums">
                 {staffCount}
+              </dd>
+            </div>
+            <div className="rounded-xl bg-white p-4 ring-1 ring-zinc-200/60">
+              <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-amber-700">
+                Mozos
+              </dt>
+              <dd className="mt-1 text-2xl font-semibold tabular-nums">
+                {mozoCount}
+              </dd>
+            </div>
+            <div className="rounded-xl bg-white p-4 ring-1 ring-zinc-200/60">
+              <dt className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                Cocina
+              </dt>
+              <dd className="mt-1 text-2xl font-semibold tabular-nums">
+                {cocinaCount}
               </dd>
             </div>
           </dl>

@@ -6,7 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
-export type BusinessRole = "admin" | "staff";
+export type BusinessRole = "admin" | "staff" | "mozo" | "cocina";
 
 export type AdminContext = {
   user: User;

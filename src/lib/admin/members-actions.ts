@@ -7,15 +7,18 @@ import { actionError, actionOk, type ActionResult } from "@/lib/actions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
+export const BUSINESS_ROLES = ["admin", "staff", "mozo", "cocina"] as const;
+export type BusinessRoleInput = (typeof BUSINESS_ROLES)[number];
+
 const InviteInput = z.object({
   business_slug: z.string().min(1),
   email: z.string().email("Email inválido."),
-  role: z.enum(["admin", "staff"]),
+  role: z.enum(BUSINESS_ROLES),
 });
 
 export type InvitePayload = {
   email: string;
-  role: "admin" | "staff";
+  role: BusinessRoleInput;
   isNewUser: boolean;
   inviteLink: string | null;
 };
@@ -24,7 +27,7 @@ const CreateWithPasswordInput = z.object({
   business_slug: z.string().min(1),
   email: z.string().email("Email inválido."),
   password: z.string().min(8, "Contraseña muy corta (mínimo 8).").max(72),
-  role: z.enum(["admin", "staff"]),
+  role: z.enum(BUSINESS_ROLES),
   full_name: z
     .string()
     .trim()
@@ -36,7 +39,7 @@ const CreateWithPasswordInput = z.object({
 export type CreateMemberPayload = {
   email: string;
   password: string;
-  role: "admin" | "staff";
+  role: BusinessRoleInput;
   wasCreated: boolean;
 };
 

@@ -21,11 +21,16 @@ import type { BusinessMember } from "@/lib/admin/members-query";
 const ROLE_LABELS: Record<BusinessMember["role"], string> = {
   admin: "Admin",
   staff: "Staff",
+  mozo: "Mozo",
+  cocina: "Cocina",
 };
 
 const ROLE_STYLES: Record<BusinessMember["role"], string> = {
-  admin: "bg-[color-mix(in_srgb,var(--brand)_15%,transparent)] text-[var(--brand)] border-transparent",
+  admin:
+    "bg-[color-mix(in_srgb,var(--brand)_15%,transparent)] text-[var(--brand)] border-transparent",
   staff: "bg-zinc-100 text-zinc-700 border-transparent",
+  mozo: "bg-amber-50 text-amber-700 border-transparent",
+  cocina: "bg-emerald-50 text-emerald-700 border-transparent",
 };
 
 export function UserRow({

@@ -5,7 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/service";
 export type BusinessMember = {
   user_id: string;
   email: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "mozo" | "cocina";
   created_at: string;
 };
 

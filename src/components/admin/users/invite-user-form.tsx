@@ -35,14 +35,66 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  BUSINESS_ROLES,
   createBusinessMemberWithPassword,
   inviteBusinessMemberByAdmin,
+  type BusinessRoleInput,
   type CreateMemberPayload,
   type InvitePayload,
 } from "@/lib/admin/members-actions";
 import { cn } from "@/lib/utils";
 
 type Mode = "password" | "link";
+
+const ROLE_META: Record<
+  BusinessRoleInput,
+  { label: string; description: string }
+> = {
+  admin: {
+    label: "Admin",
+    description: "Manage total: catálogo, equipo, configuración y pagos.",
+  },
+  staff: {
+    label: "Staff",
+    description: "Operativo general: pedidos en vivo, reservas y clientes.",
+  },
+  mozo: {
+    label: "Mozo",
+    description: "Solo /mozo: plano de mesas, reservas y alta en mesa.",
+  },
+  cocina: {
+    label: "Cocina",
+    description: "Solo /cocina: kanban de comandas y avance de items.",
+  },
+};
+
+function RoleSelect({
+  value,
+  onChange,
+}: {
+  value: BusinessRoleInput;
+  onChange: (v: BusinessRoleInput) => void;
+}) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as BusinessRoleInput)}>
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {BUSINESS_ROLES.map((r) => (
+          <SelectItem key={r} value={r}>
+            <div className="flex flex-col gap-0.5 py-0.5">
+              <span className="font-medium">{ROLE_META[r].label}</span>
+              <span className="text-xs text-zinc-500">
+                {ROLE_META[r].description}
+              </span>
+            </div>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 export function InviteUserForm({
   slug,
@@ -142,7 +194,7 @@ function TabChip({
 const CreateSchema = z.object({
   email: z.string().email("Email inválido."),
   password: z.string().min(8, "Mínimo 8 caracteres.").max(72),
-  role: z.enum(["admin", "staff"]),
+  role: z.enum(BUSINESS_ROLES),
   full_name: z.string().trim().max(80).optional(),
 });
 type CreateValues = z.infer<typeof CreateSchema>;
@@ -311,16 +363,11 @@ function CreateWithPasswordForm({
               <FormItem>
                 <FormLabel>Rol</FormLabel>
                 <FormControl>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="staff">Staff</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <RoleSelect value={field.value} onChange={field.onChange} />
                 </FormControl>
+                <p className="text-xs text-zinc-500">
+                  {ROLE_META[field.value].description}
+                </p>
               </FormItem>
             )}
           />
@@ -520,7 +567,7 @@ function CredField({
 
 const LinkSchema = z.object({
   email: z.string().email("Email inválido."),
-  role: z.enum(["admin", "staff"]),
+  role: z.enum(BUSINESS_ROLES),
 });
 type LinkValues = z.infer<typeof LinkSchema>;
 
@@ -593,18 +640,10 @@ function LinkInviteForm({
           control={form.control}
           name="role"
           render={({ field }) => (
-            <FormItem className="w-40">
+            <FormItem className="w-44">
               <FormLabel>Rol</FormLabel>
               <FormControl>
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="staff">Staff</SelectItem>
-                  </SelectContent>
-                </Select>
+                <RoleSelect value={field.value} onChange={field.onChange} />
               </FormControl>
             </FormItem>
           )}

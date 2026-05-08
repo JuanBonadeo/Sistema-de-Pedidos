@@ -61,6 +61,33 @@ async function loadTableForBusiness(
   };
 }
 
+/**
+ * Chequea si una mesa tiene una order open con al menos un item activo.
+ * Usado para gatear transiciones a `pidio_cuenta` (no se puede pedir cuenta
+ * sin items que cobrar).
+ */
+async function tableHasActiveOrderWithItems(
+  service: GenericClient,
+  tableId: string,
+  businessId: string,
+): Promise<boolean> {
+  const { data: order } = await service
+    .from("orders")
+    .select("id")
+    .eq("table_id", tableId)
+    .eq("business_id", businessId)
+    .eq("lifecycle_status", "open")
+    .maybeSingle();
+  if (!order) return false;
+  const orderId = (order as { id: string }).id;
+  const { count } = await service
+    .from("order_items")
+    .select("id", { count: "exact", head: true })
+    .eq("order_id", orderId)
+    .is("cancelled_at", null);
+  return (count ?? 0) > 0;
+}
+
 async function insertAudit(
   service: GenericClient,
   params: {
@@ -120,6 +147,20 @@ export async function updateTableOperationalStatus(
     return actionOk(undefined);
   }
 
+  // Pidió cuenta requiere order open con items: sin items no hay nada
+  // que cobrar. Defensa también disparada desde transiciones genéricas
+  // (drawer admin con dropdown de estado).
+  if (status === "pidio_cuenta") {
+    const hasOrder = await tableHasActiveOrderWithItems(
+      service,
+      tableId,
+      business.id,
+    );
+    if (!hasOrder) {
+      return actionError("La mesa no tiene una orden activa para cobrar.");
+    }
+  }
+
   const patch: Record<string, unknown> = { operational_status: status };
   patch.opened_at = nextOpenedAt(from, status, table.opened_at);
   if (status === "libre") {
@@ -175,6 +216,17 @@ export async function pedirCuenta(
   }
   if (!canTransitionMesa(ctx.role, from, "pidio_cuenta")) {
     return actionError("No tenés permisos para esta acción.");
+  }
+
+  // Validación dura: tiene que haber order open con items activos. Sin esto
+  // no hay nada que cobrar — y la mesa quedaría en pidio_cuenta huérfana.
+  const hasOrder = await tableHasActiveOrderWithItems(
+    service,
+    tableId,
+    business.id,
+  );
+  if (!hasOrder) {
+    return actionError("La mesa no tiene una orden activa para cobrar.");
   }
 
   // Setear bill_requested_at en la order activa (verdad inmutable del evento).

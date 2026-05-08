@@ -1,11 +1,13 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Users } from "lucide-react";
 
 import { CajaAdminBoard } from "@/components/admin/local/caja-admin-board";
 import { ComandasKanban } from "@/components/admin/local/comandas-kanban";
 import { SalonDesktop, type SalonOrderRef, type SalonReservationRef } from "@/components/admin/local/salon-desktop";
+import { AsignarMozosOverlay } from "@/components/mozo/asignar-mozos-overlay";
 import { OrdersRealtimeBoard } from "@/components/admin/orders-realtime-board";
 import type { LocalComanda, LocalStation } from "@/lib/admin/local-query";
 import type { AdminOrder } from "@/lib/admin/orders-query";
@@ -13,6 +15,7 @@ import type { BusinessRole } from "@/lib/admin/context";
 import type { FloorPlanWithTables } from "@/lib/admin/floor-plan/queries";
 import type { ActiveTurnoView } from "@/lib/caja/types";
 import type { MozoMember } from "@/lib/mozo/queries";
+import { canAssignMozo } from "@/lib/permissions/can";
 import { cn } from "@/lib/utils";
 
 type Tab = "pedidos" | "comandas" | "salon" | "caja";
@@ -64,6 +67,19 @@ function TabsInner({
     const qs = params.toString();
     router.replace(qs ? `?${qs}` : `?`, { scroll: false });
   };
+
+  // Modo "Distribuir mozos": vivido en el shell para que el botón quede
+  // alineado con las tabs en el header (en vez de dentro del SalonDesktop).
+  const [distribuirOpen, setDistribuirOpen] = useState(false);
+  // Necesitamos las mesas activas para el overlay. SalonDesktop también
+  // las calcula, pero acá las planchamos desde floorPlans para el overlay.
+  const allActiveTables = useMemo(
+    () =>
+      floorPlans.flatMap((fp) =>
+        fp.tables.filter((t) => t.status === "active"),
+      ),
+    [floorPlans],
+  );
 
   // Counters cheap — solo para la pill numérica del tab.
   const counts = useMemo(() => {
@@ -127,8 +143,18 @@ function TabsInner({
         className="fixed inset-0 z-30 flex flex-col bg-zinc-50 transition-[left] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
         style={{ left: "var(--admin-sidebar-width, 72px)" }}
       >
-        <div className="border-border/60 flex items-center justify-between border-b bg-white/95 px-4 py-3 backdrop-blur">
+        <div className="border-border/60 flex items-center justify-between gap-3 border-b bg-white/95 px-4 py-3 backdrop-blur">
           {tabsBar}
+          {canAssignMozo(role) && (
+            <button
+              type="button"
+              onClick={() => setDistribuirOpen(true)}
+              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full bg-zinc-900 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
+            >
+              <Users className="size-3.5" />
+              Distribuir mozos
+            </button>
+          )}
         </div>
         <div className="flex-1 overflow-auto p-4">
           <SalonDesktop
@@ -142,6 +168,17 @@ function TabsInner({
             role={role}
           />
         </div>
+
+        {/* Modo "pintura" — overlay vive acá para alinear el trigger con
+            las tabs y poder cerrarlo desde cualquier botón del shell. */}
+        <AsignarMozosOverlay
+          open={distribuirOpen}
+          onClose={() => setDistribuirOpen(false)}
+          slug={slug}
+          floorPlans={floorPlans}
+          mozos={mozos}
+          tables={allActiveTables}
+        />
       </div>
     );
   }

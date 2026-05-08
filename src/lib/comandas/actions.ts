@@ -338,6 +338,76 @@ export async function enviarComanda(
 }
 
 /**
+ * Marca una comanda como `entregado` cuando el mozo levanta el plato.
+ * Cualquier rol que opera salón puede hacerlo (mozo+).
+ *
+ * **Pre**: la comanda tiene que estar en `en_preparacion`. Una comanda
+ * `pendiente` significa "todavía no se imprimió en cocina", no se puede
+ * entregar algo que cocina ni siquiera empezó. La transición
+ * `pendiente → en_preparacion` la dispara la impresora térmica
+ * (Bloque 4b, pendiente). Si está `entregado`, no-op.
+ */
+export async function marcarComandaEntregada(
+  comandaId: string,
+  slug: string,
+): Promise<ActionResult<void>> {
+  const business = await getBusiness(slug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const { data: row } = await service
+    .from("comandas")
+    .select("id, status, orders!inner(business_id)")
+    .eq("id", comandaId)
+    .maybeSingle();
+  const ownerBusinessId = (row as { orders?: { business_id: string } } | null)
+    ?.orders?.business_id;
+  if (!row || ownerBusinessId !== business.id) {
+    return actionError("Comanda no encontrada.");
+  }
+  const current = (row as { status: ComandaStatus }).status;
+  if (current === "entregado") return actionOk(undefined);
+  if (current !== "en_preparacion") {
+    return actionError(
+      "La comanda todavía no está en preparación. Cocina tiene que recibirla primero.",
+    );
+  }
+
+  const nowIso = new Date().toISOString();
+  const { error } = await service
+    .from("comandas")
+    .update({ status: "entregado", delivered_at: nowIso })
+    .eq("id", comandaId);
+  if (error) {
+    console.error("marcarComandaEntregada", error);
+    return actionError("No pudimos marcar la comanda.");
+  }
+
+  // Espejamos en kitchen_status de los items vinculados (la pantalla
+  // /cocina los lee).
+  const { data: links } = await service
+    .from("comanda_items")
+    .select("order_item_id")
+    .eq("comanda_id", comandaId);
+  const itemIds = ((links ?? []) as { order_item_id: string }[]).map(
+    (l) => l.order_item_id,
+  );
+  if (itemIds.length > 0) {
+    await service
+      .from("order_items")
+      .update({ kitchen_status: "delivered" })
+      .in("id", itemIds);
+  }
+
+  revalidatePath(`/${slug}/mozo`);
+  return actionOk(undefined);
+}
+
+/**
  * Avanza la comanda al siguiente estado (pendiente → en_preparacion →
  * entregado). Setea timestamps. Cross-tenant via order.business_id.
  *

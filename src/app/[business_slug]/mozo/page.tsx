@@ -54,12 +54,12 @@ export default async function MozoPage({
 
     // Órdenes dine_in **abiertas** (la "open" actual de cada mesa). Una por
     // mesa garantizada por el partial unique `orders_one_open_per_table`.
-    // Si una mesa ya cobró y arrancó una nueva, solo nos importa la nueva.
-    // Traemos customer_name + items para alimentar card y drawer.
+    // Traemos customer_name + items + comandas con su estado para alimentar
+    // card y drawer (resumen del pedido + tracking de cocina).
     service
       .from("orders")
       .select(
-        "id, order_number, table_id, delivery_type, total_cents, created_at, status, customer_name, order_items(product_name, quantity, cancelled_at)",
+        "id, order_number, table_id, delivery_type, total_cents, created_at, status, customer_name, order_items(product_name, quantity, cancelled_at), comandas(id, batch, status, station_id, emitted_at, delivered_at, stations(name), comanda_items(order_items(product_name, quantity, cancelled_at)))",
       )
       .eq("business_id", business.id)
       .eq("delivery_type", "dine_in")
@@ -83,17 +83,87 @@ export default async function MozoPage({
         businessId={business.id}
         floorPlans={floorPlans}
         reservations={(reservations ?? []) as ReservationForMozo[]}
-        activeOrders={(activeOrders ?? []).map((o) => ({
-          id: o.id as string,
-          order_number: o.order_number as number,
-          table_id: o.table_id as string | null,
-          delivery_type: o.delivery_type as string,
-          total_cents: Number(o.total_cents),
-          created_at: o.created_at as string,
-          status: o.status as string,
-          customer_name: (o as { customer_name: string | null }).customer_name,
-          items: ((o as { order_items?: Array<{ product_name: string; quantity: number; cancelled_at: string | null }> }).order_items ?? []),
-        }))}
+        activeOrders={(activeOrders ?? []).map((o) => {
+          type RawComandaItem = {
+            order_items:
+              | {
+                  product_name: string;
+                  quantity: number;
+                  cancelled_at: string | null;
+                }
+              | {
+                  product_name: string;
+                  quantity: number;
+                  cancelled_at: string | null;
+                }[]
+              | null;
+          };
+          type RawComanda = {
+            id: string;
+            batch: number;
+            status: "pendiente" | "en_preparacion" | "entregado";
+            station_id: string | null;
+            emitted_at: string;
+            delivered_at: string | null;
+            stations: { name: string } | { name: string }[] | null;
+            comanda_items: RawComandaItem[];
+          };
+          const rawComandas =
+            (o as { comandas?: RawComanda[] }).comandas ?? [];
+          return {
+            id: o.id as string,
+            order_number: o.order_number as number,
+            table_id: o.table_id as string | null,
+            delivery_type: o.delivery_type as string,
+            total_cents: Number(o.total_cents),
+            created_at: o.created_at as string,
+            status: o.status as string,
+            customer_name: (o as { customer_name: string | null })
+              .customer_name,
+            items:
+              (
+                o as {
+                  order_items?: Array<{
+                    product_name: string;
+                    quantity: number;
+                    cancelled_at: string | null;
+                  }>;
+                }
+              ).order_items ?? [],
+            comandas: rawComandas.map((c) => {
+              const station = Array.isArray(c.stations)
+                ? c.stations[0]
+                : c.stations;
+              const items = (c.comanda_items ?? [])
+                .map((ci) => {
+                  const oi = Array.isArray(ci.order_items)
+                    ? ci.order_items[0]
+                    : ci.order_items;
+                  return oi;
+                })
+                .filter(
+                  (oi): oi is {
+                    product_name: string;
+                    quantity: number;
+                    cancelled_at: string | null;
+                  } => oi != null && oi.cancelled_at === null,
+                )
+                .map((oi) => ({
+                  product_name: oi.product_name,
+                  quantity: oi.quantity,
+                }));
+              return {
+                id: c.id,
+                batch: c.batch,
+                status: c.status,
+                station_name: station?.name ?? "—",
+                emitted_at: c.emitted_at,
+                delivered_at: c.delivered_at,
+                items,
+              };
+            }),
+          };
+        })}
         mozos={mozos}
         currentUserId={ctx.user.id}
         role={ctx.role}

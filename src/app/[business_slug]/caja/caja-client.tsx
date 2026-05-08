@@ -3,12 +3,13 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, DollarSign, LockOpen, Lock, Minus, Plus, RefreshCw } from "lucide-react";
+import { ArrowLeft, DollarSign, LockOpen, Lock, Minus, Plus, Plus as PlusIcon, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import {
   abrirTurno,
   cerrarTurno,
+  crearCaja,
   registrarIngreso,
   registrarSangria,
 } from "@/lib/caja/actions";
@@ -37,10 +38,28 @@ export function CajaClient({ slug, cajas, activeTurnos }: Props) {
   const [, startTransition] = useTransition();
   const [aperturaModal, setAperturaModal] = useState<Caja | null>(null);
   const [openingCents, setOpeningCents] = useState(OPENING_PRESETS[0]);
+  const [crearOpen, setCrearOpen] = useState(false);
+  const [nuevaCajaName, setNuevaCajaName] = useState("");
 
   const cajasLibres = cajas.filter(
     (c) => !activeTurnos.some((t) => t.caja_id === c.id),
   );
+
+  const handleCrearCaja = () => {
+    const name = nuevaCajaName.trim();
+    if (name === "") return;
+    startTransition(async () => {
+      const r = await crearCaja(name, slug);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`Caja "${r.data.name}" creada`);
+      setCrearOpen(false);
+      setNuevaCajaName("");
+      router.refresh();
+    });
+  };
 
   const handleAbrir = (caja: Caja) => {
     if (openingCents < 0) return;
@@ -65,6 +84,13 @@ export function CajaClient({ slug, cajas, activeTurnos }: Props) {
           </Button>
         </Link>
         <h1 className="font-semibold text-lg flex-1">Caja</h1>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setCrearOpen(true)}
+        >
+          <PlusIcon className="h-4 w-4 mr-1.5" /> Nueva caja
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -119,15 +145,57 @@ export function CajaClient({ slug, cajas, activeTurnos }: Props) {
         )}
 
         {cajas.length === 0 && (
-          <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-            No hay cajas configuradas. Pedile al admin que cree una en{" "}
-            <Link href={`/${slug}/admin/local`} className="underline">
-              /admin/local
-            </Link>
-            .
+          <div className="rounded-md border border-dashed p-8 text-center space-y-3">
+            <Settings className="h-8 w-8 mx-auto text-muted-foreground" />
+            <div>
+              <p className="font-medium">No hay cajas configuradas</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Creá la primera caja del local para empezar a abrir turnos.
+              </p>
+            </div>
+            <Button onClick={() => setCrearOpen(true)}>
+              <PlusIcon className="h-4 w-4 mr-2" /> Crear primera caja
+            </Button>
           </div>
         )}
       </div>
+
+      {/* Crear caja */}
+      <Dialog open={crearOpen} onOpenChange={setCrearOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nueva caja</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Nombre</Label>
+              <Input
+                value={nuevaCajaName}
+                onChange={(e) => setNuevaCajaName(e.target.value)}
+                placeholder="Salón / Barra / Caja 1…"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCrearCaja();
+                }}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Nombre visible para distinguir entre cajas físicas (ej: "Barra", "Caja 1").
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCrearOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={nuevaCajaName.trim() === ""}
+              onClick={handleCrearCaja}
+            >
+              Crear
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Apertura */}
       <Dialog

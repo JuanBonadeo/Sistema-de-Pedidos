@@ -57,6 +57,106 @@ async function loadTurnoForBusiness(
   return row;
 }
 
+// ── CRUD de cajas físicas ──────────────────────────────────────
+
+/**
+ * Crea una caja física del local. Permiso: admin / encargado (mismo gate
+ * que abrir turno — quien puede operar puede dar de alta el recurso).
+ */
+export async function crearCaja(
+  name: string,
+  businessSlug: string,
+): Promise<ActionResult<{ id: string; name: string }>> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  if (!canOpenCajaTurno(ctx.role)) {
+    return actionError("Solo encargado o admin pueden crear cajas.");
+  }
+  const trimmed = name.trim();
+  if (trimmed === "") return actionError("La caja necesita un nombre.");
+  if (trimmed.length > 60) return actionError("Nombre demasiado largo.");
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+  const { data, error } = await service
+    .from("cajas")
+    .insert({
+      business_id: business.id,
+      name: trimmed,
+      is_active: true,
+    })
+    .select("id, name")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return actionError("Ya existe una caja con ese nombre.");
+    }
+    return actionError(`No se pudo crear la caja: ${error.message}`);
+  }
+
+  revalidatePath(`/${businessSlug}/caja`);
+  revalidatePath(`/${businessSlug}/admin/local`);
+  return actionOk({
+    id: (data as { id: string }).id,
+    name: (data as { name: string }).name,
+  });
+}
+
+/**
+ * Soft-delete: marca `is_active=false`. La caja deja de aparecer para abrir
+ * turno pero los turnos históricos siguen accesibles read-only (R6/A6 de
+ * CU-06). Si tiene un turno open, falla — primero hay que cerrarlo.
+ */
+export async function setCajaActive(
+  cajaId: string,
+  isActive: boolean,
+  businessSlug: string,
+): Promise<ActionResult<void>> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  if (!canOpenCajaTurno(ctx.role)) {
+    return actionError("Solo encargado o admin pueden modificar cajas.");
+  }
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const caja = await loadCajaForBusiness(service, cajaId, business.id);
+  if (!caja) return actionError("Caja no encontrada.");
+
+  if (!isActive) {
+    const { data: openTurno } = await service
+      .from("caja_turnos")
+      .select("id")
+      .eq("caja_id", cajaId)
+      .eq("status", "open")
+      .maybeSingle();
+    if (openTurno) {
+      return actionError(
+        "No se puede deshabilitar: tiene un turno abierto. Cerralo primero.",
+      );
+    }
+  }
+
+  const { error } = await service
+    .from("cajas")
+    .update({ is_active: isActive })
+    .eq("id", cajaId);
+  if (error) return actionError(`No se pudo actualizar la caja: ${error.message}`);
+
+  revalidatePath(`/${businessSlug}/caja`);
+  return actionOk(undefined);
+}
+
 // ── Apertura ───────────────────────────────────────────────────
 
 export async function abrirTurno(

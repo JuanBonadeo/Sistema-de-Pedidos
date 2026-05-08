@@ -182,12 +182,14 @@ export async function closeOrderIfFullyPaid(
       .single();
     const fromStatus = tableRow?.operational_status as string;
 
+    // mozo_id se preserva: la asignación es fija hasta que el encargado la
+    // cambie manualmente desde "Distribuir mozos". Cobrar una mesa no la
+    // saca del mozo que la atiende.
     await service
       .from("tables")
       .update({
         operational_status: "libre",
         opened_at: null,
-        mozo_id: null,
         current_order_id: null,
       })
       .eq("id", order.table_id);

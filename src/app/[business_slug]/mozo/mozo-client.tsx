@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 
 import type { BusinessRole } from "@/lib/admin/context";
+import { AsignarMozosOverlay } from "@/components/mozo/asignar-mozos-overlay";
 import { MobileTabBar, type MozoTab } from "@/components/mozo/mobile-tab-bar";
 import { TableDrawer } from "@/components/mozo/table-drawer";
 import { TransferTableModal } from "@/components/mozo/transfer-table-modal";
@@ -197,6 +198,7 @@ export function MozoClient({
     label: string;
   } | null>(null);
   const [anularReason, setAnularReason] = useState("");
+  const [distribuirOpen, setDistribuirOpen] = useState(false);
 
   // ── Multi-salón ──
   const planStorageKey = `mozo_active_plan_${businessId}`;
@@ -451,13 +453,27 @@ export function MozoClient({
       <main className="mx-auto max-w-screen-md px-4 pt-4">
         {activeTab === "salon" && (
           <>
-            {floorPlans.length > 1 && (
-              <MozoSalonSelector
-                plans={floorPlans}
-                activeId={activePlanId}
-                onSelect={setActivePlan}
-              />
-            )}
+            <div className="mb-3 flex items-center justify-between gap-2">
+              {floorPlans.length > 1 ? (
+                <MozoSalonSelector
+                  plans={floorPlans}
+                  activeId={activePlanId}
+                  onSelect={setActivePlan}
+                />
+              ) : (
+                <div />
+              )}
+              {canAssignMozo(role) && (
+                <button
+                  type="button"
+                  onClick={() => setDistribuirOpen(true)}
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
+                >
+                  <Users className="size-3.5" />
+                  Distribuir mozos
+                </button>
+              )}
+            </div>
             <SalonSection
               tables={localTables}
               reservationByTable={reservationByTable}
@@ -847,6 +863,16 @@ export function MozoClient({
           </div>
         </div>
       )}
+
+      {/* Modo "pintura" para distribuir mozos */}
+      <AsignarMozosOverlay
+        open={distribuirOpen}
+        onClose={() => setDistribuirOpen(false)}
+        slug={businessSlug}
+        floorPlans={floorPlans}
+        mozos={mozos}
+        tables={localTables}
+      />
     </div>
   );
 }

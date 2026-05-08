@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { AsignarMozosOverlay } from "@/components/mozo/asignar-mozos-overlay";
 import { FloorPlanViewer } from "@/components/mozo/floor-plan-viewer";
 import { TransferTableModal } from "@/components/mozo/transfer-table-modal";
 import { WalkInModal } from "@/components/mozo/walk-in-modal";
@@ -30,7 +31,7 @@ import {
   canTransition,
   type OperationalStatus,
 } from "@/lib/mozo/state-machine";
-import { canTransitionMesa } from "@/lib/permissions/can";
+import { canAssignMozo, canTransitionMesa } from "@/lib/permissions/can";
 import type { FloorTable } from "@/lib/reservations/types";
 import { cn } from "@/lib/utils";
 
@@ -135,6 +136,7 @@ export function SalonDesktop({
     label: string;
   } | null>(null);
   const [anularReason, setAnularReason] = useState("");
+  const [distribuirOpen, setDistribuirOpen] = useState(false);
 
   // ── Multi-salón ──
   // Selección persistida por business. Si el id guardado ya no existe (plano
@@ -305,7 +307,19 @@ export function SalonDesktop({
   return (
     <div className="flex h-full flex-col gap-4">
       {/* ── Stats arriba (globales, todos los salones) ── */}
-      <SalonStats stats={stats} total={allActiveTables.length} />
+      <div className="flex items-start justify-between gap-3">
+        <SalonStats stats={stats} total={allActiveTables.length} />
+        {canAssignMozo(role) && (
+          <button
+            type="button"
+            onClick={() => setDistribuirOpen(true)}
+            className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3.5 py-2 text-xs font-semibold text-white transition hover:brightness-110"
+          >
+            <Users className="size-3.5" />
+            Distribuir mozos
+          </button>
+        )}
+      </div>
 
       {/* ── Selector de salón (solo si hay >1) ── */}
       {floorPlans.length > 1 && (
@@ -465,6 +479,16 @@ export function SalonDesktop({
           </div>
         </div>
       )}
+
+      {/* Modo "pintura" para distribuir mozos */}
+      <AsignarMozosOverlay
+        open={distribuirOpen}
+        onClose={() => setDistribuirOpen(false)}
+        slug={slug}
+        floorPlans={floorPlans}
+        mozos={mozos}
+        tables={allActiveTables}
+      />
     </div>
   );
 }

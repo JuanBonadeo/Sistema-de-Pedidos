@@ -379,12 +379,13 @@ export async function anularMesa(
     return actionError("No pudimos cancelar las órdenes abiertas.");
   }
 
+  // mozo_id se preserva: la asignación es fija hasta que el encargado la
+  // cambie manualmente. Anular la mesa no la saca del mozo asignado.
   const { error: tableErr } = await service
     .from("tables")
     .update({
       operational_status: "libre",
       opened_at: null,
-      mozo_id: null,
       current_order_id: null,
     })
     .eq("id", tableId);

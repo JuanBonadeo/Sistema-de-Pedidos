@@ -51,10 +51,13 @@ export default async function MozoPage({
       .lt("starts_at", tomorrowStart.toISOString())
       .order("starts_at", { ascending: true }),
 
-    // Órdenes dine_in activas de hoy
+    // Órdenes dine_in activas de hoy. Traemos customer_name + items para
+    // mostrar quién se sentó y un resumen rápido en la card / drawer.
     service
       .from("orders")
-      .select("id, order_number, table_id, delivery_type, total_cents, created_at, status")
+      .select(
+        "id, order_number, table_id, delivery_type, total_cents, created_at, status, customer_name, order_items(product_name, quantity, cancelled_at)",
+      )
       .eq("business_id", business.id)
       .eq("delivery_type", "dine_in")
       .neq("status", "cancelled")
@@ -74,7 +77,17 @@ export default async function MozoPage({
       businessId={business.id}
       floorPlans={floorPlans}
       reservations={(reservations ?? []) as ReservationForMozo[]}
-      activeOrders={(activeOrders ?? []) as OrderForMozo[]}
+      activeOrders={(activeOrders ?? []).map((o) => ({
+        id: o.id as string,
+        order_number: o.order_number as number,
+        table_id: o.table_id as string | null,
+        delivery_type: o.delivery_type as string,
+        total_cents: Number(o.total_cents),
+        created_at: o.created_at as string,
+        status: o.status as string,
+        customer_name: (o as { customer_name: string | null }).customer_name,
+        items: ((o as { order_items?: Array<{ product_name: string; quantity: number; cancelled_at: string | null }> }).order_items ?? []),
+      }))}
       mozos={mozos}
       currentUserId={ctx.user.id}
       role={ctx.role}

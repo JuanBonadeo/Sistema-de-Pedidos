@@ -25,11 +25,7 @@ import { MobileTabBar, type MozoTab } from "@/components/mozo/mobile-tab-bar";
 import { TableDrawer } from "@/components/mozo/table-drawer";
 import { TransferTableModal } from "@/components/mozo/transfer-table-modal";
 import { WalkInModal } from "@/components/mozo/walk-in-modal";
-import {
-  anularMesa,
-  assignMozoToTable,
-  volverAPedir,
-} from "@/lib/mozo/actions";
+import { anularMesa, volverAPedir } from "@/lib/mozo/actions";
 import type { MozoMember } from "@/lib/mozo/queries";
 import { type OperationalStatus } from "@/lib/mozo/state-machine";
 import { markAllRead, markRead } from "@/lib/notifications/actions";
@@ -59,6 +55,8 @@ export type OrderForMozo = {
   total_cents: number;
   created_at: string;
   status: string;
+  customer_name: string | null;
+  items: { product_name: string; quantity: number; cancelled_at: string | null }[];
 };
 
 type Props = {
@@ -317,21 +315,6 @@ export function MozoClient({
 
 
   // ── Handlers ──
-  const handleAssignMozo = useCallback(
-    async (tableId: string, mozoId: string | null) => {
-      setLoading(true);
-      const result = await assignMozoToTable(tableId, mozoId, businessSlug);
-      setLoading(false);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(mozoId ? "Mozo asignado." : "Mesa sin asignar.");
-      router.refresh();
-    },
-    [businessSlug, router],
-  );
-
   const handleAnular = useCallback(async () => {
     if (!anularPrompt) return;
     const reason = anularReason.trim();
@@ -565,70 +548,72 @@ export function MozoClient({
                   Cargar pedido
                 </button>
               )}
-              {/* Acción secundaria contextual */}
-              {selectedStatus === "pidio_cuenta" && canShowPedirButton && (
-                <button
-                  disabled={loading}
-                  onClick={async () => {
-                    // Cliente se arrepintió: volvemos a `ocupada` y limpiamos
-                    // `bill_requested_at` antes de navegar a `/pedir`.
-                    const r = await volverAPedir(
-                      selectedSync.id,
-                      businessSlug,
-                    );
-                    if (!r.ok) {
-                      toast.error(r.error);
-                      return;
+              {/* Acciones secundarias en grid 2-cols, más compactas */}
+              <div className="grid grid-cols-2 gap-2">
+                {selectedStatus === "pidio_cuenta" && canShowPedirButton && (
+                  <button
+                    disabled={loading}
+                    onClick={async () => {
+                      // Cliente se arrepintió: volvemos a `ocupada` y limpiamos
+                      // `bill_requested_at` antes de navegar a `/pedir`.
+                      const r = await volverAPedir(
+                        selectedSync.id,
+                        businessSlug,
+                      );
+                      if (!r.ok) {
+                        toast.error(r.error);
+                        return;
+                      }
+                      router.push(
+                        `/${businessSlug}/mozo/mesa/${selectedSync.id}/pedir`,
+                      );
+                    }}
+                    className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-zinc-100 px-3 text-sm font-semibold text-zinc-700 transition active:scale-[0.97] disabled:opacity-60"
+                  >
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    Volver a pedir
+                  </button>
+                )}
+                {selectedStatus !== "pidio_cuenta" && canShowCuentaButton && (
+                  <button
+                    disabled={loading}
+                    onClick={() =>
+                      router.push(
+                        `/${businessSlug}/mozo/mesa/${selectedSync.id}/cuenta`,
+                      )
                     }
-                    router.push(
-                      `/${businessSlug}/mozo/mesa/${selectedSync.id}/pedir`,
-                    );
-                  }}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 text-base font-semibold text-zinc-700 transition active:scale-[0.98] disabled:opacity-60"
-                >
-                  <ClipboardList className="h-4 w-4" />
-                  Volver a pedir
-                </button>
-              )}
-              {selectedStatus !== "pidio_cuenta" && canShowCuentaButton && (
-                <button
-                  disabled={loading}
-                  onClick={() =>
-                    router.push(
-                      `/${businessSlug}/mozo/mesa/${selectedSync.id}/cuenta`,
-                    )
-                  }
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-amber-50 text-base font-semibold text-amber-700 ring-1 ring-amber-200 transition active:scale-[0.98] disabled:opacity-60"
-                >
-                  <ClipboardList className="h-4 w-4" />
-                  Pedir cuenta
-                </button>
-              )}
-              {canShowTransferButton && (
-                <button
-                  disabled={loading}
-                  onClick={() => setTransferTableId(selectedSync.id)}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-sky-50 text-base font-semibold text-sky-700 ring-1 ring-sky-200 transition active:scale-[0.98] disabled:opacity-60"
-                >
-                  <ArrowLeftRight className="h-4 w-4" />
-                  Transferir mesa
-                </button>
-              )}
-              {canShowAnularButton && (
-                <button
-                  disabled={loading}
-                  onClick={() =>
-                    setAnularPrompt({
-                      tableId: selectedSync.id,
-                      label: selectedSync.label,
-                    })
-                  }
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-red-50 text-base font-semibold text-red-700 ring-1 ring-red-200 transition active:scale-[0.98] disabled:opacity-60"
-                >
-                  <Ban className="h-4 w-4" />
-                  Anular mesa
-                </button>
-              )}
+                    className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-amber-50 px-3 text-sm font-semibold text-amber-700 ring-1 ring-amber-200 transition active:scale-[0.97] disabled:opacity-60"
+                  >
+                    <Receipt className="h-3.5 w-3.5" />
+                    Pedir cuenta
+                  </button>
+                )}
+                {canShowTransferButton && (
+                  <button
+                    disabled={loading}
+                    onClick={() => setTransferTableId(selectedSync.id)}
+                    className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-zinc-100 px-3 text-sm font-semibold text-zinc-700 transition active:scale-[0.97] disabled:opacity-60"
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                    Transferir
+                  </button>
+                )}
+                {canShowAnularButton && (
+                  <button
+                    disabled={loading}
+                    onClick={() =>
+                      setAnularPrompt({
+                        tableId: selectedSync.id,
+                        label: selectedSync.label,
+                      })
+                    }
+                    className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-red-50 px-3 text-sm font-semibold text-red-700 ring-1 ring-red-200 transition active:scale-[0.97] disabled:opacity-60"
+                  >
+                    <Ban className="h-3.5 w-3.5" />
+                    Anular
+                  </button>
+                )}
+              </div>
             </div>
           ) : null
         }
@@ -664,67 +649,10 @@ export function MozoClient({
               </div>
             )}
 
-            {/* Orden activa */}
+            {/* Orden activa con resumen de items */}
             {orderByTable[selectedSync.id] && (
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                  Orden activa
-                </p>
-                <div className="mt-1 flex items-center justify-between">
-                  <p className="text-base font-semibold text-zinc-900">
-                    #{orderByTable[selectedSync.id]!.order_number}
-                  </p>
-                  <p className="inline-flex items-center gap-1.5 text-base font-bold tabular-nums text-zinc-900">
-                    <Receipt className="h-4 w-4" />
-                    {formatMoney(orderByTable[selectedSync.id]!.total_cents)}
-                  </p>
-                </div>
-              </div>
+              <OrderSummaryCard order={orderByTable[selectedSync.id]!} />
             )}
-
-            {/* Mozo asignado */}
-            <div>
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                Mozo asignado
-              </p>
-              {canAssignMozo(role) ? (
-                <select
-                  className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-3 text-base"
-                  value={selectedSync.mozo_id ?? ""}
-                  disabled={loading}
-                  onChange={(e) =>
-                    handleAssignMozo(
-                      selectedSync.id,
-                      e.target.value === "" ? null : e.target.value,
-                    )
-                  }
-                >
-                  <option value="">— Sin asignar —</option>
-                  {mozos.map((m) => (
-                    <option key={m.user_id} value={m.user_id}>
-                      {m.full_name ?? m.user_id} ({m.role})
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="flex items-center gap-3 rounded-xl bg-zinc-100 px-3 py-3">
-                  {selectedSync.mozo_id ? (
-                    <>
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-xs font-bold text-white">
-                        {initialsFromName(
-                          mozoNameById.get(selectedSync.mozo_id) ?? "",
-                        )}
-                      </span>
-                      <span className="text-sm font-medium text-zinc-800">
-                        {mozoNameById.get(selectedSync.mozo_id) ?? "Asignado"}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-sm text-zinc-500">Sin asignar</span>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         )}
       </TableDrawer>
@@ -1162,6 +1090,67 @@ function SalonSection({
   );
 }
 
+/**
+ * Resumen de la order activa para el drawer de mesa: número, total grande,
+ * lista detallada de items con cantidad. Muestra cancelados tachados.
+ */
+function OrderSummaryCard({ order }: { order: OrderForMozo }) {
+  const active = order.items.filter((it) => it.cancelled_at === null);
+  const cancelled = order.items.filter((it) => it.cancelled_at !== null);
+  const totalQty = active.reduce((acc, it) => acc + it.quantity, 0);
+
+  return (
+    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4">
+      <div className="flex items-baseline justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+          Orden #{order.order_number}
+        </p>
+        <p className="inline-flex items-center gap-1.5 text-lg font-bold tabular-nums text-zinc-900">
+          <Receipt className="h-4 w-4" />
+          {formatMoney(order.total_cents)}
+        </p>
+      </div>
+      {active.length > 0 ? (
+        <ul className="mt-3 space-y-1">
+          {active.map((it, i) => (
+            <li
+              key={`a-${i}`}
+              className="flex items-center gap-2 text-sm text-zinc-800"
+            >
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold tabular-nums text-zinc-700 ring-1 ring-zinc-200">
+                {it.quantity}
+              </span>
+              <span className="flex-1 truncate">{it.product_name}</span>
+            </li>
+          ))}
+          {cancelled.length > 0 &&
+            cancelled.map((it, i) => (
+              <li
+                key={`c-${i}`}
+                className="flex items-center gap-2 text-xs text-zinc-400 line-through"
+              >
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold tabular-nums">
+                  {it.quantity}
+                </span>
+                <span className="flex-1 truncate">{it.product_name}</span>
+              </li>
+            ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm text-zinc-500">
+          Sin items cargados todavía.
+        </p>
+      )}
+      {active.length > 0 && (
+        <p className="mt-3 border-t border-emerald-100 pt-2 text-[11px] text-zinc-500 tabular-nums">
+          {totalQty} items · {active.length}{" "}
+          {active.length === 1 ? "producto" : "productos"}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function MyTablesSection({
   myTables,
   reservationByTable,
@@ -1269,13 +1258,28 @@ function ActiveTableCard({
   const status = (table.operational_status ?? "libre") as OperationalStatus;
   const min = minutesSince(table.opened_at ?? undefined);
   const isUrgent = status === "pidio_cuenta";
+  // Nombre de quién está en la mesa: prefiere reserva (más rico, tiene
+  // party_size), cae al snapshot de la order (walk-in con nombre cargado),
+  // sino muestra "Walk-in".
+  const partyName =
+    reservation?.customer_name ??
+    (order?.customer_name && order.customer_name.trim() !== ""
+      ? order.customer_name
+      : null);
+  const partySize = reservation?.party_size ?? null;
+
+  // Items activos para el preview (primeros 3 + "+N más").
+  const activeItems =
+    order?.items.filter((it) => it.cancelled_at === null) ?? [];
+  const totalQty = activeItems.reduce((acc, it) => acc + it.quantity, 0);
+
   return (
     <button
       onClick={() => onTap(table)}
       className={`block w-full rounded-2xl border-l-[6px] bg-white p-4 text-left ring-1 ring-zinc-200 transition active:scale-[0.99] active:bg-zinc-50 ${STATUS_BORDER[status]}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-heading text-2xl font-extrabold leading-none tracking-tight text-zinc-900">
               Mesa {table.label}
@@ -1289,16 +1293,14 @@ function ActiveTableCard({
               {STATUS_LABEL[status]}
             </span>
           </div>
-          {reservation ? (
-            <p className="mt-2 text-sm font-medium text-zinc-700">
-              {reservation.customer_name}
-              <span className="ml-1.5 text-xs font-normal text-zinc-500">
-                · {reservation.party_size}p
+          <p className="mt-1.5 truncate text-sm font-semibold text-zinc-800">
+            {partyName ?? "Walk-in"}
+            {partySize != null && (
+              <span className="ml-1.5 text-xs font-normal text-zinc-500 tabular-nums">
+                · {partySize}p
               </span>
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-zinc-500">Walk-in</p>
-          )}
+            )}
+          </p>
         </div>
         {min != null && (
           <div className="shrink-0 text-right">
@@ -1315,14 +1317,41 @@ function ActiveTableCard({
         )}
       </div>
       {order && (
-        <div className="mt-3 flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
-          <span className="text-xs text-zinc-500">
-            Orden #{order.order_number}
-          </span>
-          <span className="text-base font-bold tabular-nums text-zinc-900">
-            {formatMoney(order.total_cents)}
-          </span>
-        </div>
+        <>
+          {/* Resumen de items: primeros 3 con cantidad */}
+          {activeItems.length > 0 && (
+            <div className="mt-3 space-y-0.5">
+              {activeItems.slice(0, 3).map((it, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 text-xs text-zinc-600"
+                >
+                  <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-zinc-100 px-1 text-[10px] font-bold tabular-nums text-zinc-700">
+                    {it.quantity}
+                  </span>
+                  <span className="truncate">{it.product_name}</span>
+                </div>
+              ))}
+              {activeItems.length > 3 && (
+                <p className="pl-6 text-[11px] text-zinc-500">
+                  +{activeItems.length - 3} más ·{" "}
+                  <span className="tabular-nums">
+                    {totalQty} items totales
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
+          {/* Total */}
+          <div className="mt-3 flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
+            <span className="text-xs text-zinc-500">
+              Orden #{order.order_number}
+            </span>
+            <span className="text-base font-bold tabular-nums text-zinc-900">
+              {formatMoney(order.total_cents)}
+            </span>
+          </div>
+        </>
       )}
     </button>
   );

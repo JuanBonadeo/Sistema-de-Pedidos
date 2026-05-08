@@ -85,6 +85,28 @@ function minutesSince(iso: string | null | undefined): number | null {
   return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
 }
 
+/**
+ * Tiempo legible en jerga AR: "ahora", "5 min", "1h 20", "2h".
+ * Pensado para mostrar "hace cuánto que la mesa está abierta".
+ */
+function formatRelativeTime(minutes: number | null): string | null {
+  if (minutes === null) return null;
+  if (minutes < 1) return "ahora";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (rest === 0) return `${hours}h`;
+  return `${hours}h ${rest}`;
+}
+
+function initialsFromName(name: string | null | undefined): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 0 || parts[0] === "") return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
 function formatMoney(cents: number): string {
   return `$${(cents / 100).toLocaleString("es-AR", { minimumFractionDigits: 0 })}`;
 }
@@ -656,7 +678,7 @@ function ActiveTablesList({
                     </span>
                     {minutes !== null && (
                       <span className="text-muted-foreground text-[11px] tabular-nums">
-                        · {minutes}m
+                        · {formatRelativeTime(minutes)}
                       </span>
                     )}
                   </div>
@@ -751,17 +773,23 @@ function TableDetail({
   const canShowCuenta =
     !!order && (status === "ocupada" || status === "pidio_cuenta");
 
+  const tiempoLabel = formatRelativeTime(minutes);
+  const partyName =
+    reservation?.customer_name ??
+    (order?.customer_name && order.customer_name.trim() !== ""
+      ? order.customer_name
+      : null);
+  const partySize = reservation?.party_size ?? null;
+
   return (
     <>
-      <header className="border-border/60 flex items-start justify-between gap-2 border-b px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
-            Mesa
-          </p>
-          <h3 className="text-foreground text-2xl font-extrabold leading-none tracking-tight">
-            {table.label}
+      {/* Header limpio: Mesa N · estado · tiempo · avatar mozo · close. */}
+      <header className="border-border/60 flex items-center gap-3 border-b px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-foreground text-xl font-bold tracking-tight">
+            Mesa {table.label}
           </h3>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
@@ -772,18 +800,28 @@ function TableDetail({
               <span className={cn("h-1.5 w-1.5 rounded-full", c.dot)} />
               {STATUS_LABEL[status]}
             </span>
-            {minutes !== null && (
+            {tiempoLabel && (
               <span className="text-muted-foreground inline-flex items-center gap-1 text-[11px] tabular-nums">
                 <Clock className="h-3 w-3" />
-                {minutes}m
+                {tiempoLabel}
               </span>
             )}
           </div>
         </div>
+        {/* Avatar mozo a la derecha (compacto). Tooltip con el nombre. */}
+        {mozoName && (
+          <div
+            className="flex size-9 flex-shrink-0 items-center justify-center rounded-full bg-zinc-900 text-[0.65rem] font-bold text-white ring-2 ring-white shadow-sm"
+            title={`Mozo: ${mozoName}`}
+            aria-label={`Mozo: ${mozoName}`}
+          >
+            {initialsFromName(mozoName)}
+          </div>
+        )}
         <button
           type="button"
           onClick={onClose}
-          className="hover:bg-muted/60 rounded-full p-1.5 text-zinc-500"
+          className="hover:bg-muted/60 flex-shrink-0 rounded-full p-1.5 text-zinc-500"
           aria-label="Cerrar detalle"
         >
           <X className="h-4 w-4" />
@@ -791,59 +829,63 @@ function TableDetail({
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {/* Reserva */}
-        {reservation && (
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
-              Reserva
-            </p>
-            <p className="mt-1 font-semibold text-zinc-900">
-              {reservation.customer_name}
-            </p>
-            <p className="text-xs text-zinc-600">
-              {reservation.party_size} personas ·{" "}
-              {formatTime(reservation.starts_at)}
-            </p>
-            {reservation.notes && (
-              <p className="mt-1 text-xs italic text-zinc-600">
-                {reservation.notes}
-              </p>
+        {/* Comensal: una sola fila con nombre + party_size + reserva si hay. */}
+        {(partyName || reservation) && (
+          <div
+            className={cn(
+              "flex items-center gap-2 rounded-xl p-3 text-sm",
+              reservation
+                ? "border border-indigo-100 bg-indigo-50/60"
+                : "bg-zinc-50",
             )}
+          >
+            <Users
+              className={cn(
+                "h-4 w-4 flex-shrink-0",
+                reservation ? "text-indigo-600" : "text-zinc-500",
+              )}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold text-zinc-900">
+                {partyName ?? "Walk-in"}
+                {partySize != null && (
+                  <span className="ml-1.5 text-xs font-normal text-zinc-500 tabular-nums">
+                    · {partySize}p
+                  </span>
+                )}
+              </p>
+              {reservation && (
+                <p className="text-[11px] text-indigo-700 tabular-nums">
+                  Reserva · {formatTime(reservation.starts_at)}
+                </p>
+              )}
+            </div>
           </div>
         )}
-
-        {/* Comensal (walk-in con nombre cargado, distinto de reserva) */}
-        {!reservation &&
-          order?.customer_name &&
-          order.customer_name.trim() !== "" && (
-            <div className="rounded-xl bg-zinc-50 p-3 text-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                Comensal
-              </p>
-              <p className="mt-0.5 font-semibold text-zinc-900">
-                {order.customer_name}
-              </p>
-            </div>
-          )}
-
-        {/* Mozo asignado */}
-        {mozoName && (
-          <div className="rounded-xl bg-zinc-50 p-3 text-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-              Mozo
-            </p>
-            <p className="mt-0.5 font-semibold text-zinc-900">{mozoName}</p>
-          </div>
+        {reservation?.notes && (
+          <p className="-mt-1 px-1 text-xs italic text-zinc-600">
+            "{reservation.notes}"
+          </p>
         )}
 
         {/* Orden + comandas con estado */}
         {order && <OrderSummaryCard order={order} slug={slug} />}
       </div>
 
-      {/* Acciones primarias en footer */}
+      {/* Footer: jerarquía clara — primario grande, secundarios en grid,
+          acción destructiva separada al final. */}
       <div className="border-border/60 space-y-2 border-t p-3">
-        {/* Acción primaria: el "siguiente paso natural" según estado.
-            ocupada → Cargar pedido (default). pidio_cuenta → Cobrar mesa. */}
+        {/* Primario: siguiente paso natural según estado */}
+        {canWalkIn && (
+          <Button
+            onClick={onWalkIn}
+            disabled={pending}
+            className="h-11 w-full font-semibold"
+          >
+            <UserPlus className="size-4" />
+            Sentar walk-in
+          </Button>
+        )}
         {status === "pidio_cuenta" && canShowCuenta && (
           <Button
             className="h-11 w-full font-semibold"
@@ -866,56 +908,63 @@ function TableDetail({
             Cargar pedido
           </Button>
         )}
-        {/* Acción secundaria contextual */}
-        {status === "pidio_cuenta" && canPedir && (
-          <Button
-            variant="outline"
-            className="h-11 w-full font-semibold"
-            onClick={() =>
-              (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
-            }
-          >
-            Volver a pedir
-          </Button>
-        )}
-        {status !== "pidio_cuenta" && canShowCuenta && (
-          <Button
-            variant="outline"
-            className="h-11 w-full font-semibold"
-            onClick={() =>
-              (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
-            }
-          >
-            Pedir cuenta
-          </Button>
-        )}
-        {canWalkIn && (
-          <Button onClick={onWalkIn} disabled={pending} className="h-11 w-full font-semibold">
-            <UserPlus className="size-4" />
-            Sentar walk-in
-          </Button>
-        )}
-        {canTransfer && (
-          <Button
-            onClick={onTransfer}
-            disabled={pending}
-            variant="outline"
-            className="h-10 w-full"
-          >
-            <ArrowLeftRight className="size-4" />
-            Transferir
-          </Button>
-        )}
+
+        {/* Secundarios en grid 2-cols, compactos */}
+        {(() => {
+          const showVolverAPedir = status === "pidio_cuenta" && canPedir;
+          const showPedirCuenta = status === "ocupada" && canShowCuenta;
+          const hasAny = canTransfer || showVolverAPedir || showPedirCuenta;
+          if (!hasAny) return null;
+          return (
+            <div className="grid grid-cols-2 gap-2">
+              {showVolverAPedir && (
+                <Button
+                  variant="outline"
+                  className="h-9 text-xs"
+                  onClick={() =>
+                    (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
+                  }
+                >
+                  Volver a pedir
+                </Button>
+              )}
+              {showPedirCuenta && (
+                <Button
+                  variant="outline"
+                  className="h-9 text-xs"
+                  onClick={() =>
+                    (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
+                  }
+                >
+                  Pedir cuenta
+                </Button>
+              )}
+              {canTransfer && (
+                <Button
+                  onClick={onTransfer}
+                  disabled={pending}
+                  variant="outline"
+                  className="h-9 text-xs"
+                >
+                  <ArrowLeftRight className="size-3" />
+                  Transferir
+                </Button>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Destructiva al final, ghost rojo, separada visualmente */}
         {canAnular && (
-          <Button
+          <button
+            type="button"
             onClick={onAnular}
             disabled={pending}
-            variant="outline"
-            className="h-10 w-full text-red-700 hover:bg-red-50 hover:text-red-700"
+            className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-[11px] font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
           >
-            <Ban className="size-4" />
+            <Ban className="size-3" />
             Anular mesa
-          </Button>
+          </button>
         )}
       </div>
     </>

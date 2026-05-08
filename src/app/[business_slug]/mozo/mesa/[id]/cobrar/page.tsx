@@ -1,4 +1,5 @@
-import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
+import { notFound } from "next/navigation";
 
 import { iniciarCobro } from "@/lib/billing/cobro-actions";
 import { getCuentaForTable } from "@/lib/billing/cuenta-query";
@@ -22,7 +23,28 @@ export default async function CobrarPage({
   const ctx = await ensureMozoAccess(business.id, business_slug);
 
   const cuenta = await getCuentaForTable(tableId, business.id);
-  if (!cuenta) redirect(`/${business_slug}/mozo`);
+  if (!cuenta) {
+    return (
+      <div className="min-h-screen bg-background p-4 flex flex-col items-center justify-center text-center gap-4">
+        <p className="text-lg font-semibold">No hay cuenta para cobrar</p>
+        <p className="text-sm text-muted-foreground max-w-sm">
+          Esta mesa no tiene un pedido activo. Cargá items primero desde la
+          pantalla de pedido.
+        </p>
+        <div className="flex gap-2">
+          <Link href={`/${business_slug}/mozo`} className="rounded-md border px-4 py-2 text-sm">
+            Volver al salón
+          </Link>
+          <Link
+            href={`/${business_slug}/mozo/mesa/${tableId}/pedir`}
+            className="rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm"
+          >
+            Cargar pedido
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   const init = await iniciarCobro(cuenta.order.id, business_slug);
   if (!init.ok) {

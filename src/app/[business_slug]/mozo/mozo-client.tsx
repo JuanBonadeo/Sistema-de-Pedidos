@@ -423,8 +423,13 @@ export function MozoClient({
     (selectedStatus === "ocupada" ||
       selectedStatus === "esperando_pedido" ||
       selectedStatus === "esperando_cuenta");
+  // "Pedir cuenta" / "Cobrar mesa" requiere order activa. Si la mesa está
+  // ocupada por walk-in pero todavía no se cargó pedido, no hay nada que
+  // cobrar — el botón no debería aparecer. Estado canónico: order existe en
+  // `activeOrders` para esa mesa.
   const canShowCuentaButton =
     !!selectedSync &&
+    !!orderByTable[selectedSync.id] &&
     (selectedStatus === "ocupada" ||
       selectedStatus === "esperando_pedido" ||
       selectedStatus === "esperando_cuenta");

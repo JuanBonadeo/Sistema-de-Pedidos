@@ -59,9 +59,13 @@ export default async function LocalEnVivoPage({
     getFloorPlansForBusiness(business.id),
     // Mismo criterio que en /mozo: solo orders **abiertas** de mesa. Una
     // por mesa por el partial unique. Las cerradas ya no son "actuales".
+    // Traemos customer_name + items + comandas con su estado para que el
+    // drawer del salón muestre el resumen completo (paridad con mozo).
     service
       .from("orders")
-      .select("id, order_number, table_id, total_cents, created_at, status")
+      .select(
+        "id, order_number, table_id, total_cents, created_at, status, customer_name, order_items(product_name, quantity, cancelled_at), comandas(id, batch, status, station_id, emitted_at, delivered_at, stations(name), comanda_items(order_items(product_name, quantity, cancelled_at)))",
+      )
       .eq("business_id", business.id)
       .eq("delivery_type", "dine_in")
       .eq("lifecycle_status", "open"),
@@ -95,7 +99,73 @@ export default async function LocalEnVivoPage({
         initialComandas={initialComandas}
         stations={stations}
         floorPlans={floorPlans}
-        dineInOrders={(dineInOrders ?? []) as SalonOrderRef[]}
+        dineInOrders={(dineInOrders ?? []).map((o) => {
+          type RawComandaItem = {
+            order_items:
+              | { product_name: string; quantity: number; cancelled_at: string | null }
+              | { product_name: string; quantity: number; cancelled_at: string | null }[]
+              | null;
+          };
+          type RawComanda = {
+            id: string;
+            batch: number;
+            status: "pendiente" | "en_preparacion" | "entregado";
+            station_id: string | null;
+            emitted_at: string;
+            delivered_at: string | null;
+            stations: { name: string } | { name: string }[] | null;
+            comanda_items: RawComandaItem[];
+          };
+          const rawComandas = (o as { comandas?: RawComanda[] }).comandas ?? [];
+          return {
+            id: o.id as string,
+            order_number: o.order_number as number,
+            table_id: o.table_id as string | null,
+            total_cents: Number(o.total_cents),
+            created_at: o.created_at as string,
+            status: o.status as string,
+            customer_name: (o as { customer_name: string | null }).customer_name,
+            items:
+              (o as {
+                order_items?: Array<{
+                  product_name: string;
+                  quantity: number;
+                  cancelled_at: string | null;
+                }>;
+              }).order_items ?? [],
+            comandas: rawComandas.map((c) => {
+              const station = Array.isArray(c.stations)
+                ? c.stations[0]
+                : c.stations;
+              const items = (c.comanda_items ?? [])
+                .map((ci) =>
+                  Array.isArray(ci.order_items)
+                    ? ci.order_items[0]
+                    : ci.order_items,
+                )
+                .filter(
+                  (oi): oi is {
+                    product_name: string;
+                    quantity: number;
+                    cancelled_at: string | null;
+                  } => oi != null && oi.cancelled_at === null,
+                )
+                .map((oi) => ({
+                  product_name: oi.product_name,
+                  quantity: oi.quantity,
+                }));
+              return {
+                id: c.id,
+                batch: c.batch,
+                status: c.status,
+                station_name: station?.name ?? "—",
+                emitted_at: c.emitted_at,
+                delivered_at: c.delivered_at,
+                items,
+              };
+            }),
+          };
+        })}
         reservations={(reservations ?? []) as SalonReservationRef[]}
         mozos={mozos}
         currentUserId={ctx.user.id}

@@ -7,7 +7,6 @@ import {
   Ban,
   ClipboardList,
   Clock,
-  Receipt,
   UserPlus,
   Users,
   X,
@@ -16,6 +15,7 @@ import { toast } from "sonner";
 
 import { AsignarMozosOverlay } from "@/components/mozo/asignar-mozos-overlay";
 import { FloorPlanViewer } from "@/components/mozo/floor-plan-viewer";
+import { OrderSummaryCard } from "@/components/mozo/order-summary-card";
 import { TransferTableModal } from "@/components/mozo/transfer-table-modal";
 import { WalkInModal } from "@/components/mozo/walk-in-modal";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,17 @@ export type SalonOrderRef = {
   total_cents: number;
   created_at: string;
   status: string;
+  customer_name: string | null;
+  items: { product_name: string; quantity: number; cancelled_at: string | null }[];
+  comandas: {
+    id: string;
+    batch: number;
+    status: "pendiente" | "en_preparacion" | "entregado";
+    station_name: string;
+    emitted_at: string;
+    delivered_at: string | null;
+    items: { product_name: string; quantity: number }[];
+  }[];
 };
 
 export type SalonReservationRef = {
@@ -540,7 +551,7 @@ function SalonStats({
           Estado del salón · {total} mesa{total === 1 ? "" : "s"} activas
         </h3>
       </div>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {STATS_ORDER.map((s) => {
           const c = STATUS_COLORS[s];
           const count = stats[s] ?? 0;
@@ -649,18 +660,35 @@ function ActiveTablesList({
                       </span>
                     )}
                   </div>
-                  {order && (
-                    <p className="text-foreground text-xs">
-                      #{order.order_number} ·{" "}
-                      <span className="font-semibold tabular-nums">
-                        {formatMoney(order.total_cents)}
-                      </span>
+                  {/* Nombre del comensal: prefiere reserva, cae a snapshot
+                      de la order (walk-in con nombre cargado), sino "Walk-in". */}
+                  {(reservation ||
+                    (order && order.customer_name && order.customer_name.trim() !== "")) && (
+                    <p className="truncate text-xs font-semibold text-zinc-800">
+                      {reservation?.customer_name ?? order?.customer_name}
+                      {reservation && (
+                        <span className="ml-1 text-[11px] font-normal text-zinc-500 tabular-nums">
+                          · {reservation.party_size}p
+                        </span>
+                      )}
                     </p>
                   )}
-                  {reservation && !order && (
-                    <p className="text-muted-foreground truncate text-xs">
-                      Reserva · {reservation.customer_name} ·{" "}
-                      {formatTime(reservation.starts_at)}
+                  {order && (
+                    <p className="text-muted-foreground text-[11px] tabular-nums">
+                      #{order.order_number} ·{" "}
+                      <span className="font-semibold text-zinc-700">
+                        {formatMoney(order.total_cents)}
+                      </span>
+                      {order.items.filter((it) => it.cancelled_at === null).length >
+                        0 && (
+                        <span className="ml-1 text-zinc-400">
+                          ·{" "}
+                          {order.items
+                            .filter((it) => it.cancelled_at === null)
+                            .reduce((a, it) => a + it.quantity, 0)}{" "}
+                          items
+                        </span>
+                      )}
                     </p>
                   )}
                   {mozoName && (
@@ -784,25 +812,21 @@ function TableDetail({
           </div>
         )}
 
-        {/* Orden activa */}
-        {order && (
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-              Orden activa
-            </p>
-            <div className="mt-1 flex items-center justify-between">
-              <p className="text-base font-bold text-zinc-900">
-                #{order.order_number}
+        {/* Comensal (walk-in con nombre cargado, distinto de reserva) */}
+        {!reservation &&
+          order?.customer_name &&
+          order.customer_name.trim() !== "" && (
+            <div className="rounded-xl bg-zinc-50 p-3 text-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Comensal
               </p>
-              <p className="inline-flex items-center gap-1.5 text-base font-bold tabular-nums text-zinc-900">
-                <Receipt className="h-4 w-4" />
-                {formatMoney(order.total_cents)}
+              <p className="mt-0.5 font-semibold text-zinc-900">
+                {order.customer_name}
               </p>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Mozo */}
+        {/* Mozo asignado */}
         {mozoName && (
           <div className="rounded-xl bg-zinc-50 p-3 text-sm">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -812,6 +836,8 @@ function TableDetail({
           </div>
         )}
 
+        {/* Orden + comandas con estado */}
+        {order && <OrderSummaryCard order={order} slug={slug} />}
       </div>
 
       {/* Acciones primarias en footer */}

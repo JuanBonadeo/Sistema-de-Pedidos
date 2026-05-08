@@ -1035,72 +1035,84 @@ function TableDetail({
           return null;
         })()}
 
-        {/* Secundarios en grid 2-cols (operativos). Mismo estilo que el
-            drawer mozo: rounded-xl h-10 text-sm font-semibold, tonos
-            pastel por acción. Anular va separada abajo (destructiva). */}
+        {/* Secundarios. Si solo hay 1 secundario, ocupa full width (no
+            queda colgado a media columna). Si hay 2+, grid 2-cols. */}
         {(() => {
           const showVolverAPedir = status === "pidio_cuenta" && canPedir;
           const showCargarMas = status === "ocupada" && hasItems && canPedir;
           const showPedirCuentaSec =
             status === "ocupada" && !hasItems && canShowCuenta;
-          const hasAny =
-            canTransfer ||
-            showVolverAPedir ||
-            showCargarMas ||
-            showPedirCuentaSec;
-          if (!hasAny) return null;
+          const buttons: React.ReactNode[] = [];
+          if (showVolverAPedir) {
+            buttons.push(
+              <button
+                key="volver"
+                type="button"
+                onClick={() =>
+                  (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
+                }
+                disabled={pending}
+                className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-zinc-100 px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-[0.97] disabled:opacity-60"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Volver a pedir
+              </button>,
+            );
+          }
+          if (showCargarMas) {
+            buttons.push(
+              <button
+                key="cargar-mas"
+                type="button"
+                onClick={() =>
+                  (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
+                }
+                disabled={pending}
+                className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-50 px-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100 active:scale-[0.97] disabled:opacity-60"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Cargar más
+              </button>,
+            );
+          }
+          if (showPedirCuentaSec) {
+            buttons.push(
+              <button
+                key="pedir-cuenta"
+                type="button"
+                onClick={() =>
+                  (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
+                }
+                disabled={pending}
+                className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-amber-50 px-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100 active:scale-[0.97] disabled:opacity-60"
+              >
+                <Receipt className="h-3.5 w-3.5" />
+                Pedir cuenta
+              </button>,
+            );
+          }
+          if (canTransfer) {
+            buttons.push(
+              <button
+                key="transferir"
+                type="button"
+                onClick={onTransfer}
+                disabled={pending}
+                className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-sky-50 px-3 text-sm font-semibold text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100 active:scale-[0.97] disabled:opacity-60"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+                Transferir
+              </button>,
+            );
+          }
+          if (buttons.length === 0) return null;
+          if (buttons.length === 1) {
+            // Solo un botón → full width, sin grid.
+            return <div>{buttons[0]}</div>;
+          }
           return (
             <div className="grid grid-cols-2 gap-2">
-              {showVolverAPedir && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
-                  }
-                  disabled={pending}
-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-zinc-100 px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-[0.97] disabled:opacity-60"
-                >
-                  <ClipboardList className="h-3.5 w-3.5" />
-                  Volver a pedir
-                </button>
-              )}
-              {showCargarMas && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
-                  }
-                  disabled={pending}
-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-50 px-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100 active:scale-[0.97] disabled:opacity-60"
-                >
-                  <ClipboardList className="h-3.5 w-3.5" />
-                  Cargar más
-                </button>
-              )}
-              {showPedirCuentaSec && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
-                  }
-                  disabled={pending}
-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-amber-50 px-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100 active:scale-[0.97] disabled:opacity-60"
-                >
-                  <Receipt className="h-3.5 w-3.5" />
-                  Pedir cuenta
-                </button>
-              )}
-              {canTransfer && (
-                <button
-                  type="button"
-                  onClick={onTransfer}
-                  disabled={pending}
-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-sky-50 px-3 text-sm font-semibold text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100 active:scale-[0.97] disabled:opacity-60"
-                >
-                  <ArrowLeftRight className="h-3.5 w-3.5" />
-                  Transferir
-                </button>
-              )}
+              {buttons}
             </div>
           );
         })()}

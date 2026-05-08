@@ -604,75 +604,100 @@ export function MozoClient({
                     Cargar pedido
                   </button>
                 )}
-              {/* Acciones secundarias en grid 2-cols con identidad visual */}
-              <div className="grid grid-cols-2 gap-2">
-                {selectedStatus === "pidio_cuenta" && canShowPedirButton && (
-                  <button
-                    disabled={loading}
-                    onClick={async () => {
-                      // Cliente se arrepintió: volvemos a `ocupada` y limpiamos
-                      // `bill_requested_at` antes de navegar a `/pedir`.
-                      const r = await volverAPedir(
-                        selectedSync.id,
-                        businessSlug,
-                      );
-                      if (!r.ok) {
-                        toast.error(r.error);
-                        return;
-                      }
-                      router.push(
-                        `/${businessSlug}/mozo/mesa/${selectedSync.id}/pedir`,
-                      );
-                    }}
-                    className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-zinc-100 px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-[0.97] disabled:opacity-60"
-                  >
-                    <ClipboardList className="h-3.5 w-3.5" />
-                    Volver a pedir
-                  </button>
-                )}
-                {selectedStatus === "ocupada" &&
+              {/* Acciones secundarias. Si solo hay 1, ocupa full width
+                  (no queda colgado a media columna). Si hay 2+, grid 2-cols. */}
+              {(() => {
+                const showVolverAPedir =
+                  selectedStatus === "pidio_cuenta" && canShowPedirButton;
+                const showCargarMas =
+                  selectedStatus === "ocupada" &&
                   selectedHasItems &&
-                  canShowPedirButton && (
+                  canShowPedirButton;
+                const showPedirCuentaSec =
+                  selectedStatus === "ocupada" &&
+                  !selectedHasItems &&
+                  canShowCuentaButton;
+                const buttons: React.ReactNode[] = [];
+                if (showVolverAPedir) {
+                  buttons.push(
                     <button
+                      key="volver"
+                      disabled={loading}
+                      onClick={async () => {
+                        const r = await volverAPedir(
+                          selectedSync.id,
+                          businessSlug,
+                        );
+                        if (!r.ok) {
+                          toast.error(r.error);
+                          return;
+                        }
+                        router.push(
+                          `/${businessSlug}/mozo/mesa/${selectedSync.id}/pedir`,
+                        );
+                      }}
+                      className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-zinc-100 px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-[0.97] disabled:opacity-60"
+                    >
+                      <ClipboardList className="h-3.5 w-3.5" />
+                      Volver a pedir
+                    </button>,
+                  );
+                }
+                if (showCargarMas) {
+                  buttons.push(
+                    <button
+                      key="cargar-mas"
                       disabled={loading}
                       onClick={() =>
                         router.push(
                           `/${businessSlug}/mozo/mesa/${selectedSync.id}/pedir`,
                         )
                       }
-                      className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-50 px-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100 active:scale-[0.97] disabled:opacity-60"
+                      className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-50 px-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100 active:scale-[0.97] disabled:opacity-60"
                     >
                       <ClipboardList className="h-3.5 w-3.5" />
                       Cargar más
-                    </button>
-                  )}
-                {selectedStatus === "ocupada" &&
-                  !selectedHasItems &&
-                  canShowCuentaButton && (
+                    </button>,
+                  );
+                }
+                if (showPedirCuentaSec) {
+                  buttons.push(
                     <button
+                      key="pedir-cuenta"
                       disabled={loading}
                       onClick={() =>
                         router.push(
                           `/${businessSlug}/mozo/mesa/${selectedSync.id}/cuenta`,
                         )
                       }
-                      className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-amber-50 px-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100 active:scale-[0.97] disabled:opacity-60"
+                      className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-amber-50 px-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100 active:scale-[0.97] disabled:opacity-60"
                     >
                       <Receipt className="h-3.5 w-3.5" />
                       Pedir cuenta
-                    </button>
-                  )}
-                {canShowTransferButton && (
-                  <button
-                    disabled={loading}
-                    onClick={() => setTransferTableId(selectedSync.id)}
-                    className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-sky-50 px-3 text-sm font-semibold text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100 active:scale-[0.97] disabled:opacity-60"
-                  >
-                    <ArrowLeftRight className="h-3.5 w-3.5" />
-                    Transferir
-                  </button>
-                )}
-              </div>
+                    </button>,
+                  );
+                }
+                if (canShowTransferButton) {
+                  buttons.push(
+                    <button
+                      key="transferir"
+                      disabled={loading}
+                      onClick={() => setTransferTableId(selectedSync.id)}
+                      className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-sky-50 px-3 text-sm font-semibold text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100 active:scale-[0.97] disabled:opacity-60"
+                    >
+                      <ArrowLeftRight className="h-3.5 w-3.5" />
+                      Transferir
+                    </button>,
+                  );
+                }
+                if (buttons.length === 0) return null;
+                if (buttons.length === 1) {
+                  return <div>{buttons[0]}</div>;
+                }
+                return (
+                  <div className="grid grid-cols-2 gap-2">{buttons}</div>
+                );
+              })()}
               {/* Destructiva: full-width separada del grid operativo */}
               {canShowAnularButton && (
                 <button

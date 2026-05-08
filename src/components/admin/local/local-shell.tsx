@@ -35,6 +35,7 @@ function TabsInner({
   currentUserId,
   role,
   cajaTurnos,
+  cajaCerradosHoy,
 }: {
   slug: string;
   businessId: string;
@@ -49,6 +50,7 @@ function TabsInner({
   currentUserId: string;
   role: BusinessRole;
   cajaTurnos: ActiveTurnoView[];
+  cajaCerradosHoy: ActiveTurnoView[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -166,7 +168,11 @@ function TabsInner({
           />
         )}
         {active === "caja" && (
-          <CajaAdminBoard slug={slug} initialTurnos={cajaTurnos} />
+          <CajaAdminBoard
+            slug={slug}
+            initialTurnos={cajaTurnos}
+            cerradosHoy={cajaCerradosHoy}
+          />
         )}
       </div>
     </>
@@ -223,6 +229,7 @@ export function LocalShell(props: {
   currentUserId: string;
   role: BusinessRole;
   cajaTurnos: ActiveTurnoView[];
+  cajaCerradosHoy: ActiveTurnoView[];
 }) {
   return (
     <Suspense fallback={null}>

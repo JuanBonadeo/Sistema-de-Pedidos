@@ -2,8 +2,18 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, DollarSign, LockOpen, Lock, Minus, Plus, Plus as PlusIcon, RefreshCw, Settings } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Banknote,
+  Eye,
+  EyeOff,
+  Lock,
+  LockOpen,
+  Plus,
+  RefreshCw,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -12,14 +22,28 @@ import {
   crearCaja,
   registrarIngreso,
   registrarSangria,
+  setCajaActive,
 } from "@/lib/caja/actions";
-import { getTurnoLiveStats } from "@/lib/caja/queries";
 import type { ActiveTurnoView, Caja, TurnoLiveStats } from "@/lib/caja/types";
 import { formatCurrency } from "@/lib/currency";
+import { canOpenCajaTurno } from "@/lib/permissions/can";
+import type { BusinessRole } from "@/lib/admin/context";
+import { cn } from "@/lib/utils";
 
+import {
+  PageHeader,
+  PageShell,
+  Surface,
+  SurfaceHeader,
+} from "@/components/admin/shell/page-shell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,12 +52,12 @@ const OPENING_PRESETS = [100_000, 500_000, 1_000_000];
 
 type Props = {
   slug: string;
-  businessId: string;
+  role: BusinessRole;
   cajas: Caja[];
   activeTurnos: ActiveTurnoView[];
 };
 
-export function CajaClient({ slug, cajas, activeTurnos }: Props) {
+export function CajaClient({ slug, role, cajas, activeTurnos }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [aperturaModal, setAperturaModal] = useState<Caja | null>(null);
@@ -41,9 +65,25 @@ export function CajaClient({ slug, cajas, activeTurnos }: Props) {
   const [crearOpen, setCrearOpen] = useState(false);
   const [nuevaCajaName, setNuevaCajaName] = useState("");
 
-  const cajasLibres = cajas.filter(
-    (c) => !activeTurnos.some((t) => t.caja_id === c.id),
-  );
+  const turnoByCaja = new Map(activeTurnos.map((t) => [t.caja_id, t]));
+  const cajasActivas = cajas.filter((c) => c.is_active);
+  const cajasInactivas = cajas.filter((c) => !c.is_active);
+
+  const puedeOperar = canOpenCajaTurno(role);
+
+  const handleAbrir = (caja: Caja) => {
+    if (openingCents < 0) return;
+    startTransition(async () => {
+      const r = await abrirTurno(caja.id, openingCents, slug);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`Turno abierto en ${caja.name}`);
+      setAperturaModal(null);
+      router.refresh();
+    });
+  };
 
   const handleCrearCaja = () => {
     const name = nuevaCajaName.trim();
@@ -61,113 +101,228 @@ export function CajaClient({ slug, cajas, activeTurnos }: Props) {
     });
   };
 
-  const handleAbrir = (caja: Caja) => {
-    if (openingCents < 0) return;
+  const handleToggleActive = (caja: Caja, next: boolean) => {
     startTransition(async () => {
-      const r = await abrirTurno(caja.id, openingCents, slug);
+      const r = await setCajaActive(caja.id, next, slug);
       if (!r.ok) {
         toast.error(r.error);
         return;
       }
-      toast.success(`Turno abierto en ${caja.name}`);
-      setAperturaModal(null);
+      toast.success(next ? "Caja habilitada" : "Caja deshabilitada");
       router.refresh();
     });
   };
 
   return (
-    <div className="min-h-screen bg-background pb-24">
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 backdrop-blur p-4">
-        <Link href={`/${slug}/mozo`}>
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
-        <h1 className="font-semibold text-lg flex-1">Caja</h1>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setCrearOpen(true)}
-        >
-          <PlusIcon className="h-4 w-4 mr-1.5" /> Nueva caja
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => router.refresh()}
-          aria-label="Refrescar"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-      </header>
+    <PageShell width="default">
+      <PageHeader
+        eyebrow="Operación"
+        title="Caja"
+        description="Abrí turnos, registrá movimientos y cerrá el día con conciliación de efectivo."
+        back={{ href: `/${slug}/mozo`, label: "Volver al salón" }}
+        action={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => router.refresh()}
+              className="inline-flex size-9 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+              aria-label="Refrescar"
+            >
+              <RefreshCw className="size-4" />
+            </button>
+            {puedeOperar && (
+              <button
+                type="button"
+                onClick={() => setCrearOpen(true)}
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition hover:brightness-95 active:translate-y-px"
+                style={{
+                  background: "var(--brand, #18181B)",
+                  color: "var(--brand-foreground, white)",
+                }}
+              >
+                <Plus className="size-4" />
+                Nueva caja
+              </button>
+            )}
+          </div>
+        }
+      />
 
-      <div className="p-4 space-y-6 max-w-2xl mx-auto">
-        {/* Turnos abiertos */}
-        {activeTurnos.length > 0 && (
-          <section>
-            <h2 className="text-sm font-medium text-muted-foreground mb-2">
-              Turnos abiertos ({activeTurnos.length})
-            </h2>
-            <div className="space-y-3">
-              {activeTurnos.map((t) => (
-                <TurnoCard key={t.id} turno={t} slug={slug} />
-              ))}
+      {/* Empty state global: no hay cajas */}
+      {cajas.length === 0 && (
+        <Surface className="text-center" padding="default">
+          <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-6">
+            <div
+              className="flex size-12 items-center justify-center rounded-full"
+              style={{ background: "var(--brand-soft, #F4F4F5)" }}
+            >
+              <Wallet
+                className="size-6"
+                style={{ color: "var(--brand, #18181B)" }}
+              />
             </div>
-          </section>
-        )}
-
-        {/* Cajas libres */}
-        {cajasLibres.length > 0 && (
-          <section>
-            <h2 className="text-sm font-medium text-muted-foreground mb-2">
-              Cajas libres
-            </h2>
-            <div className="space-y-2">
-              {cajasLibres.map((caja) => (
-                <Card key={caja.id} className="flex flex-row items-center justify-between p-4">
-                  <div>
-                    <p className="font-medium">{caja.name}</p>
-                    <p className="text-sm text-muted-foreground">Sin turno abierto</p>
-                  </div>
-                  <Button
-                    onClick={() => {
-                      setAperturaModal(caja);
-                      setOpeningCents(OPENING_PRESETS[0]);
-                    }}
-                  >
-                    <LockOpen className="h-4 w-4 mr-2" />
-                    Abrir turno
-                  </Button>
-                </Card>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {cajas.length === 0 && (
-          <div className="rounded-md border border-dashed p-8 text-center space-y-3">
-            <Settings className="h-8 w-8 mx-auto text-muted-foreground" />
             <div>
-              <p className="font-medium">No hay cajas configuradas</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Creá la primera caja del local para empezar a abrir turnos.
+              <h3 className="text-lg font-semibold tracking-tight text-zinc-900">
+                Sin cajas configuradas
+              </h3>
+              <p className="mt-1 text-sm text-zinc-600">
+                Creá la primera caja del local para empezar a abrir turnos. Una
+                caja física = una fuente donde se cobra (Salón, Barra, Caja 1…).
               </p>
             </div>
-            <Button onClick={() => setCrearOpen(true)}>
-              <PlusIcon className="h-4 w-4 mr-2" /> Crear primera caja
-            </Button>
+            {puedeOperar && (
+              <button
+                type="button"
+                onClick={() => setCrearOpen(true)}
+                className="mt-2 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition hover:brightness-95"
+                style={{
+                  background: "var(--brand, #18181B)",
+                  color: "var(--brand-foreground, white)",
+                }}
+              >
+                <Plus className="size-4" />
+                Crear primera caja
+              </button>
+            )}
           </div>
-        )}
-      </div>
+        </Surface>
+      )}
 
-      {/* Crear caja */}
+      {/* Turnos abiertos */}
+      {activeTurnos.length > 0 && (
+        <Surface padding="default" className="space-y-5">
+          <SurfaceHeader
+            eyebrow={`${activeTurnos.length} ${activeTurnos.length === 1 ? "abierto" : "abiertos"}`}
+            title="Turnos en operación"
+            description="Stats en vivo. Refresco automático cada 30 segundos."
+          />
+          <div className="grid gap-4 md:grid-cols-2">
+            {activeTurnos.map((t) => (
+              <TurnoCard key={t.id} turno={t} slug={slug} role={role} />
+            ))}
+          </div>
+        </Surface>
+      )}
+
+      {/* Cajas configuradas */}
+      {cajasActivas.length > 0 && (
+        <Surface padding="default" className="space-y-4">
+          <SurfaceHeader
+            eyebrow="Cajas habilitadas"
+            title={`${cajasActivas.length} ${cajasActivas.length === 1 ? "caja" : "cajas"} configuradas`}
+            description="Tocá una caja libre para abrir un turno."
+          />
+          <ul className="divide-y divide-zinc-100 rounded-xl ring-1 ring-zinc-200/70">
+            {cajasActivas.map((caja, idx) => {
+              const turno = turnoByCaja.get(caja.id);
+              const open = !!turno;
+              return (
+                <li
+                  key={caja.id}
+                  className={cn(
+                    "flex items-center justify-between gap-3 px-4 py-3",
+                    idx % 2 === 1 ? "bg-zinc-50/50" : "bg-white",
+                  )}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div
+                      className={cn(
+                        "flex size-9 items-center justify-center rounded-full",
+                        open
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-zinc-100 text-zinc-500",
+                      )}
+                    >
+                      <Wallet className="size-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-zinc-900">
+                        {caja.name}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {open ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
+                            Turno abierto · {turno!.encargado_name ?? "—"}
+                          </span>
+                        ) : (
+                          "Sin turno abierto"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!open && puedeOperar && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAperturaModal(caja);
+                          setOpeningCents(OPENING_PRESETS[0]);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
+                      >
+                        <LockOpen className="size-3.5" />
+                        Abrir turno
+                      </button>
+                    )}
+                    {puedeOperar && !open && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleActive(caja, false)}
+                        className="inline-flex size-8 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-900"
+                        aria-label="Deshabilitar caja"
+                        title="Deshabilitar"
+                      >
+                        <EyeOff className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Surface>
+      )}
+
+      {/* Cajas deshabilitadas (collapsed) */}
+      {cajasInactivas.length > 0 && (
+        <Surface tone="subtle" padding="compact" className="space-y-3">
+          <SurfaceHeader
+            eyebrow="Pausadas"
+            title={`${cajasInactivas.length} ${cajasInactivas.length === 1 ? "caja deshabilitada" : "cajas deshabilitadas"}`}
+            description="No aparecen para abrir turno. Histórico preservado."
+          />
+          <ul className="space-y-1.5">
+            {cajasInactivas.map((caja) => (
+              <li
+                key={caja.id}
+                className="flex items-center justify-between rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200/70"
+              >
+                <span className="text-sm text-zinc-600">{caja.name}</span>
+                {puedeOperar && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleActive(caja, true)}
+                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                  >
+                    <Eye className="size-3" />
+                    Habilitar
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Surface>
+      )}
+
+      {/* Modal: crear caja */}
       <Dialog open={crearOpen} onOpenChange={setCrearOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Nueva caja</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div>
+            <div className="grid gap-1.5">
               <Label>Nombre</Label>
               <Input
                 value={nuevaCajaName}
@@ -178,8 +333,9 @@ export function CajaClient({ slug, cajas, activeTurnos }: Props) {
                   if (e.key === "Enter") handleCrearCaja();
                 }}
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Nombre visible para distinguir entre cajas físicas (ej: "Barra", "Caja 1").
+              <p className="text-xs text-zinc-500">
+                Nombre visible para distinguir entre cajas físicas. Único por
+                local.
               </p>
             </div>
           </div>
@@ -197,48 +353,58 @@ export function CajaClient({ slug, cajas, activeTurnos }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* Apertura */}
+      {/* Modal: apertura de turno */}
       <Dialog
         open={aperturaModal !== null}
-        onOpenChange={(o) => {
-          if (!o) setAperturaModal(null);
-        }}
+        onOpenChange={(o) => !o && setAperturaModal(null)}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Abrir turno · {aperturaModal?.name}</DialogTitle>
+            <DialogTitle>
+              Abrir turno
+              <span className="ml-2 text-sm font-normal text-zinc-500">
+                · {aperturaModal?.name}
+              </span>
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <Label className="text-sm">Efectivo inicial en caja</Label>
-              <div className="flex flex-wrap gap-2 mt-2">
+              <div className="mt-2 flex flex-wrap gap-2">
                 {OPENING_PRESETS.map((p) => (
-                  <Button
+                  <button
                     key={p}
-                    variant={openingCents === p ? "default" : "outline"}
-                    size="sm"
+                    type="button"
                     onClick={() => setOpeningCents(p)}
+                    className={cn(
+                      "rounded-full px-3 py-1.5 text-sm font-semibold ring-1 transition",
+                      openingCents === p
+                        ? "bg-zinc-900 text-white ring-zinc-900"
+                        : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50",
+                    )}
                   >
                     {formatCurrency(p)}
-                  </Button>
+                  </button>
                 ))}
               </div>
               <Input
                 type="number"
                 value={openingCents / 100}
                 onChange={(e) =>
-                  setOpeningCents(Math.max(0, Math.round(Number(e.target.value) * 100)))
+                  setOpeningCents(
+                    Math.max(0, Math.round(Number(e.target.value) * 100)),
+                  )
                 }
                 className="mt-2"
                 placeholder="Monto custom"
               />
+              <p className="mt-1 text-xs text-zinc-500">
+                Lo que tenés en caja físicamente al arrancar el turno.
+              </p>
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setAperturaModal(null)}
-            >
+            <Button variant="ghost" onClick={() => setAperturaModal(null)}>
               Cancelar
             </Button>
             <Button onClick={() => aperturaModal && handleAbrir(aperturaModal)}>
@@ -247,13 +413,21 @@ export function CajaClient({ slug, cajas, activeTurnos }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageShell>
   );
 }
 
-// ── TurnoCard con stats live + modales sangría/ingreso/cierre ──
+// ── TurnoCard: card grande con KPIs + acciones ──────────────────
 
-function TurnoCard({ turno, slug }: { turno: ActiveTurnoView; slug: string }) {
+function TurnoCard({
+  turno,
+  slug,
+  role,
+}: {
+  turno: ActiveTurnoView;
+  slug: string;
+  role: BusinessRole;
+}) {
   const router = useRouter();
   const [stats, setStats] = useState<TurnoLiveStats | null>(null);
   const [, startTransition] = useTransition();
@@ -264,8 +438,13 @@ function TurnoCard({ turno, slug }: { turno: ActiveTurnoView; slug: string }) {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const data = await fetch(`/api/caja/stats?turno=${turno.id}`).then((r) => r.json()).catch(() => null);
-      if (!cancelled) setStats(data?.stats ?? null);
+      try {
+        const res = await fetch(`/api/caja/stats?turno=${turno.id}`);
+        const data = await res.json();
+        if (!cancelled) setStats(data?.stats ?? null);
+      } catch {
+        // Silenciar — no es crítico.
+      }
     };
     load();
     const t = setInterval(load, 30_000);
@@ -275,56 +454,100 @@ function TurnoCard({ turno, slug }: { turno: ActiveTurnoView; slug: string }) {
     };
   }, [turno.id]);
 
+  const expected = stats?.expected_cash_cents ?? turno.opening_cash_cents;
+  const ventas = stats?.total_ventas_cents ?? 0;
+  const propinas = stats?.total_propinas_cents ?? 0;
+  const cobros = stats?.cobros_count ?? 0;
+  const puedeOperar = canOpenCajaTurno(role);
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between text-base">
-          <span>{turno.caja_name}</span>
-          <span className="text-xs font-normal text-muted-foreground">
-            Encargado: {turno.encargado_name ?? "—"}
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <Stat
-            label="Ventas turno"
-            value={formatCurrency(stats?.total_ventas_cents ?? 0)}
-          />
-          <Stat
-            label="Propinas"
-            value={formatCurrency(stats?.total_propinas_cents ?? 0)}
-          />
-          <Stat
-            label="Cobros"
-            value={String(stats?.cobros_count ?? 0)}
-          />
-          <Stat
-            label="Efectivo esperado"
-            value={formatCurrency(stats?.expected_cash_cents ?? turno.opening_cash_cents)}
-          />
+    <article className="flex flex-col rounded-2xl bg-white p-5 ring-1 ring-zinc-200/70">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            {turno.encargado_name ?? "—"}
+          </p>
+          <h3 className="mt-0.5 text-lg font-semibold tracking-tight text-zinc-900">
+            {turno.caja_name}
+          </h3>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => setSangriaOpen(true)}>
-            <Minus className="h-3.5 w-3.5 mr-1.5" /> Sangría
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setIngresoOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1.5" /> Ingreso
-          </Button>
-          <Button variant="default" size="sm" onClick={() => setCierreOpen(true)}>
-            <Lock className="h-3.5 w-3.5 mr-1.5" /> Cerrar
-          </Button>
-        </div>
-      </CardContent>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[0.65rem] font-semibold text-emerald-800">
+          <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
+          Abierto
+        </span>
+      </header>
+
+      {/* KPI principal: efectivo esperado */}
+      <div
+        className="mt-4 rounded-xl p-4"
+        style={{ background: "var(--brand-soft, #F4F4F5)" }}
+      >
+        <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-600">
+          Efectivo esperado
+        </p>
+        <p className="mt-1 text-3xl font-semibold tracking-tight text-zinc-900 tabular-nums">
+          {formatCurrency(expected)}
+        </p>
+        <p className="mt-1 text-xs text-zinc-600">
+          Apertura {formatCurrency(turno.opening_cash_cents)} + cobros − sangrías
+        </p>
+      </div>
+
+      {/* Stats secundarios */}
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <Stat label="Ventas" value={formatCurrency(ventas)} />
+        <Stat label="Propinas" value={formatCurrency(propinas)} />
+        <Stat label="Cobros" value={String(cobros)} />
+      </dl>
+
+      {/* Acciones */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {puedeOperar && (
+          <>
+            <button
+              type="button"
+              onClick={() => setSangriaOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200"
+            >
+              <ArrowDownToLine className="size-3.5" /> Sangría
+            </button>
+            <button
+              type="button"
+              onClick={() => setIngresoOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200"
+            >
+              <ArrowUpFromLine className="size-3.5" /> Ingreso
+            </button>
+            <button
+              type="button"
+              onClick={() => setCierreOpen(true)}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition hover:brightness-95"
+              style={{
+                background: "var(--brand, #18181B)",
+                color: "var(--brand-foreground, white)",
+              }}
+            >
+              <Lock className="size-3.5" /> Cerrar turno
+            </button>
+          </>
+        )}
+      </div>
 
       <MovimientoModal
         open={sangriaOpen}
         onOpenChange={setSangriaOpen}
-        title="Sangría"
+        title="Registrar sangría"
+        description="Sacar efectivo de la caja para depositarlo, pagar a un proveedor, etc."
         requiereMotivo
+        ctaLabel="Registrar sangría"
         onSubmit={(amount, reason) =>
           startTransition(async () => {
-            const r = await registrarSangria(turno.id, amount, reason ?? "", slug);
+            const r = await registrarSangria(
+              turno.id,
+              amount,
+              reason ?? "",
+              slug,
+            );
             if (!r.ok) toast.error(r.error);
             else {
               toast.success("Sangría registrada");
@@ -337,11 +560,18 @@ function TurnoCard({ turno, slug }: { turno: ActiveTurnoView; slug: string }) {
       <MovimientoModal
         open={ingresoOpen}
         onOpenChange={setIngresoOpen}
-        title="Ingreso"
+        title="Registrar ingreso"
+        description="Sumar efectivo extra a la caja durante el turno."
         requiereMotivo={false}
+        ctaLabel="Registrar ingreso"
         onSubmit={(amount, reason) =>
           startTransition(async () => {
-            const r = await registrarIngreso(turno.id, amount, reason ?? null, slug);
+            const r = await registrarIngreso(
+              turno.id,
+              amount,
+              reason ?? null,
+              slug,
+            );
             if (!r.ok) toast.error(r.error);
             else {
               toast.success("Ingreso registrado");
@@ -354,7 +584,11 @@ function TurnoCard({ turno, slug }: { turno: ActiveTurnoView; slug: string }) {
       <CierreModal
         open={cierreOpen}
         onOpenChange={setCierreOpen}
-        expected={stats?.expected_cash_cents ?? turno.opening_cash_cents}
+        cajaName={turno.caja_name}
+        opening={turno.opening_cash_cents}
+        ventas={ventas}
+        propinas={propinas}
+        expected={expected}
         onSubmit={(closing, notes) =>
           startTransition(async () => {
             const r = await cerrarTurno(turno.id, closing, notes, slug);
@@ -368,30 +602,40 @@ function TurnoCard({ turno, slug }: { turno: ActiveTurnoView; slug: string }) {
           })
         }
       />
-    </Card>
+    </article>
   );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+    <div className="rounded-lg bg-zinc-50 px-2 py-2">
+      <p className="text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+        {label}
+      </p>
+      <p className="mt-0.5 text-sm font-semibold text-zinc-900 tabular-nums">
+        {value}
+      </p>
     </div>
   );
 }
+
+// ── Modales de movimiento (sangría / ingreso) ──────────────────
 
 function MovimientoModal({
   open,
   onOpenChange,
   title,
+  description,
   requiereMotivo,
+  ctaLabel,
   onSubmit,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   title: string;
+  description: string;
   requiereMotivo: boolean;
+  ctaLabel: string;
   onSubmit: (amountCents: number, reason: string | null) => void;
 }) {
   const [amount, setAmount] = useState("");
@@ -413,8 +657,9 @@ function MovimientoModal({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          <div>
+        <p className="-mt-2 text-sm text-zinc-600">{description}</p>
+        <div className="mt-3 grid gap-4">
+          <div className="grid gap-1.5">
             <Label>Monto</Label>
             <Input
               type="number"
@@ -422,19 +667,37 @@ function MovimientoModal({
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
               autoFocus
+              inputMode="decimal"
             />
           </div>
-          <div>
+          <div className="grid gap-1.5">
             <Label>
-              Motivo {requiereMotivo && <span className="text-destructive">*</span>}
+              Motivo
+              {requiereMotivo && (
+                <span className="ml-1 text-rose-600">*</span>
+              )}
             </Label>
-            <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={2}
+              placeholder={
+                requiereMotivo
+                  ? "Ej: depósito en banco / pago proveedor"
+                  : "Opcional"
+              }
+            />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button disabled={!canSubmit} onClick={() => onSubmit(cents, reason || null)}>
-            Confirmar
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            disabled={!canSubmit}
+            onClick={() => onSubmit(cents, reason.trim() || null)}
+          >
+            {ctaLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -442,14 +705,24 @@ function MovimientoModal({
   );
 }
 
+// ── Modal de cierre con conciliación ───────────────────────────
+
 function CierreModal({
   open,
   onOpenChange,
+  cajaName,
+  opening,
+  ventas,
+  propinas,
   expected,
   onSubmit,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  cajaName: string;
+  opening: number;
+  ventas: number;
+  propinas: number;
   expected: number;
   onSubmit: (closingCents: number, notes: string | null) => void;
 }) {
@@ -463,63 +736,129 @@ function CierreModal({
     }
   }, [open]);
 
-  const cents = Math.max(0, Math.round(Number(closing) * 100));
-  const diff = cents - expected;
-  const requiresNotes = diff !== 0 && closing !== "";
+  const cents = closing === "" ? null : Math.max(0, Math.round(Number(closing) * 100));
+  const diff = cents === null ? 0 : cents - expected;
+  const requiresNotes = cents !== null && diff !== 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Cerrar turno</DialogTitle>
+          <DialogTitle>
+            Cerrar turno
+            <span className="ml-2 text-sm font-normal text-zinc-500">
+              · {cajaName}
+            </span>
+          </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          <div className="rounded-md bg-muted/40 p-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Efectivo esperado</span>
-              <span className="font-medium">{formatCurrency(expected)}</span>
-            </div>
-          </div>
-          <div>
-            <Label>Efectivo contado</Label>
-            <Input
-              type="number"
-              value={closing}
-              onChange={(e) => setClosing(e.target.value)}
-              placeholder="0.00"
-              autoFocus
+
+        {/* Resumen del turno */}
+        <div className="rounded-xl bg-zinc-50 p-4 ring-1 ring-zinc-200/70">
+          <ResumenRow label="Apertura" value={formatCurrency(opening)} />
+          <ResumenRow label="Ventas en efectivo" value={formatCurrency(ventas)} hint="aprox" />
+          <ResumenRow label="Propinas" value={formatCurrency(propinas)} hint="info" />
+          <div className="mt-2 border-t border-zinc-200 pt-2">
+            <ResumenRow
+              label="Efectivo esperado"
+              value={formatCurrency(expected)}
+              bold
             />
           </div>
-          {closing !== "" && diff !== 0 && (
-            <div
-              className={`text-sm font-medium ${
-                diff < 0 ? "text-destructive" : "text-amber-600"
-              }`}
-            >
-              Diferencia: {diff > 0 ? "+" : ""}{formatCurrency(Math.abs(diff))}
-              {diff < 0 ? " (faltante)" : " (sobrante)"}
-            </div>
-          )}
-          {requiresNotes && (
-            <div>
-              <Label>
-                Motivo de la diferencia <span className="text-destructive">*</span>
-              </Label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
-            </div>
-          )}
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button
-            disabled={closing === "" || (requiresNotes && notes.trim() === "")}
-            onClick={() => onSubmit(cents, notes.trim() || null)}
+
+        {/* Input cierre */}
+        <div className="mt-3 grid gap-1.5">
+          <Label>Efectivo contado en caja</Label>
+          <Input
+            type="number"
+            value={closing}
+            onChange={(e) => setClosing(e.target.value)}
+            placeholder="0.00"
+            autoFocus
+            inputMode="decimal"
+          />
+        </div>
+
+        {/* Diferencia */}
+        {cents !== null && diff !== 0 && (
+          <div
+            className={cn(
+              "mt-3 flex items-center justify-between rounded-lg p-3 ring-1",
+              diff < 0
+                ? "bg-rose-50 ring-rose-200 text-rose-900"
+                : "bg-amber-50 ring-amber-200 text-amber-900",
+            )}
           >
-            <DollarSign className="h-4 w-4 mr-2" />
+            <span className="text-sm font-semibold">
+              {diff < 0 ? "Faltante" : "Sobrante"}
+            </span>
+            <span className="text-base font-bold tabular-nums">
+              {diff > 0 ? "+" : "−"}
+              {formatCurrency(Math.abs(diff))}
+            </span>
+          </div>
+        )}
+
+        {/* Notes obligatorio si diff != 0 */}
+        {requiresNotes && (
+          <div className="mt-3 grid gap-1.5">
+            <Label>
+              Motivo de la diferencia
+              <span className="ml-1 text-rose-600">*</span>
+            </Label>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              placeholder="Ej: vuelto mal dado, billete falso, ajuste de propinas…"
+            />
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            disabled={cents === null || (requiresNotes && notes.trim() === "")}
+            onClick={() =>
+              cents !== null && onSubmit(cents, notes.trim() || null)
+            }
+          >
+            <Banknote className="mr-2 size-4" />
             Cerrar turno
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ResumenRow({
+  label,
+  value,
+  hint,
+  bold,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  bold?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-0.5 text-sm">
+      <span className="text-zinc-600">
+        {label}
+        {hint && <span className="ml-1 text-[0.65rem] text-zinc-400">({hint})</span>}
+      </span>
+      <span
+        className={cn(
+          "tabular-nums",
+          bold ? "font-semibold text-zinc-900" : "text-zinc-700",
+        )}
+      >
+        {value}
+      </span>
+    </div>
   );
 }

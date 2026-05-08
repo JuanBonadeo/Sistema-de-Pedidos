@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Ban, Scissors, Trash2, Users } from "lucide-react";
+import {
+  ArrowRight,
+  Ban,
+  Lock,
+  Receipt,
+  Scissors,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type { BusinessRole } from "@/lib/admin/context";
@@ -17,16 +24,35 @@ import {
 import type { CuentaState } from "@/lib/billing/types";
 import { formatCurrency } from "@/lib/currency";
 import { canApplyDiscount, canCancelItem } from "@/lib/permissions/can";
+import { cn } from "@/lib/utils";
 
+import { PageShell } from "@/components/admin/shell/page-shell";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 const TIP_PRESETS = [0, 5, 10, 15];
+const DISCOUNT_REASONS = [
+  { value: "cumpleanos", label: "Cumpleaños" },
+  { value: "fidelidad", label: "Fidelidad" },
+  { value: "cortesia", label: "Cortesía de la casa" },
+  { value: "staff", label: "Staff" },
+  { value: "otro", label: "Otro" },
+];
 
 type Props = {
   slug: string;
@@ -36,7 +62,13 @@ type Props = {
   cuenta: CuentaState;
 };
 
-export function CuentaClient({ slug, tableId, tableLabel, role, cuenta }: Props) {
+export function CuentaClient({
+  slug,
+  tableId,
+  tableLabel,
+  role,
+  cuenta,
+}: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const subtotal = cuenta.totals.subtotal_cents;
@@ -45,14 +77,34 @@ export function CuentaClient({ slug, tableId, tableLabel, role, cuenta }: Props)
     cuenta.order.tip_cents === 0 ? 0 : "custom",
   );
   const [tipCustomCents, setTipCustomCents] = useState(cuenta.order.tip_cents);
-  const tipCents = tipPercent === "custom" ? tipCustomCents : Math.round((subtotal * tipPercent) / 100);
+  const tipCents =
+    tipPercent === "custom"
+      ? tipCustomCents
+      : Math.round((subtotal * tipPercent) / 100);
 
   const [discountPercent, setDiscountPercent] = useState(
-    subtotal === 0 ? 0 : Math.round((cuenta.order.discount_cents / subtotal) * 100),
+    subtotal === 0
+      ? 0
+      : Math.round((cuenta.order.discount_cents / subtotal) * 100),
   );
-  const [discountReason, setDiscountReason] = useState(cuenta.order.discount_reason ?? "");
+  const initialReason = cuenta.order.discount_reason ?? "";
+  const initialReasonKnown = DISCOUNT_REASONS.some(
+    (r) => r.value === initialReason,
+  );
+  const [discountReasonValue, setDiscountReasonValue] = useState<string>(
+    initialReasonKnown ? initialReason : initialReason ? "otro" : "",
+  );
+  const [discountReasonOther, setDiscountReasonOther] = useState(
+    initialReasonKnown ? "" : initialReason,
+  );
+  const discountReasonText =
+    discountReasonValue === "otro"
+      ? discountReasonOther
+      : DISCOUNT_REASONS.find((r) => r.value === discountReasonValue)?.label ??
+        "";
 
-  const discountCents = subtotal === 0 ? 0 : Math.round((subtotal * discountPercent) / 100);
+  const discountCents =
+    subtotal === 0 ? 0 : Math.round((subtotal * discountPercent) / 100);
   const total = Math.max(0, subtotal + tipCents - discountCents);
 
   const [dividirOpen, setDividirOpen] = useState(false);
@@ -61,16 +113,17 @@ export function CuentaClient({ slug, tableId, tableLabel, role, cuenta }: Props)
   const dirty =
     tipCents !== cuenta.order.tip_cents ||
     discountCents !== cuenta.order.discount_cents ||
-    (discountReason || null) !== (cuenta.order.discount_reason || null);
+    (discountReasonText || null) !== (cuenta.order.discount_reason || null);
 
-  const cantApplyDiscount = discountPercent > 0 && !canApplyDiscount(role, discountPercent);
+  const cantApplyDiscount =
+    discountPercent > 0 && !canApplyDiscount(role, discountPercent);
 
   const handleConfirmar = () => {
     if (cantApplyDiscount) {
       toast.error("Tu rol no permite ese descuento.");
       return;
     }
-    if (discountCents > 0 && discountReason.trim() === "") {
+    if (discountCents > 0 && discountReasonText.trim() === "") {
       toast.error("El descuento requiere un motivo.");
       return;
     }
@@ -81,7 +134,7 @@ export function CuentaClient({ slug, tableId, tableLabel, role, cuenta }: Props)
           {
             tip_cents: tipCents,
             discount_cents: discountCents,
-            discount_reason: discountCents > 0 ? discountReason : null,
+            discount_reason: discountCents > 0 ? discountReasonText : null,
           },
           slug,
         );
@@ -94,202 +147,320 @@ export function CuentaClient({ slug, tableId, tableLabel, role, cuenta }: Props)
     });
   };
 
+  const tramoDescuento =
+    role === "mozo" ? "10%" : role === "encargado" ? "25%" : "sin límite";
+
   return (
-    <div className="min-h-screen bg-background pb-32">
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 backdrop-blur p-4">
-        <Link href={`/${slug}/mozo`}>
-          <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
-        </Link>
-        <div className="flex-1">
-          <h1 className="font-semibold">Mesa {tableLabel}</h1>
-          <p className="text-xs text-muted-foreground">Cuenta · #{cuenta.order.id.slice(0, 8)}</p>
+    <div className="min-h-dvh bg-zinc-100/60 pb-32">
+      {/* Top bar — mobile-first */}
+      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-screen-md items-center gap-3 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => router.push(`/${slug}/mozo`)}
+            className="inline-flex size-9 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+            aria-label="Volver al salón"
+          >
+            <ArrowRight className="size-4 rotate-180" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              Mesa {tableLabel}
+            </p>
+            <h1 className="text-base font-semibold tracking-tight text-zinc-900">
+              Cuenta
+            </h1>
+          </div>
+          <div className="text-right">
+            <p className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              Total
+            </p>
+            <p className="text-lg font-bold tracking-tight text-zinc-900 tabular-nums">
+              {formatCurrency(total)}
+            </p>
+          </div>
         </div>
       </header>
 
-      <div className="p-4 space-y-4 max-w-xl mx-auto">
+      <PageShell width="narrow" className="!py-4 sm:!py-6">
+        {/* Banner: división activa */}
+        {cuenta.splits.length > 0 && (
+          <SplitsBanner
+            splits={cuenta.splits}
+            onLimpiar={() =>
+              startTransition(async () => {
+                const r = await limpiarDivision(cuenta.order.id, slug);
+                if (!r.ok) toast.error(r.error);
+                else {
+                  toast.success("División eliminada");
+                  router.refresh();
+                }
+              })
+            }
+          />
+        )}
+
         {/* Items */}
-        <section>
-          <h2 className="text-sm font-medium text-muted-foreground mb-2">Items</h2>
-          <Card className="p-2 divide-y">
-            {cuenta.items.map((it) => {
+        <section className="rounded-2xl bg-white ring-1 ring-zinc-200/70">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div>
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                Detalle
+              </p>
+              <h2 className="text-sm font-semibold tracking-tight text-zinc-900">
+                {cuenta.items.filter((it) => it.cancelled_at === null).length}{" "}
+                items
+              </h2>
+            </div>
+            <p className="text-sm font-semibold text-zinc-900 tabular-nums">
+              {formatCurrency(subtotal)}
+            </p>
+          </div>
+          <ul className="divide-y divide-zinc-100 border-t border-zinc-100">
+            {cuenta.items.map((it, idx) => {
               const cancelled = it.cancelled_at !== null;
               return (
-                <div
+                <li
                   key={it.id}
-                  className={`flex items-start justify-between p-2 ${
-                    cancelled ? "opacity-50 line-through" : ""
-                  }`}
+                  className={cn(
+                    "flex items-start justify-between gap-3 px-4 py-3",
+                    cancelled && "opacity-50",
+                  )}
                 >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm">
-                      {it.quantity}× {it.product_name}
-                    </p>
-                    {it.notes && (
-                      <p className="text-xs text-muted-foreground">{it.notes}</p>
-                    )}
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <span className="mt-0.5 inline-flex size-7 flex-shrink-0 items-center justify-center rounded-full bg-zinc-100 text-xs font-semibold text-zinc-700 tabular-nums">
+                      {it.quantity}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={cn(
+                          "text-sm font-medium text-zinc-900",
+                          cancelled && "line-through",
+                        )}
+                      >
+                        {it.product_name}
+                      </p>
+                      {it.notes && (
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          {it.notes}
+                        </p>
+                      )}
+                      {cancelled && (
+                        <p className="mt-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-rose-600">
+                          Cancelado
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">
+                  <div className="flex items-center gap-1">
+                    <span
+                      className={cn(
+                        "text-sm font-medium text-zinc-900 tabular-nums",
+                        cancelled && "line-through",
+                      )}
+                    >
                       {formatCurrency(it.subtotal_cents)}
                     </span>
                     {!cancelled && canCancelItem(role) && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
+                      <button
+                        type="button"
                         onClick={() => setCancelarItemId(it.id)}
+                        className="inline-flex size-7 items-center justify-center rounded-full text-zinc-400 transition hover:bg-rose-50 hover:text-rose-600"
+                        aria-label="Cancelar item"
                       >
-                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      </Button>
+                        <Trash2 className="size-3.5" />
+                      </button>
                     )}
                   </div>
-                </div>
+                </li>
               );
             })}
-          </Card>
+          </ul>
         </section>
 
         {/* Propina */}
-        <section>
-          <h2 className="text-sm font-medium text-muted-foreground mb-2">Propina</h2>
-          <div className="flex flex-wrap gap-2">
+        <section className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200/70">
+          <div className="flex items-baseline justify-between">
+            <div>
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                Propina
+              </p>
+              <h2 className="text-sm font-semibold tracking-tight text-zinc-900">
+                Sugerencia para el mozo
+              </h2>
+            </div>
+            <p className="text-sm font-semibold text-zinc-900 tabular-nums">
+              {tipCents > 0 ? `+ ${formatCurrency(tipCents)}` : "—"}
+            </p>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
             {TIP_PRESETS.map((p) => (
-              <Button
+              <button
                 key={p}
-                variant={tipPercent === p ? "default" : "outline"}
-                size="sm"
+                type="button"
                 onClick={() => setTipPercent(p)}
+                className={cn(
+                  "rounded-full px-3.5 py-1.5 text-xs font-semibold ring-1 transition",
+                  tipPercent === p
+                    ? "bg-zinc-900 text-white ring-zinc-900"
+                    : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50",
+                )}
               >
                 {p === 0 ? "Sin propina" : `${p}%`}
-              </Button>
+              </button>
             ))}
-            <Button
-              variant={tipPercent === "custom" ? "default" : "outline"}
-              size="sm"
+            <button
+              type="button"
               onClick={() => setTipPercent("custom")}
+              className={cn(
+                "rounded-full px-3.5 py-1.5 text-xs font-semibold ring-1 transition",
+                tipPercent === "custom"
+                  ? "bg-zinc-900 text-white ring-zinc-900"
+                  : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50",
+              )}
             >
               Custom
-            </Button>
+            </button>
           </div>
           {tipPercent === "custom" && (
             <Input
               type="number"
-              className="mt-2"
+              className="mt-3"
               value={tipCustomCents / 100}
               onChange={(e) =>
-                setTipCustomCents(Math.max(0, Math.round(Number(e.target.value) * 100)))
+                setTipCustomCents(
+                  Math.max(0, Math.round(Number(e.target.value) * 100)),
+                )
               }
               placeholder="0.00"
+              inputMode="decimal"
             />
           )}
         </section>
 
         {/* Descuento */}
-        <section>
-          <h2 className="text-sm font-medium text-muted-foreground mb-2">Descuento</h2>
-          <div className="flex items-center gap-2">
+        <section className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200/70">
+          <div className="flex items-baseline justify-between">
+            <div>
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                Descuento
+              </p>
+              <h2 className="text-sm font-semibold tracking-tight text-zinc-900">
+                Tu rol permite hasta {tramoDescuento}
+              </h2>
+            </div>
+            <p className="text-sm font-semibold tabular-nums text-rose-600">
+              {discountCents > 0 ? `− ${formatCurrency(discountCents)}` : "—"}
+            </p>
+          </div>
+          <div className="mt-3 flex items-center gap-3">
             <Input
               type="number"
               value={discountPercent}
               onChange={(e) =>
-                setDiscountPercent(Math.max(0, Math.min(100, Number(e.target.value))))
+                setDiscountPercent(
+                  Math.max(0, Math.min(100, Number(e.target.value))),
+                )
               }
               placeholder="0"
               className="w-24"
+              inputMode="decimal"
             />
-            <span className="text-sm">%</span>
+            <span className="text-sm text-zinc-500">%</span>
           </div>
           {cantApplyDiscount && (
-            <p className="mt-1 text-xs text-destructive">
-              Tu rol permite hasta {role === "mozo" ? "10%" : "25%"}. Pedile al encargado.
-            </p>
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-[0.65rem] font-semibold text-rose-700">
+              <Lock className="size-3" />
+              Excede tu autorización · pedile al encargado
+            </div>
           )}
           {discountCents > 0 && (
-            <Input
-              className="mt-2"
-              value={discountReason}
-              onChange={(e) => setDiscountReason(e.target.value)}
-              placeholder="Motivo (cumpleaños / fidelidad / cortesía / staff / otro)"
+            <div className="mt-3 grid gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {DISCOUNT_REASONS.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setDiscountReasonValue(r.value)}
+                    className={cn(
+                      "rounded-lg px-2.5 py-2 text-xs font-medium ring-1 transition",
+                      discountReasonValue === r.value
+                        ? "bg-zinc-900 text-white ring-zinc-900"
+                        : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50",
+                    )}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+              {discountReasonValue === "otro" && (
+                <Input
+                  value={discountReasonOther}
+                  onChange={(e) => setDiscountReasonOther(e.target.value)}
+                  placeholder="Especificá el motivo"
+                />
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Resumen + dividir */}
+        <section className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200/70">
+          <ResumenRow label="Subtotal" value={formatCurrency(subtotal)} />
+          {tipCents > 0 && (
+            <ResumenRow
+              label="Propina"
+              value={`+ ${formatCurrency(tipCents)}`}
             />
           )}
-        </section>
-
-        {/* Totales */}
-        <section className="rounded-md border bg-muted/30 p-3 space-y-1 text-sm">
-          <Row label="Subtotal" value={formatCurrency(subtotal)} />
-          {tipCents > 0 && <Row label="Propina" value={`+${formatCurrency(tipCents)}`} />}
           {discountCents > 0 && (
-            <Row label="Descuento" value={`−${formatCurrency(discountCents)}`} />
+            <ResumenRow
+              label="Descuento"
+              value={`− ${formatCurrency(discountCents)}`}
+              tone="discount"
+            />
           )}
-          <div className="flex justify-between text-base font-semibold pt-1 border-t">
-            <span>Total</span>
-            <span>{formatCurrency(total)}</span>
+          <div className="mt-2 flex items-baseline justify-between border-t border-zinc-200 pt-2">
+            <span className="text-sm font-semibold text-zinc-900">Total</span>
+            <span className="text-xl font-bold tracking-tight text-zinc-900 tabular-nums">
+              {formatCurrency(total)}
+            </span>
           </div>
+          <button
+            type="button"
+            onClick={() => setDividirOpen(true)}
+            disabled={total === 0}
+            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-zinc-700 ring-1 ring-zinc-200 transition hover:bg-zinc-50 disabled:opacity-50"
+          >
+            <Scissors className="size-4" />
+            {cuenta.splits.length > 0
+              ? `Volver a dividir (${cuenta.splits.length})`
+              : "Dividir cuenta"}
+          </button>
         </section>
-
-        {/* Splits */}
-        {cuenta.splits.length > 0 && (
-          <section>
-            <h2 className="text-sm font-medium text-muted-foreground mb-2">
-              División ({cuenta.splits.length} sub-cuentas)
-            </h2>
-            <Card className="p-3 space-y-2">
-              {cuenta.splits.map((s) => (
-                <div key={s.id} className="flex justify-between text-sm">
-                  <span>
-                    Sub-cuenta {s.split_index} · {s.split_mode === "por_personas" ? "personas" : "items"}
-                  </span>
-                  <span className="font-medium">
-                    {formatCurrency(s.expected_amount_cents)}
-                    {s.status === "paid" && " ✓"}
-                  </span>
-                </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  startTransition(async () => {
-                    const r = await limpiarDivision(cuenta.order.id, slug);
-                    if (!r.ok) toast.error(r.error);
-                    else {
-                      toast.success("División eliminada");
-                      router.refresh();
-                    }
-                  })
-                }
-              >
-                <Ban className="h-3.5 w-3.5 mr-1.5" /> Limpiar división
-              </Button>
-            </Card>
-          </section>
-        )}
-
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={() => setDividirOpen(true)}
-          disabled={total === 0}
-        >
-          <Scissors className="h-4 w-4 mr-2" /> Dividir cuenta
-        </Button>
-      </div>
+      </PageShell>
 
       {/* Sticky CTA */}
-      <div className="fixed bottom-0 left-0 right-0 border-t bg-background/95 backdrop-blur p-4">
-        <div className="max-w-xl mx-auto">
-          <Button
-            className="w-full"
-            size="lg"
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto max-w-screen-md p-4">
+          <button
+            type="button"
             onClick={handleConfirmar}
-            disabled={cantApplyDiscount}
+            disabled={cantApplyDiscount || total === 0}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full text-base font-semibold transition hover:brightness-95 disabled:opacity-50"
+            style={{
+              background: "var(--brand, #18181B)",
+              color: "var(--brand-foreground, white)",
+            }}
           >
+            <Receipt className="size-5" />
             {dirty ? "Guardar y pasar a cobro" : "Pasar a cobro"}
-            <ArrowRight className="h-4 w-4 ml-2" />
-          </Button>
+            <span className="ml-1 tabular-nums">{formatCurrency(total)}</span>
+          </button>
         </div>
       </div>
 
+      {/* Modales */}
       <DividirModal
         open={dividirOpen}
         onOpenChange={setDividirOpen}
@@ -302,7 +473,10 @@ export function CuentaClient({ slug, tableId, tableLabel, role, cuenta }: Props)
         }}
       />
 
-      <Dialog open={cancelarItemId !== null} onOpenChange={(o) => !o && setCancelarItemId(null)}>
+      <Dialog
+        open={cancelarItemId !== null}
+        onOpenChange={(o) => !o && setCancelarItemId(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Cancelar item</DialogTitle>
@@ -311,7 +485,11 @@ export function CuentaClient({ slug, tableId, tableLabel, role, cuenta }: Props)
             onSubmit={(motivo) => {
               if (!cancelarItemId) return;
               startTransition(async () => {
-                const r = await cancelarItemEnCuenta(cancelarItemId, motivo, slug);
+                const r = await cancelarItemEnCuenta(
+                  cancelarItemId,
+                  motivo,
+                  slug,
+                );
                 if (!r.ok) toast.error(r.error);
                 else {
                   toast.success("Item cancelado");
@@ -328,30 +506,109 @@ export function CuentaClient({ slug, tableId, tableLabel, role, cuenta }: Props)
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function ResumenRow({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "discount";
+}) {
   return (
-    <div className="flex justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span>{value}</span>
+    <div className="flex items-baseline justify-between py-0.5 text-sm">
+      <span className="text-zinc-600">{label}</span>
+      <span
+        className={cn(
+          "tabular-nums",
+          tone === "discount" ? "text-rose-600" : "text-zinc-700",
+        )}
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
-function CancelarItemForm({ onSubmit, onCancel }: { onSubmit: (motivo: string) => void; onCancel: () => void }) {
+function SplitsBanner({
+  splits,
+  onLimpiar,
+}: {
+  splits: CuentaState["splits"];
+  onLimpiar: () => void;
+}) {
+  const totalAsignado = splits.reduce(
+    (acc, s) => acc + s.expected_amount_cents,
+    0,
+  );
+  return (
+    <div
+      className="flex flex-wrap items-center gap-3 rounded-2xl p-4"
+      style={{ background: "var(--brand-soft, #F4F4F5)" }}
+    >
+      <div className="flex size-9 items-center justify-center rounded-full bg-white">
+        <Scissors
+          className="size-4"
+          style={{ color: "var(--brand, #18181B)" }}
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-zinc-900">
+          Cuenta dividida en {splits.length}{" "}
+          {splits.length === 1 ? "sub-cuenta" : "sub-cuentas"}
+        </p>
+        <p className="text-xs text-zinc-600 tabular-nums">
+          Total asignado: {formatCurrency(totalAsignado)}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onLimpiar}
+        className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200 transition hover:bg-zinc-50"
+      >
+        <Ban className="size-3" />
+        Limpiar
+      </button>
+    </div>
+  );
+}
+
+function CancelarItemForm({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (motivo: string) => void;
+  onCancel: () => void;
+}) {
   const [motivo, setMotivo] = useState("");
   return (
     <>
-      <Label>Motivo</Label>
-      <Textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={2} />
+      <div className="grid gap-1.5">
+        <Label>Motivo</Label>
+        <Textarea
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          rows={2}
+          placeholder="Ej: cliente cambió de opinión, plato salió mal…"
+          autoFocus
+        />
+      </div>
       <DialogFooter>
-        <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
-        <Button disabled={motivo.trim() === ""} onClick={() => onSubmit(motivo)}>Confirmar</Button>
+        <Button variant="ghost" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button
+          disabled={motivo.trim() === ""}
+          onClick={() => onSubmit(motivo)}
+        >
+          Confirmar
+        </Button>
       </DialogFooter>
     </>
   );
 }
 
-// ── Modal de dividir ──────────────────────────────────────────
+// ── Modal dividir ─────────────────────────────────────────────
 
 function DividirModal({
   open,
@@ -371,7 +628,6 @@ function DividirModal({
   const [, startTransition] = useTransition();
   const [tab, setTab] = useState<"personas" | "items">("personas");
   const [count, setCount] = useState(2);
-  // mapping: itemId → split_index (1-based).
   const [mapping, setMapping] = useState<Record<string, number>>({});
   const [numSplits, setNumSplits] = useState(2);
 
@@ -391,39 +647,46 @@ function DividirModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Dividir cuenta</DialogTitle>
         </DialogHeader>
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "personas" | "items")}>
-          <TabsList className="grid grid-cols-2 mb-3">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+          <TabsList className="mb-4 grid grid-cols-2">
             <TabsTrigger value="personas">
-              <Users className="h-4 w-4 mr-2" /> Personas
+              <Users className="mr-2 size-4" /> Personas iguales
             </TabsTrigger>
             <TabsTrigger value="items">
-              <Scissors className="h-4 w-4 mr-2" /> Items
+              <Scissors className="mr-2 size-4" /> Por items
             </TabsTrigger>
           </TabsList>
           <TabsContent value="personas" className="space-y-4">
             <div>
               <Label>¿Cuántas personas?</Label>
-              <div className="flex items-center gap-3 mt-2">
-                <Button
-                  variant="outline"
-                  size="icon"
+              <div className="mt-2 flex items-center justify-center gap-4">
+                <button
+                  type="button"
                   onClick={() => setCount(Math.max(2, count - 1))}
+                  className="inline-flex size-10 items-center justify-center rounded-full bg-zinc-100 text-lg font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-95"
+                  aria-label="Restar"
                 >
                   −
-                </Button>
-                <span className="text-2xl font-semibold w-8 text-center">{count}</span>
-                <Button
-                  variant="outline"
-                  size="icon"
+                </button>
+                <span className="w-10 text-center text-3xl font-bold tabular-nums">
+                  {count}
+                </span>
+                <button
+                  type="button"
                   onClick={() => setCount(Math.min(20, count + 1))}
+                  className="inline-flex size-10 items-center justify-center rounded-full bg-zinc-100 text-lg font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-95"
+                  aria-label="Sumar"
                 >
                   +
-                </Button>
+                </button>
               </div>
+              <p className="mt-2 text-center text-xs text-zinc-500">
+                El total se reparte equitativo (2 a 20 personas).
+              </p>
             </div>
             <Button
               className="w-full"
@@ -444,56 +707,80 @@ function DividirModal({
           <TabsContent value="items" className="space-y-3">
             <div>
               <Label>¿Cuántas sub-cuentas?</Label>
-              <div className="flex items-center gap-3 mt-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setNumSplits(Math.max(2, numSplits - 1))}
+              <div className="mt-2 flex items-center justify-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = Math.max(2, numSplits - 1);
+                    setNumSplits(next);
+                    setMapping((prev) => {
+                      const out: Record<string, number> = {};
+                      for (const [k, v] of Object.entries(prev)) {
+                        if (v <= next) out[k] = v;
+                      }
+                      return out;
+                    });
+                  }}
+                  className="inline-flex size-10 items-center justify-center rounded-full bg-zinc-100 text-lg font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-95"
+                  aria-label="Restar"
                 >
                   −
-                </Button>
-                <span className="text-2xl font-semibold w-8 text-center">{numSplits}</span>
-                <Button
-                  variant="outline"
-                  size="icon"
+                </button>
+                <span className="w-10 text-center text-3xl font-bold tabular-nums">
+                  {numSplits}
+                </span>
+                <button
+                  type="button"
                   onClick={() => setNumSplits(Math.min(20, numSplits + 1))}
+                  className="inline-flex size-10 items-center justify-center rounded-full bg-zinc-100 text-lg font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-95"
+                  aria-label="Sumar"
                 >
                   +
-                </Button>
+                </button>
               </div>
+              <p className="mt-2 text-center text-xs text-zinc-500">
+                Tocá un número junto a cada item para asignarlo a esa
+                sub-cuenta.
+              </p>
             </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
+            <ul className="max-h-72 space-y-1.5 overflow-y-auto">
               {items.map((it) => (
-                <div
+                <li
                   key={it.id}
-                  className="flex items-center justify-between gap-2 rounded-md border p-2"
+                  className="flex items-center justify-between gap-2 rounded-lg bg-zinc-50 p-2.5"
                 >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-zinc-900">
                       {it.quantity}× {it.product_name}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-zinc-500 tabular-nums">
                       {formatCurrency(it.subtotal_cents)}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    {Array.from({ length: numSplits }, (_, i) => i + 1).map((idx) => (
-                      <Button
-                        key={idx}
-                        size="sm"
-                        variant={mapping[it.id] === idx ? "default" : "outline"}
-                        className="h-7 w-7 p-0"
-                        onClick={() =>
-                          setMapping({ ...mapping, [it.id]: idx })
-                        }
-                      >
-                        {idx}
-                      </Button>
-                    ))}
+                    {Array.from({ length: numSplits }, (_, i) => i + 1).map(
+                      (idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() =>
+                            setMapping({ ...mapping, [it.id]: idx })
+                          }
+                          className={cn(
+                            "size-7 rounded-full text-xs font-semibold ring-1 transition",
+                            mapping[it.id] === idx
+                              ? "bg-zinc-900 text-white ring-zinc-900"
+                              : "bg-white text-zinc-700 ring-zinc-200 hover:bg-zinc-50",
+                          )}
+                        >
+                          {idx}
+                        </button>
+                      ),
+                    )}
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
             <Button
               className="w-full"
               disabled={!allAssigned}
@@ -504,9 +791,9 @@ function DividirModal({
                   for (const [itemId, idx] of Object.entries(mapping)) {
                     grouped[idx].push(itemId);
                   }
-                  // Limpiar splits vacíos.
                   for (const k of Object.keys(grouped)) {
-                    if (grouped[Number(k)].length === 0) delete grouped[Number(k)];
+                    if (grouped[Number(k)].length === 0)
+                      delete grouped[Number(k)];
                   }
                   const r = await dividirPorItems(orderId, grouped, slug);
                   if (!r.ok) toast.error(r.error);

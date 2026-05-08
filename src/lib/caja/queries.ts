@@ -34,6 +34,24 @@ export async function getCajasForBusiness(
   return (data ?? []) as Caja[];
 }
 
+/**
+ * Trae todas las cajas del business (activas + inactivas), pensada para
+ * la pantalla de gestión donde el admin ve también las pausadas.
+ */
+export async function getAllCajasForBusiness(
+  businessId: string,
+): Promise<Caja[]> {
+  const service = createSupabaseServiceClient();
+  const { data } = await service
+    .from("cajas")
+    .select("id, business_id, name, is_active, sort_order")
+    .eq("business_id", businessId)
+    .order("is_active", { ascending: false })
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  return (data ?? []) as Caja[];
+}
+
 export async function getActiveTurnos(
   businessId: string,
 ): Promise<ActiveTurnoView[]> {
@@ -104,6 +122,55 @@ export async function getTurnoById(
   const row = data as CajaTurno;
   if (row.business_id !== businessId) return null;
   return row;
+}
+
+/**
+ * Turnos cerrados del día (calendario local del business — pero usamos
+ * UTC y filtramos por opened_at >= hoy 00:00 UTC para mantenerlo simple).
+ * Devuelve los snapshots con encargado_name y caja_name resueltos para
+ * mostrar en el board admin.
+ */
+export async function getTurnosCerradosHoy(
+  businessId: string,
+): Promise<ActiveTurnoView[]> {
+  const service = createSupabaseServiceClient();
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const { data } = await service
+    .from("caja_turnos")
+    .select(
+      "id, caja_id, business_id, encargado_id, opening_cash_cents, expected_cash_cents, closing_cash_cents, difference_cents, closing_notes, status, opened_at, closed_at, cajas!inner(name)",
+    )
+    .eq("business_id", businessId)
+    .eq("status", "closed")
+    .gte("opened_at", todayStart.toISOString())
+    .order("closed_at", { ascending: false });
+
+  if (!data || data.length === 0) return [];
+
+  const encargadoIds = Array.from(
+    new Set(data.map((row) => (row as { encargado_id: string }).encargado_id)),
+  );
+  const { data: encargados } = await service
+    .from("users")
+    .select("id, full_name")
+    .in("id", encargadoIds);
+  const nameById = new Map(
+    (encargados ?? []).map((u) => [u.id as string, u.full_name as string | null]),
+  );
+
+  return data.map((row) => {
+    const r = row as unknown as CajaTurno & {
+      cajas: { name: string } | { name: string }[];
+    };
+    const cajaName = Array.isArray(r.cajas) ? r.cajas[0].name : r.cajas.name;
+    return {
+      ...r,
+      caja_name: cajaName,
+      encargado_name: nameById.get(r.encargado_id) ?? null,
+    };
+  });
 }
 
 export async function getMovimientosByTurno(

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { getActiveTurnos, getCajasForBusiness } from "@/lib/caja/queries";
+import { getActiveTurnos, getAllCajasForBusiness } from "@/lib/caja/queries";
 import { ensureMozoAccess } from "@/lib/mozo/auth";
 import { getBusiness } from "@/lib/tenant";
 
@@ -17,17 +17,17 @@ export default async function CajaPage({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  await ensureMozoAccess(business.id, business_slug);
+  const ctx = await ensureMozoAccess(business.id, business_slug);
 
   const [cajas, activeTurnos] = await Promise.all([
-    getCajasForBusiness(business.id),
+    getAllCajasForBusiness(business.id),
     getActiveTurnos(business.id),
   ]);
 
   return (
     <CajaClient
       slug={business_slug}
-      businessId={business.id}
+      role={ctx.role}
       cajas={cajas}
       activeTurnos={activeTurnos}
     />

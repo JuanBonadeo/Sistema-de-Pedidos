@@ -49,8 +49,8 @@ async function assertCanManage(businessId: string, userId: string): Promise<bool
   ]);
   const isPlatformAdmin = (profile as { is_platform_admin?: boolean } | null)?.is_platform_admin ?? false;
   const isAdmin = (membership as { role?: string } | null)?.role === "admin";
-  const isStaff = (membership as { role?: string } | null)?.role === "staff";
-  return isPlatformAdmin || isAdmin || isStaff;
+  const isEncargado = (membership as { role?: string } | null)?.role === "encargado";
+  return isPlatformAdmin || isAdmin || isEncargado;
 }
 
 type CreateContext = {

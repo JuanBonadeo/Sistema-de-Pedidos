@@ -274,6 +274,7 @@ export function FloorPlanEditor({ businessSlug, businessId, plan, tables }: Prop
     startTransition(async () => {
       const result = await saveFloorPlan({
         business_slug: businessSlug,
+        floor_plan_id: plan.id,
         name,
         width,
         height,

@@ -505,6 +505,22 @@ export async function persistOrder(
     }
   }
 
+  // Notif al encargado: hay un pedido nuevo esperando confirmación. Best
+  // effort — si falla el insert, el pedido sigue OK; el encargado lo verá
+  // igual al recargar la lista de `/admin/pedidos`.
+  await supabase.from("notifications").insert({
+    business_id: business.id,
+    target_role: "encargado",
+    type: "order.pending",
+    payload: {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      customerName: data.customer_name,
+      deliveryType: data.delivery_type,
+      totalCents,
+    },
+  });
+
   return actionOk({
     order_id: order.id,
     order_number: order.order_number,

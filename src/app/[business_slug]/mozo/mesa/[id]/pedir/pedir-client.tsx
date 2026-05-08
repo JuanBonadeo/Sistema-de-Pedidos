@@ -1,0 +1,1481 @@
+"use client";
+
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Ban,
+  Beer,
+  Cake,
+  Check,
+  ClipboardList,
+  Clock,
+  Coffee,
+  CookingPot,
+  Croissant,
+  GalleryVertical,
+  IceCream,
+  MoreHorizontal,
+  Minus,
+  Pizza,
+  Plus,
+  Salad,
+  Sandwich,
+  Search,
+  Send,
+  ShoppingBag,
+  Soup,
+  Sparkles,
+  Star,
+  Trash2,
+  UtensilsCrossed,
+  Wine,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import type { BusinessRole } from "@/lib/admin/context";
+import {
+  advanceComandaStatus,
+  cancelarItem,
+  enviarComanda,
+  type EnviarComandaItem,
+} from "@/lib/comandas/actions";
+import type { ComandaConItems } from "@/lib/comandas/queries";
+import type { ComandaStatus } from "@/lib/comandas/types";
+import { formatCurrency } from "@/lib/currency";
+import type {
+  CatalogCategory,
+  CatalogForMozo,
+  CatalogProduct,
+  CatalogSuperCategory,
+} from "@/lib/mozo/catalog-query";
+import type { DailyMenuForMozo } from "@/lib/mozo/daily-menus-query";
+import { canCancelItem } from "@/lib/permissions/can";
+
+import { ProductModal, type AddToCartItem } from "@/components/mozo/product-modal";
+
+type CartItem = AddToCartItem & { _key: string };
+
+type Props = {
+  slug: string;
+  businessName: string;
+  table: {
+    id: string;
+    label: string;
+    operational_status: string;
+    opened_at: string | null;
+  };
+  catalog: CatalogForMozo;
+  stationNameById: Record<string, string>;
+  existingComandas: ComandaConItems[];
+  topProductIds: string[];
+  dailyMenus: DailyMenuForMozo[];
+  role: BusinessRole;
+};
+
+type Step = "catalogo" | "resumen";
+
+// ── Tab "top" virtual ────────────────────────────────────────────────────
+//
+// Las pestañas reales vienen de `super_categories` del business. Sumamos un
+// chip virtual al inicio que muestra principales más pedidos + menú del día.
+const TOP_TAB_ID = "__top__";
+const ORPHAN_TAB_ID = "__orphan__";
+
+type TabId = string; // super_category_id, "__top__" u "__orphan__"
+
+// ── Iconos lucide por slug ──────────────────────────────────────────────
+//
+// Mapa **explícito** para que tailwind purge no se confunda con `text-${color}`.
+// Si el admin elige un ícono que no está en este mapa, fallback a UtensilsCrossed.
+const ICON_MAP: Record<string, LucideIcon> = {
+  salad: Salad,
+  "utensils-crossed": UtensilsCrossed,
+  wine: Wine,
+  cake: Cake,
+  coffee: Coffee,
+  beer: Beer,
+  pizza: Pizza,
+  "ice-cream": IceCream,
+  sparkles: Sparkles,
+  star: Star,
+  sandwich: Sandwich,
+  soup: Soup,
+  "cooking-pot": CookingPot,
+  croissant: Croissant,
+  "more-horizontal": MoreHorizontal,
+};
+
+function resolveIcon(slug: string | undefined | null): LucideIcon {
+  if (!slug) return UtensilsCrossed;
+  return ICON_MAP[slug] ?? UtensilsCrossed;
+}
+
+// ── Colores ──────────────────────────────────────────────────────────────
+//
+// Mismo patrón: clases Tailwind explícitas para sobrevivir el purge. Cada
+// supercategoría guarda un slug ("lime", "sky"...) y el client lo resuelve
+// a {inactive: text-X-600, active: text-X-300} para chips activos/inactivos.
+const COLOR_MAP: Record<string, { inactive: string; active: string }> = {
+  lime: { inactive: "text-lime-600", active: "text-lime-300" },
+  orange: { inactive: "text-orange-600", active: "text-orange-300" },
+  sky: { inactive: "text-sky-600", active: "text-sky-300" },
+  pink: { inactive: "text-pink-600", active: "text-pink-300" },
+  amber: { inactive: "text-amber-500", active: "text-amber-300" },
+  red: { inactive: "text-red-600", active: "text-red-300" },
+  emerald: { inactive: "text-emerald-600", active: "text-emerald-300" },
+  rose: { inactive: "text-rose-600", active: "text-rose-300" },
+  violet: { inactive: "text-violet-600", active: "text-violet-300" },
+  zinc: { inactive: "text-zinc-500", active: "text-zinc-300" },
+};
+
+function resolveColor(
+  slug: string | undefined | null,
+): { inactive: string; active: string } {
+  if (!slug) return COLOR_MAP.zinc;
+  return COLOR_MAP[slug] ?? COLOR_MAP.zinc;
+}
+
+// ── Tab definition (viene del server o virtual) ─────────────────────────
+type Tab = {
+  id: TabId;
+  label: string;
+  icon: LucideIcon;
+  iconInactive: string;
+  iconActive: string;
+};
+
+const STATUS_LABEL: Record<ComandaStatus, string> = {
+  pendiente: "Pendiente",
+  en_preparacion: "En preparación",
+  entregado: "Entregado",
+};
+
+const STATUS_PILL: Record<ComandaStatus, string> = {
+  pendiente: "bg-amber-100 text-amber-800",
+  en_preparacion: "bg-sky-100 text-sky-800",
+  entregado: "bg-emerald-100 text-emerald-800",
+};
+
+const STATUS_DOT: Record<ComandaStatus, string> = {
+  pendiente: "bg-amber-500",
+  en_preparacion: "bg-sky-500",
+  entregado: "bg-emerald-500",
+};
+
+const TABLE_STATUS_LABEL: Record<string, string> = {
+  libre: "Libre",
+  ocupada: "Ocupada",
+  esperando_pedido: "Esperando pedido",
+  esperando_cuenta: "Pidió la cuenta",
+  limpiar: "Por limpiar",
+};
+
+function minutesSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+}
+
+export function MozoPedirClient({
+  slug,
+  businessName,
+  table,
+  catalog,
+  stationNameById,
+  existingComandas,
+  topProductIds,
+  dailyMenus,
+  role,
+}: Props) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  // ── Indexado de catálogo ──
+  const allProducts: CatalogProduct[] = useMemo(
+    () => catalog.categories.flatMap((c) => c.products),
+    [catalog],
+  );
+  const productById = useMemo(() => {
+    const m = new Map<string, CatalogProduct>();
+    for (const p of allProducts) m.set(p.id, p);
+    return m;
+  }, [allProducts]);
+  const categoryById = useMemo(() => {
+    const m = new Map<string, CatalogCategory>();
+    for (const c of catalog.categories) m.set(c.id, c);
+    return m;
+  }, [catalog]);
+
+  // Categorías agrupadas por supercategoría (id) o "__orphan__" si null.
+  const categoriesBySuper: Record<TabId, CatalogCategory[]> = useMemo(() => {
+    const out: Record<TabId, CatalogCategory[]> = {};
+    for (const cat of catalog.categories) {
+      if (cat.products.length === 0) continue;
+      const key = cat.super_category_id ?? ORPHAN_TAB_ID;
+      if (!out[key]) out[key] = [];
+      out[key].push(cat);
+    }
+    return out;
+  }, [catalog]);
+
+  // Super "principales" para filtrar el "Más pedidos".
+  const principalesSuperId: string | null = useMemo(() => {
+    return (
+      catalog.superCategories.find((s) => s.slug === "principales")?.id ?? null
+    );
+  }, [catalog.superCategories]);
+
+  // Top products → solo principales (el chip muestra los principales más
+  // vendidos; bebidas/entradas tienen su tab dedicado).
+  const topProducts: CatalogProduct[] = useMemo(() => {
+    const seen = new Set<string>();
+    const out: CatalogProduct[] = [];
+    for (const id of topProductIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const p = productById.get(id);
+      if (!p || !p.category_id) continue;
+      const cat = categoryById.get(p.category_id);
+      if (!cat) continue;
+      // Si existe la super "principales", filtramos por ahí. Si no existe
+      // (admin la renombró/borró), aceptamos todos los top sin filtro.
+      if (principalesSuperId && cat.super_category_id !== principalesSuperId) {
+        continue;
+      }
+      out.push(p);
+    }
+    return out;
+  }, [topProductIds, productById, categoryById, principalesSuperId]);
+
+  const hasTopTab = topProducts.length > 0 || dailyMenus.length > 0;
+  const hasOrphanTab = (categoriesBySuper[ORPHAN_TAB_ID] ?? []).length > 0;
+
+  // Construir las tabs visibles en el orden definitivo.
+  const tabs: Tab[] = useMemo(() => {
+    const out: Tab[] = [];
+    if (hasTopTab) {
+      const c = resolveColor("amber");
+      out.push({
+        id: TOP_TAB_ID,
+        label: "Más pedidos",
+        icon: Star,
+        iconInactive: c.inactive,
+        iconActive: c.active,
+      });
+    }
+    for (const sc of catalog.superCategories) {
+      if (!categoriesBySuper[sc.id] || categoriesBySuper[sc.id].length === 0)
+        continue;
+      const c = resolveColor(sc.color);
+      out.push({
+        id: sc.id,
+        label: sc.name,
+        icon: resolveIcon(sc.icon),
+        iconInactive: c.inactive,
+        iconActive: c.active,
+      });
+    }
+    if (hasOrphanTab) {
+      const c = resolveColor("zinc");
+      out.push({
+        id: ORPHAN_TAB_ID,
+        label: "Otros",
+        icon: MoreHorizontal,
+        iconInactive: c.inactive,
+        iconActive: c.active,
+      });
+    }
+    return out;
+  }, [catalog.superCategories, categoriesBySuper, hasTopTab, hasOrphanTab]);
+
+  const tabById: Record<TabId, Tab> = useMemo(
+    () => Object.fromEntries(tabs.map((t) => [t.id, t])),
+    [tabs],
+  );
+
+  // Mapa product_id → tabId, para saber qué tab marcar como "tocado".
+  const productTabId = useMemo(() => {
+    const m = new Map<string, TabId>();
+    for (const p of allProducts) {
+      const cat = p.category_id ? categoryById.get(p.category_id) : null;
+      const superId = cat?.super_category_id ?? null;
+      m.set(p.id, superId ?? ORPHAN_TAB_ID);
+    }
+    return m;
+  }, [allProducts, categoryById]);
+
+  // ── State ──
+  const [step, setStep] = useState<Step>("catalogo");
+  const [activeTab, setActiveTab] = useState<TabId>(tabs[0]?.id ?? TOP_TAB_ID);
+  const [search, setSearch] = useState("");
+  const [openProduct, setOpenProduct] = useState<CatalogProduct | null>(null);
+  const [openDailyMenu, setOpenDailyMenu] = useState<DailyMenuForMozo | null>(null);
+  const [cart, setCart] = useState<CartItem[]>([]);
+
+  const [cancelTarget, setCancelTarget] = useState<{
+    orderItemId: string;
+    productName: string;
+  } | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+
+  // Si la tab activa desaparece (admin cambió el catálogo entre cargas),
+  // saltar a la primera disponible.
+  useEffect(() => {
+    if (tabs.length === 0) return;
+    if (!tabById[activeTab]) {
+      setActiveTab(tabs[0].id);
+    }
+  }, [tabs, tabById, activeTab]);
+
+  // Si paso a step 2 sin items y sin comandas existentes, vuelvo automáticamente.
+  useEffect(() => {
+    if (step === "resumen" && cart.length === 0 && existingComandas.length === 0) {
+      setStep("catalogo");
+    }
+  }, [step, cart.length, existingComandas.length]);
+
+  // Tabs "tocadas" — las que ya tienen al menos un item en el carrito.
+  const tabTouched: Record<TabId, boolean> = useMemo(() => {
+    const out: Record<TabId, boolean> = {};
+    for (const item of cart) {
+      const tabId = productTabId.get(item.product_id);
+      if (!tabId) continue;
+      out[tabId] = true;
+      // El "Más pedidos" tiene principales; si tocamos algo que pertenece a
+      // principales, lo marcamos como tocado.
+      if (tabId === principalesSuperId && hasTopTab) {
+        out[TOP_TAB_ID] = true;
+      }
+    }
+    return out;
+  }, [cart, productTabId, principalesSuperId, hasTopTab]);
+
+  // ── Búsqueda y productos del tab activo ──
+  const isSearching = search.trim().length > 0;
+
+  const searchResults: CatalogProduct[] = useMemo(() => {
+    if (!isSearching) return [];
+    const q = search.trim().toLowerCase();
+    return allProducts.filter((p) => p.name.toLowerCase().includes(q));
+  }, [search, allProducts, isSearching]);
+
+  const tabSections: { category: CatalogCategory | null; products: CatalogProduct[] }[] =
+    useMemo(() => {
+      if (isSearching) return [];
+      if (activeTab === TOP_TAB_ID) {
+        return topProducts.length > 0
+          ? [{ category: null, products: topProducts }]
+          : [];
+      }
+      const cats = categoriesBySuper[activeTab] ?? [];
+      return cats.map((c) => ({ category: c, products: c.products }));
+    }, [isSearching, activeTab, topProducts, categoriesBySuper]);
+
+  // Tabs vecinas para los botones de navegación.
+  const { prevTab, nextTab } = useMemo(() => {
+    if (isSearching) return { prevTab: null, nextTab: null };
+    const idx = tabs.findIndex((t) => t.id === activeTab);
+    if (idx < 0) return { prevTab: null, nextTab: null };
+    return {
+      prevTab: idx > 0 ? tabs[idx - 1] : null,
+      nextTab: idx < tabs.length - 1 ? tabs[idx + 1] : null,
+    };
+  }, [activeTab, tabs, isSearching]);
+
+  // ── Cart ──
+  const cartTotal = cart.reduce((a, c) => a + c.line_subtotal_cents, 0);
+  const cartCount = cart.reduce((a, c) => a + c.quantity, 0);
+
+  const addToCart = (item: AddToCartItem) => {
+    setCart((prev) => [...prev, { ...item, _key: crypto.randomUUID() }]);
+  };
+
+  const removeFromCart = (key: string) => {
+    setCart((prev) => prev.filter((c) => c._key !== key));
+  };
+
+  const changeQuantity = (key: string, delta: number) => {
+    setCart((prev) =>
+      prev
+        .map((c) => {
+          if (c._key !== key) return c;
+          const nextQty = c.quantity + delta;
+          if (nextQty < 1) return c;
+          if (nextQty > 99) return c;
+          const modsTotal = c.modifiers.reduce(
+            (a, m) => a + m.price_delta_cents,
+            0,
+          );
+          const newLine = (c.unit_price_cents + modsTotal) * nextQty;
+          return { ...c, quantity: nextQty, line_subtotal_cents: newLine };
+        })
+        .filter((c) => c.quantity > 0),
+    );
+  };
+
+  // ── Acciones server ──
+  const handleSend = () => {
+    if (cart.length === 0) return;
+    const items: EnviarComandaItem[] = cart.map((c) => ({
+      product_id: c.product_id,
+      quantity: c.quantity,
+      notes: c.notes || null,
+      modifier_ids: c.modifiers.map((m) => m.id),
+    }));
+    startTransition(async () => {
+      const r = await enviarComanda({ tableId: table.id, items, slug });
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(
+        `Enviado · ${r.data.comanda_ids.length} ${r.data.comanda_ids.length === 1 ? "comanda" : "comandas"}`,
+      );
+      setCart([]);
+      router.refresh();
+      if (existingComandas.length === 0) setStep("catalogo");
+    });
+  };
+
+  const handleCancelConfirm = () => {
+    if (!cancelTarget) return;
+    const reason = cancelReason.trim();
+    if (!reason) {
+      toast.error("Indicá el motivo.");
+      return;
+    }
+    startTransition(async () => {
+      const r = await cancelarItem(cancelTarget.orderItemId, reason, slug);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success("Item cancelado");
+      setCancelTarget(null);
+      setCancelReason("");
+      router.refresh();
+    });
+  };
+
+  const handleAdvance = (comandaId: string) => {
+    startTransition(async () => {
+      const r = await advanceComandaStatus(comandaId, slug);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`Comanda · ${STATUS_LABEL[r.data.status]}`);
+      router.refresh();
+    });
+  };
+
+  const userCanCancel = canCancelItem(role);
+  const tableMinutes = minutesSince(table.opened_at);
+
+  // Mostramos la nav de tabs (anterior/siguiente) en el footer sticky solo si
+  // estamos en catálogo, no estamos buscando, y al menos hay un vecino al
+  // que saltar.
+  const showTabNavInFooter =
+    step === "catalogo" && !isSearching && (prevTab !== null || nextTab !== null);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <div className={`min-h-dvh bg-zinc-50 ${showTabNavInFooter ? "pb-48" : "pb-36"}`}>
+      {/* ─── Header sticky ─── */}
+      <header className="sticky top-0 z-30 border-b border-zinc-200 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto flex max-w-md items-center gap-2 px-3 py-3">
+          {step === "catalogo" ? (
+            <Link
+              href={`/${slug}/mozo`}
+              className="-ml-1 rounded-full p-2 text-zinc-700 active:bg-zinc-100"
+              aria-label="Volver al salón"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          ) : (
+            <button
+              onClick={() => setStep("catalogo")}
+              className="-ml-1 rounded-full p-2 text-zinc-700 active:bg-zinc-100"
+              aria-label="Volver al catálogo"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              {step === "catalogo" ? businessName : "Tu pedido"}
+            </p>
+            <h1 className="font-heading text-base font-bold leading-tight tracking-tight text-zinc-900">
+              {step === "catalogo"
+                ? `Mesa ${table.label}`
+                : `Mesa ${table.label} · revisar`}
+            </h1>
+          </div>
+          {tableMinutes !== null && tableMinutes >= 0 && (
+            <span className="inline-flex items-center gap-1 text-xs text-zinc-500">
+              <Clock className="h-3 w-3" />
+              {tableMinutes}m
+            </span>
+          )}
+        </div>
+        {step === "catalogo" && (
+          <div className="mx-auto flex max-w-md items-center gap-2 px-3 pb-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2.5 py-0.5 text-[11px] font-semibold text-zinc-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {TABLE_STATUS_LABEL[table.operational_status] ?? table.operational_status}
+            </span>
+            {existingComandas.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
+                · {existingComandas.length}{" "}
+                {existingComandas.length === 1 ? "comanda enviada" : "comandas enviadas"}
+              </span>
+            )}
+          </div>
+        )}
+        {/* Tabs */}
+        {step === "catalogo" && !isSearching && tabs.length > 0 && (
+          <div className="border-t border-zinc-100">
+            <div className="mx-auto max-w-md overflow-x-auto px-3">
+              <div className="flex gap-1.5 py-2">
+                {tabs.map((t) => {
+                  const isActive = t.id === activeTab;
+                  const touched = tabTouched[t.id];
+                  const Icon = t.icon;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setActiveTab(t.id)}
+                      className={`relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition active:scale-[0.96] ${
+                        isActive
+                          ? "bg-zinc-900 text-white"
+                          : "bg-white text-zinc-700 ring-1 ring-zinc-200"
+                      }`}
+                    >
+                      <Icon
+                        className={`h-4 w-4 ${
+                          isActive ? t.iconActive : t.iconInactive
+                        }`}
+                      />
+                      <span>{t.label}</span>
+                      {touched && (
+                        <span
+                          className={`flex h-4 w-4 items-center justify-center rounded-full ${
+                            isActive
+                              ? "bg-emerald-400 text-zinc-900"
+                              : "bg-emerald-500 text-white"
+                          }`}
+                        >
+                          <Check className="h-2.5 w-2.5" strokeWidth={4} />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* ─── Body por step ─── */}
+      <main className="mx-auto max-w-md px-3 pt-3">
+        {step === "catalogo" ? (
+          <CatalogoStep
+            search={search}
+            setSearch={setSearch}
+            isSearching={isSearching}
+            searchResults={searchResults}
+            tabSections={tabSections}
+            activeTabLabel={tabById[activeTab]?.label ?? ""}
+            dailyMenus={dailyMenus}
+            isTopTab={activeTab === TOP_TAB_ID}
+            onPick={setOpenProduct}
+            onPickDailyMenu={setOpenDailyMenu}
+            tabsCount={tabs.length}
+          />
+        ) : (
+          <ResumenStep
+            cart={cart}
+            existingComandas={existingComandas}
+            stationNameById={stationNameById}
+            userCanCancel={userCanCancel}
+            pending={pending}
+            onChangeQty={changeQuantity}
+            onRemove={removeFromCart}
+            onCancelItem={(id, name) =>
+              setCancelTarget({ orderItemId: id, productName: name })
+            }
+            onAdvance={handleAdvance}
+            onAddMore={() => setStep("catalogo")}
+          />
+        )}
+      </main>
+
+      {/* ─── Sticky bottom: TabNav (anterior/siguiente) arriba + CTA debajo ─── */}
+      <div className="fixed inset-x-0 bottom-0 z-20 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+        <div className="mx-auto max-w-md">
+          {showTabNavInFooter && (
+            <div className="border-t border-zinc-200 px-3 py-2">
+              <TabNav
+                prevTab={prevTab}
+                nextTab={nextTab}
+                onJumpToTab={setActiveTab}
+              />
+            </div>
+          )}
+          <div className="border-t border-zinc-200 px-3 pt-3 pb-3">
+            {step === "catalogo" ? (
+              <BottomCTACatalogo
+                cartCount={cartCount}
+                cartTotal={cartTotal}
+                hasExisting={existingComandas.length > 0}
+                onClick={() => setStep("resumen")}
+              />
+            ) : (
+              <BottomCTAResumen
+                cartTotal={cartTotal}
+                cartCount={cartCount}
+                pending={pending}
+                onSend={handleSend}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Modal: agregar producto ─── */}
+      <ProductModal
+        product={openProduct}
+        open={!!openProduct}
+        onClose={() => setOpenProduct(null)}
+        onAdd={addToCart}
+      />
+
+      {/* ─── Modal: detalle del menú del día ─── */}
+      <DailyMenuModal
+        menu={openDailyMenu}
+        onClose={() => setOpenDailyMenu(null)}
+      />
+
+      {/* ─── Modal: cancelar item ─── */}
+      {cancelTarget && (
+        <div
+          onClick={() => {
+            setCancelTarget(null);
+            setCancelReason("");
+          }}
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="font-heading text-base font-bold text-zinc-900">
+                Cancelar “{cancelTarget.productName}”
+              </h3>
+              <button
+                onClick={() => {
+                  setCancelTarget(null);
+                  setCancelReason("");
+                }}
+                className="rounded-full p-1.5 text-zinc-500 active:bg-zinc-100"
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">
+              Indicá un motivo. Queda registrado.
+            </p>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value.slice(0, 200))}
+              placeholder="ej: rotura, cliente cambió de opinión..."
+              className="mt-3 block w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100"
+              rows={3}
+              autoFocus
+            />
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => {
+                  setCancelTarget(null);
+                  setCancelReason("");
+                }}
+                disabled={pending}
+                className="flex h-12 flex-1 items-center justify-center rounded-2xl bg-zinc-100 text-sm font-semibold text-zinc-700 active:scale-[0.98]"
+              >
+                Volver
+              </button>
+              <button
+                onClick={handleCancelConfirm}
+                disabled={pending || !cancelReason.trim()}
+                className="flex h-12 flex-1 items-center justify-center rounded-2xl bg-red-600 text-sm font-semibold text-white active:scale-[0.98] disabled:opacity-50"
+              >
+                Cancelar item
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Step 1: Catálogo
+// ─────────────────────────────────────────────────────────────────────────
+
+function CatalogoStep({
+  search,
+  setSearch,
+  isSearching,
+  searchResults,
+  tabSections,
+  activeTabLabel,
+  dailyMenus,
+  isTopTab,
+  onPick,
+  onPickDailyMenu,
+  tabsCount,
+}: {
+  search: string;
+  setSearch: (v: string) => void;
+  isSearching: boolean;
+  searchResults: CatalogProduct[];
+  tabSections: { category: CatalogCategory | null; products: CatalogProduct[] }[];
+  activeTabLabel: string;
+  dailyMenus: DailyMenuForMozo[];
+  isTopTab: boolean;
+  onPick: (p: CatalogProduct) => void;
+  onPickDailyMenu: (m: DailyMenuForMozo) => void;
+  tabsCount: number;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar producto..."
+          className="block h-11 w-full rounded-2xl border border-zinc-200 bg-white pl-9 pr-3 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+        />
+        {search.length > 0 && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-zinc-400 active:bg-zinc-100"
+            aria-label="Limpiar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {isSearching ? (
+        <SearchResults results={searchResults} onPick={onPick} />
+      ) : tabsCount === 0 ? (
+        <EmptyCatalog />
+      ) : (
+        <TabView
+          tabSections={tabSections}
+          activeTabLabel={activeTabLabel}
+          isTopTab={isTopTab}
+          dailyMenus={dailyMenus}
+          onPick={onPick}
+          onPickDailyMenu={onPickDailyMenu}
+        />
+      )}
+    </div>
+  );
+}
+
+function SearchResults({
+  results,
+  onPick,
+}: {
+  results: CatalogProduct[];
+  onPick: (p: CatalogProduct) => void;
+}) {
+  if (results.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-zinc-200 bg-white py-10 text-center">
+        <p className="text-sm font-semibold text-zinc-700">Sin resultados</p>
+        <p className="mt-1 text-xs text-zinc-500">Probá con otro nombre.</p>
+      </div>
+    );
+  }
+  return <ProductGrid products={results} onPick={onPick} />;
+}
+
+function TabView({
+  tabSections,
+  activeTabLabel,
+  isTopTab,
+  dailyMenus,
+  onPick,
+  onPickDailyMenu,
+}: {
+  tabSections: { category: CatalogCategory | null; products: CatalogProduct[] }[];
+  activeTabLabel: string;
+  isTopTab: boolean;
+  dailyMenus: DailyMenuForMozo[];
+  onPick: (p: CatalogProduct) => void;
+  onPickDailyMenu: (m: DailyMenuForMozo) => void;
+}) {
+  const showDailyMenus = isTopTab && dailyMenus.length > 0;
+  const isEmpty = tabSections.length === 0 && !showDailyMenus;
+
+  if (isEmpty) {
+    return (
+      <div className="rounded-2xl border border-dashed border-zinc-200 bg-white py-10 text-center">
+        <p className="text-sm font-semibold text-zinc-700">
+          Sin productos en {activeTabLabel.toLowerCase()}
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Probá otra pestaña o el buscador.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {showDailyMenus && (
+        <section className="space-y-2">
+          <h3 className="px-1 text-xs font-bold uppercase tracking-wide text-emerald-700">
+            Hoy en el menú del día
+          </h3>
+          <div className="space-y-2">
+            {dailyMenus.map((m) => (
+              <DailyMenuCard
+                key={m.id}
+                menu={m}
+                onClick={() => onPickDailyMenu(m)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {isTopTab && tabSections.length > 0 && (
+        <div className="flex items-center gap-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100">
+            <Star className="h-4 w-4 text-amber-600" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-amber-900">
+              Principales más pedidos
+            </p>
+            <p className="text-xs text-amber-800/80">
+              Lo que más sale en los últimos 30 días.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {tabSections.map((section, idx) => (
+        <div key={section.category?.id ?? `top-${idx}`} className="space-y-2">
+          {section.category && tabSections.length > 1 && (
+            <h3 className="px-1 text-xs font-bold uppercase tracking-wide text-zinc-500">
+              {section.category.name}
+            </h3>
+          )}
+          <ProductGrid products={section.products} onPick={onPick} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TabNav({
+  prevTab,
+  nextTab,
+  onJumpToTab,
+}: {
+  prevTab: Tab | null;
+  nextTab: Tab | null;
+  onJumpToTab: (id: TabId) => void;
+}) {
+  if (!prevTab && !nextTab) return null;
+  return (
+    <div className="flex gap-2">
+      {prevTab && (
+        <button
+          onClick={() => onJumpToTab(prevTab.id)}
+          className="flex flex-1 items-center gap-2.5 rounded-2xl bg-white p-3 text-left ring-1 ring-zinc-200 active:scale-[0.98] active:bg-zinc-50"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100">
+            <ArrowLeft className="h-4 w-4 text-zinc-700" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+              Anterior
+            </p>
+            <p className="flex items-center gap-1 text-sm font-bold text-zinc-900">
+              <prevTab.icon className={`h-3.5 w-3.5 ${prevTab.iconInactive}`} />
+              <span className="truncate">{prevTab.label}</span>
+            </p>
+          </div>
+        </button>
+      )}
+      {nextTab && (
+        <button
+          onClick={() => onJumpToTab(nextTab.id)}
+          className="flex flex-1 items-center justify-end gap-2.5 rounded-2xl bg-white p-3 text-right ring-1 ring-zinc-200 active:scale-[0.98] active:bg-zinc-50"
+        >
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+              Siguiente
+            </p>
+            <p className="flex items-center justify-end gap-1 text-sm font-bold text-zinc-900">
+              <nextTab.icon className={`h-3.5 w-3.5 ${nextTab.iconInactive}`} />
+              <span className="truncate">{nextTab.label}</span>
+            </p>
+          </div>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-900">
+            <ArrowRight className="h-4 w-4 text-white" />
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ProductGrid({
+  products,
+  onPick,
+}: {
+  products: CatalogProduct[];
+  onPick: (p: CatalogProduct) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2.5">
+      {products.map((p) => (
+        <button
+          key={p.id}
+          onClick={() => onPick(p)}
+          className="flex min-h-[88px] flex-col justify-between rounded-2xl bg-white p-3 text-left ring-1 ring-zinc-200 transition active:scale-[0.97] active:bg-zinc-50"
+        >
+          <span className="line-clamp-2 text-sm font-semibold text-zinc-900">
+            {p.name}
+          </span>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-sm font-bold text-emerald-700 tabular-nums">
+              {formatCurrency(p.price_cents)}
+            </span>
+            <span className="rounded-full bg-emerald-50 p-1 text-emerald-700">
+              <Plus className="h-3.5 w-3.5" />
+            </span>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DailyMenuCard({
+  menu,
+  onClick,
+}: {
+  menu: DailyMenuForMozo;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full gap-3 overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-50 via-white to-emerald-50 p-3 text-left shadow-sm ring-1 ring-emerald-200 transition active:scale-[0.99]"
+    >
+      {menu.image_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={menu.image_url}
+          alt=""
+          className="h-24 w-24 shrink-0 rounded-2xl object-cover"
+        />
+      ) : (
+        <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl bg-emerald-100">
+          <UtensilsCrossed className="h-9 w-9 text-emerald-600" />
+        </div>
+      )}
+      <div className="flex min-w-0 flex-1 flex-col justify-between py-1">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-700">
+            Menú del día
+          </p>
+          <h3 className="mt-0.5 truncate text-base font-extrabold text-zinc-900">
+            {menu.name}
+          </h3>
+          {menu.description && (
+            <p className="mt-0.5 line-clamp-2 text-xs text-zinc-600">
+              {menu.description}
+            </p>
+          )}
+        </div>
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-base font-extrabold text-emerald-700 tabular-nums">
+            {formatCurrency(menu.price_cents)}
+          </span>
+          {menu.components.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-600 ring-1 ring-zinc-200">
+              <GalleryVertical className="h-3 w-3" />
+              {menu.components.length}{" "}
+              {menu.components.length === 1 ? "paso" : "pasos"}
+            </span>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function DailyMenuModal({
+  menu,
+  onClose,
+}: {
+  menu: DailyMenuForMozo | null;
+  onClose: () => void;
+}) {
+  if (!menu) return null;
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 backdrop-blur-sm"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl bg-white pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl"
+      >
+        <div className="flex justify-center py-2">
+          <span className="h-1 w-10 rounded-full bg-zinc-200" />
+        </div>
+
+        {menu.image_url && (
+          <div className="px-5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={menu.image_url}
+              alt=""
+              className="h-44 w-full rounded-2xl object-cover"
+            />
+          </div>
+        )}
+
+        <div className="px-5 pt-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-700">
+            Menú del día
+          </p>
+          <h3 className="mt-0.5 font-heading text-xl font-extrabold leading-tight text-zinc-900">
+            {menu.name}
+          </h3>
+          {menu.description && (
+            <p className="mt-1 text-sm text-zinc-600">{menu.description}</p>
+          )}
+          <p className="mt-2 text-xl font-extrabold text-emerald-700 tabular-nums">
+            {formatCurrency(menu.price_cents)}
+          </p>
+        </div>
+
+        {menu.components.length > 0 && (
+          <div className="mt-4 px-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+              Incluye
+            </p>
+            <ol className="mt-2 space-y-2">
+              {menu.components.map((c, idx) => (
+                <li
+                  key={c.id}
+                  className="flex items-start gap-3 rounded-2xl bg-zinc-50 p-3 ring-1 ring-zinc-100"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-zinc-900">
+                      {c.label}
+                    </p>
+                    {c.description && (
+                      <p className="mt-0.5 text-xs text-zinc-600">
+                        {c.description}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        <div className="mt-4 px-5">
+          <p className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-100">
+            Para mostrar al cliente. Si lo elige, cargá los productos del menú
+            como items individuales en cada curso.
+          </p>
+        </div>
+
+        <div className="mt-4 px-5">
+          <button
+            onClick={onClose}
+            className="flex h-12 w-full items-center justify-center rounded-2xl bg-zinc-900 text-base font-semibold text-white active:scale-[0.98]"
+          >
+            Listo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyCatalog() {
+  return (
+    <div className="rounded-2xl border border-dashed border-zinc-200 bg-white py-10 text-center">
+      <p className="text-sm font-semibold text-zinc-700">Sin productos</p>
+      <p className="mt-1 text-xs text-zinc-500">
+        Pedile a admin que cargue el catálogo.
+      </p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Step 2: Resumen (sin cambios respecto a v2.1)
+// ─────────────────────────────────────────────────────────────────────────
+
+function ResumenStep({
+  cart,
+  existingComandas,
+  stationNameById,
+  userCanCancel,
+  pending,
+  onChangeQty,
+  onRemove,
+  onCancelItem,
+  onAdvance,
+  onAddMore,
+}: {
+  cart: CartItem[];
+  existingComandas: ComandaConItems[];
+  stationNameById: Record<string, string>;
+  userCanCancel: boolean;
+  pending: boolean;
+  onChangeQty: (key: string, delta: number) => void;
+  onRemove: (key: string) => void;
+  onCancelItem: (orderItemId: string, productName: string) => void;
+  onAdvance: (comandaId: string) => void;
+  onAddMore: () => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <section>
+        <header className="mb-2 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              Para enviar
+            </p>
+            <h2 className="font-heading text-base font-bold text-zinc-900">
+              {cart.length === 0
+                ? "Sin items nuevos"
+                : `${cart.length} ${cart.length === 1 ? "item" : "items"} · sin enviar`}
+            </h2>
+          </div>
+          <button
+            onClick={onAddMore}
+            className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200 active:scale-[0.96]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Agregar
+          </button>
+        </header>
+
+        {cart.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-zinc-200 bg-white p-5 text-center">
+            <ShoppingBag className="mx-auto h-6 w-6 text-zinc-400" />
+            <p className="mt-2 text-sm font-semibold text-zinc-700">
+              Carrito vacío
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Volvé al catálogo para agregar productos.
+            </p>
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {cart.map((c) => (
+              <li
+                key={c._key}
+                className="overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200"
+              >
+                <div className="flex items-start gap-2 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-zinc-900">
+                      {c.product_name}
+                    </p>
+                    {c.modifiers.length > 0 && (
+                      <p className="mt-0.5 text-xs text-zinc-500">
+                        {c.modifiers.map((m) => m.name).join(" · ")}
+                      </p>
+                    )}
+                    {c.notes && (
+                      <p className="mt-0.5 text-xs italic text-zinc-500">
+                        “{c.notes}”
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs font-semibold text-emerald-700 tabular-nums">
+                      {formatCurrency(c.line_subtotal_cents)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onRemove(c._key)}
+                    className="rounded-full p-2 text-zinc-400 active:bg-red-50 active:text-red-600"
+                    aria-label="Quitar"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50/60 px-3 py-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Cantidad
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onChangeQty(c._key, -1)}
+                      disabled={c.quantity <= 1}
+                      className="rounded-full bg-white p-2 shadow-sm ring-1 ring-zinc-200 active:scale-[0.95] disabled:opacity-40"
+                      aria-label="Restar"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </button>
+                    <span className="w-7 text-center text-base font-bold tabular-nums">
+                      {c.quantity}
+                    </span>
+                    <button
+                      onClick={() => onChangeQty(c._key, +1)}
+                      disabled={c.quantity >= 99}
+                      className="rounded-full bg-white p-2 shadow-sm ring-1 ring-zinc-200 active:scale-[0.95] disabled:opacity-40"
+                      aria-label="Sumar"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {existingComandas.length > 0 && (
+        <section>
+          <header className="mb-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              Ya en cocina
+            </p>
+            <h2 className="font-heading text-base font-bold text-zinc-900">
+              {existingComandas.length}{" "}
+              {existingComandas.length === 1 ? "comanda enviada" : "comandas enviadas"}
+            </h2>
+          </header>
+
+          <ul className="space-y-2">
+            {existingComandas.map((c) => {
+              const sectorName = stationNameById[c.station_id] ?? "Sector";
+              const liveItems = c.items.filter((it) => !it.cancelled_at);
+              const cancelledItems = c.items.filter((it) => it.cancelled_at);
+              return (
+                <li
+                  key={c.id}
+                  className="overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200"
+                >
+                  <header className="flex items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50/60 px-3 py-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span
+                        className={`inline-block h-2 w-2 rounded-full ${STATUS_DOT[c.status]}`}
+                      />
+                      <span className="font-semibold text-zinc-900">
+                        {sectorName}
+                      </span>
+                      <span className="text-[11px] text-zinc-500">
+                        · tanda {c.batch}
+                      </span>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_PILL[c.status]}`}
+                    >
+                      {STATUS_LABEL[c.status]}
+                    </span>
+                  </header>
+                  <ul className="divide-y divide-zinc-100">
+                    {liveItems.map((it) => (
+                      <li
+                        key={it.order_item_id}
+                        className="flex items-start gap-2 p-3"
+                      >
+                        <span className="mt-0.5 text-sm font-bold text-zinc-700 tabular-nums">
+                          {it.quantity}×
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-zinc-900">
+                            {it.product_name}
+                          </p>
+                          {it.modifiers.length > 0 && (
+                            <p className="mt-0.5 text-xs text-zinc-500">
+                              {it.modifiers.map((m) => m.modifier_name).join(" · ")}
+                            </p>
+                          )}
+                          {it.notes && (
+                            <p className="mt-0.5 text-xs italic text-zinc-500">
+                              “{it.notes}”
+                            </p>
+                          )}
+                        </div>
+                        {userCanCancel && (
+                          <button
+                            onClick={() =>
+                              onCancelItem(it.order_item_id, it.product_name)
+                            }
+                            disabled={pending}
+                            className="rounded-full p-2 text-zinc-400 active:bg-red-50 active:text-red-600 disabled:opacity-40"
+                            aria-label="Cancelar item"
+                          >
+                            <Ban className="h-4 w-4" />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                    {cancelledItems.map((it) => (
+                      <li
+                        key={it.order_item_id}
+                        className="flex items-start gap-2 bg-zinc-50 px-3 py-2 text-zinc-400"
+                      >
+                        <span className="mt-0.5 text-xs font-semibold tabular-nums line-through">
+                          {it.quantity}×
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold line-through">
+                            {it.product_name}
+                          </p>
+                          {it.cancelled_reason && (
+                            <p className="mt-0.5 text-[11px] text-red-500">
+                              Cancelado: {it.cancelled_reason}
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {c.status !== "entregado" && (
+                    <div className="border-t border-zinc-100 p-2">
+                      <button
+                        onClick={() => onAdvance(c.id)}
+                        disabled={pending}
+                        className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-50 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200 active:scale-[0.98] disabled:opacity-60"
+                      >
+                        <Check className="h-4 w-4" />
+                        {c.status === "pendiente"
+                          ? "Marcar en preparación"
+                          : "Marcar entregada"}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Bottom CTAs
+// ─────────────────────────────────────────────────────────────────────────
+
+function BottomCTACatalogo({
+  cartCount,
+  cartTotal,
+  hasExisting,
+  onClick,
+}: {
+  cartCount: number;
+  cartTotal: number;
+  hasExisting: boolean;
+  onClick: () => void;
+}) {
+  if (cartCount === 0 && !hasExisting) {
+    return (
+      <div className="flex h-14 items-center justify-center rounded-2xl bg-zinc-100 text-sm text-zinc-500">
+        Tocá un producto para empezar
+      </div>
+    );
+  }
+  if (cartCount === 0) {
+    return (
+      <button
+        onClick={onClick}
+        className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-900 text-base font-semibold text-white shadow-sm active:scale-[0.98]"
+      >
+        <ClipboardList className="h-5 w-5" />
+        Ver enviados
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={onClick}
+      className="flex h-14 w-full items-center justify-between gap-2 rounded-2xl bg-emerald-600 px-4 text-white shadow-sm active:scale-[0.98]"
+    >
+      <span className="flex items-center gap-2">
+        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-white/20 px-2 text-sm font-bold tabular-nums">
+          {cartCount}
+        </span>
+        <span className="text-base font-semibold">Ver pedido</span>
+      </span>
+      <span className="text-base font-bold tabular-nums">
+        {formatCurrency(cartTotal)}
+      </span>
+    </button>
+  );
+}
+
+function BottomCTAResumen({
+  cartTotal,
+  cartCount,
+  pending,
+  onSend,
+}: {
+  cartTotal: number;
+  cartCount: number;
+  pending: boolean;
+  onSend: () => void;
+}) {
+  if (cartCount === 0) {
+    return (
+      <div className="flex h-14 items-center justify-center rounded-2xl bg-zinc-100 text-sm text-zinc-500">
+        Sin items nuevos para enviar
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between px-1 text-sm">
+        <span className="text-zinc-600">Total a enviar</span>
+        <span className="text-lg font-bold tabular-nums text-zinc-900">
+          {formatCurrency(cartTotal)}
+        </span>
+      </div>
+      <button
+        onClick={onSend}
+        disabled={pending}
+        className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-base font-semibold text-white shadow-sm active:scale-[0.98] disabled:opacity-60"
+      >
+        <Send className="h-5 w-5" />
+        {pending ? "Enviando..." : "Enviar a sectores"}
+      </button>
+    </div>
+  );
+}

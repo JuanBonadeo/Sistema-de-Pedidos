@@ -22,6 +22,7 @@ export type TableExtra = {
     delivery_type: string;
   };
   minutesOpen?: number;
+  mozoInitial?: string;
 };
 
 type Props = {
@@ -95,7 +96,6 @@ function ViewerTable({
 
   // Qué mostrar debajo del label
   const hasReservation = !!extra?.reservation;
-  const hasOrder = !!extra?.order;
   const minutesOpen = extra?.minutesOpen;
 
   // Línea secundaria bajo el label
@@ -187,23 +187,31 @@ function ViewerTable({
         </>
       )}
 
-      {/* Badge QR (esquina superior izquierda) */}
-      {hasOrder && extra?.order?.delivery_type === "qr" && isLarge && (
+      {/* Badge mozo asignado (esquina inferior derecha) — siempre que haya inicial */}
+      {extra?.mozoInitial && (
         <>
-          <circle cx={10} cy={10} r={8} fill="#f59e0b" stroke="white" strokeWidth={1.5} />
+          <circle
+            cx={table.width - 10}
+            cy={table.height - 10}
+            r={9}
+            fill="#0f172a"
+            stroke="white"
+            strokeWidth={1.5}
+          />
           <text
-            x={10}
-            y={14}
+            x={table.width - 10}
+            y={table.height - 6}
             textAnchor="middle"
-            fontSize="7"
+            fontSize="9"
             fontWeight="700"
             fill="white"
             style={{ userSelect: "none", pointerEvents: "none" }}
           >
-            QR
+            {extra.mozoInitial}
           </text>
         </>
       )}
+
     </g>
   );
 }

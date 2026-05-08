@@ -15,6 +15,7 @@ import {
   ChevronsRight,
   History,
   LayoutDashboard,
+  LayoutGrid,
   LogOut,
   Megaphone,
   MessageSquare,
@@ -50,14 +51,17 @@ function buildNav(slug: string, showBusinessTools: boolean): NavItem[] {
       match: (p) => p === adminBase,
     },
     {
-      href: `${adminBase}/pedidos`,
-      label: "Pedidos en vivo",
+      href: `${adminBase}/local`,
+      label: "Local en vivo",
       icon: <ShoppingBag className="size-5" strokeWidth={1.75} />,
-      // Match exact + detail pages, but NOT /pedidos/historial (it has its own entry).
+      // Match /local + detalles antiguos en /pedidos (que redirigen a /local),
+      // pero NO /pedidos/historial que tiene su propio item.
       match: (p) =>
+        p === `${adminBase}/local` ||
+        p.startsWith(`${adminBase}/local/`) ||
         (p === `${adminBase}/pedidos` ||
-          p.startsWith(`${adminBase}/pedidos/`)) &&
-        !p.startsWith(`${adminBase}/pedidos/historial`),
+          (p.startsWith(`${adminBase}/pedidos/`) &&
+            !p.startsWith(`${adminBase}/pedidos/historial`))),
     },
     {
       href: `${adminBase}/pedidos/historial`,
@@ -78,6 +82,12 @@ function buildNav(slug: string, showBusinessTools: boolean): NavItem[] {
       match: (p) =>
         p.startsWith(`${adminBase}/catalogo`) ||
         p.startsWith(`${adminBase}/menu-del-dia`),
+    },
+    {
+      href: `${adminBase}/salones`,
+      label: "Salones",
+      icon: <LayoutGrid className="size-5" strokeWidth={1.75} />,
+      match: (p) => p.startsWith(`${adminBase}/salones`),
     },
     {
       href: `${adminBase}/reservas`,
@@ -113,10 +123,12 @@ function buildNav(slug: string, showBusinessTools: boolean): NavItem[] {
   if (showBusinessTools) {
     items.push(
       {
-        href: `${adminBase}/usuarios`,
-        label: "Equipo",
+        href: `${adminBase}/empleados`,
+        label: "Empleados",
         icon: <Users className="size-5" strokeWidth={1.75} />,
-        match: (p) => p.startsWith(`${adminBase}/usuarios`),
+        match: (p) =>
+          p.startsWith(`${adminBase}/empleados`) ||
+          p.startsWith(`${adminBase}/usuarios`),
       },
       {
         href: `${adminBase}/configuracion`,
@@ -225,6 +237,33 @@ export function AdminSidebar({
     });
   };
 
+  // Eventos externos para forzar colapsado/expandido. Hoy usado por la tab
+  // Salón de `/admin/local` para ganar todo el viewport.
+  useEffect(() => {
+    const onCollapse = () => {
+      setExpanded(false);
+      try {
+        localStorage.setItem(STORAGE_KEY, "false");
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener("admin-sidebar-collapse", onCollapse);
+    return () =>
+      window.removeEventListener("admin-sidebar-collapse", onCollapse);
+  }, []);
+
+  // Publicamos el ancho del sidebar como CSS var para que overlays externos
+  // (ej: la tab Salón de `/admin/local` que ocupa todo el viewport) puedan
+  // ofsetear su `left` en sincronía con el toggle. Sin esto, al expandir el
+  // sidebar el overlay quedaba con el ancho viejo y el sidebar lo tapaba.
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--admin-sidebar-width",
+      expanded ? "256px" : "72px",
+    );
+  }, [expanded]);
+
   // ── Pending order badge ───────────────────────────────────────────────────
   const [pendingCount, setPendingCount] = useState(initialPendingCount);
 
@@ -297,10 +336,13 @@ export function AdminSidebar({
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  // First 9 items = primary (Inicio, Pedidos en vivo, Pedidos, Clientes, Catálogo, Promociones, Campañas, Reportes, Chatbot)
-  // Last 2 (if any) = secondary (Equipo, Ajustes — only when canManageBusiness)
-  const primary = items.slice(0, 9);
-  const secondary = items.slice(9);
+  // Primary nav (always visible) vs secondary (Empleados / Ajustes — solo
+  // canManageBusiness). El divisor está en el último item antes de empleados.
+  // Como `secondary` se push-ea al final del array de items por buildNav, basta
+  // con slicear desde la cantidad de primary fija; los items de admin van
+  // siempre al final.
+  const primary = items.slice(0, canManageBusiness ? items.length - 2 : items.length);
+  const secondary = canManageBusiness ? items.slice(items.length - 2) : [];
 
   return (
     <aside
@@ -364,7 +406,7 @@ export function AdminSidebar({
             icon={item.icon}
             active={item.match(pathname)}
             expanded={expanded}
-            badge={item.label === "Pedidos en vivo" && pendingCount > 0 ? pendingCount : undefined}
+            badge={item.label === "Local en vivo" && pendingCount > 0 ? pendingCount : undefined}
           />
         ))}
 

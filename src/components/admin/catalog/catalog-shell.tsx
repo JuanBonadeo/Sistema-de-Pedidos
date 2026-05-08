@@ -5,25 +5,36 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 
 import { CatalogClient } from "@/components/admin/catalog/catalog-client";
+import { CategoriasTab } from "@/components/admin/catalog/categorias-tab";
+import { SectoresTab } from "@/components/admin/catalog/sectores-tab";
 import { DailyMenuList } from "@/components/admin/daily-menus/daily-menu-list";
 import { BrandButton } from "@/components/admin/shell/brand-button";
 import { PageHeader } from "@/components/admin/shell/page-shell";
 import type {
   AdminCategory,
   AdminProduct,
+  AdminStation,
+  AdminSuperCategory,
 } from "@/lib/admin/catalog-query";
 import type { AdminDailyMenu } from "@/lib/admin/daily-menu-query";
 import { cn } from "@/lib/utils";
 
-type Tab = "productos" | "menu-del-dia";
+type Tab = "productos" | "categorias" | "sectores" | "menu-del-dia";
 
 function isTab(value: string | null | undefined): value is Tab {
-  return value === "productos" || value === "menu-del-dia";
+  return (
+    value === "productos" ||
+    value === "categorias" ||
+    value === "sectores" ||
+    value === "menu-del-dia"
+  );
 }
 
 function TabsInner({
   slug,
   businessId,
+  superCategories,
+  stations,
   categories,
   products,
   menus,
@@ -31,6 +42,8 @@ function TabsInner({
 }: {
   slug: string;
   businessId: string;
+  superCategories: AdminSuperCategory[];
+  stations: AdminStation[];
   categories: AdminCategory[];
   products: AdminProduct[];
   menus: AdminDailyMenu[];
@@ -52,9 +65,17 @@ function TabsInner({
   const counts = useMemo(
     () => ({
       productos: products.length,
+      categorias: superCategories.length + categories.length,
+      sectores: stations.length,
       menuDelDia: menus.length,
     }),
-    [products.length, menus.length],
+    [
+      products.length,
+      categories.length,
+      superCategories.length,
+      stations.length,
+      menus.length,
+    ],
   );
 
   const action =
@@ -66,15 +87,15 @@ function TabsInner({
       >
         Nuevo producto
       </BrandButton>
-    ) : (
+    ) : active === "menu-del-dia" ? (
       <BrandButton
         href={`/${slug}/admin/menu-del-dia/nuevo`}
         size="md"
         leadingIcon={<Plus />}
       >
-        Nuevo menú
+        Nuevo menú del día
       </BrandButton>
-    );
+    ) : null;
 
   return (
     <>
@@ -97,6 +118,20 @@ function TabsInner({
           Productos
         </TabButton>
         <TabButton
+          active={active === "categorias"}
+          onClick={() => setTab("categorias")}
+          count={counts.categorias}
+        >
+          Categorías
+        </TabButton>
+        <TabButton
+          active={active === "sectores"}
+          onClick={() => setTab("sectores")}
+          count={counts.sectores}
+        >
+          Sectores
+        </TabButton>
+        <TabButton
           active={active === "menu-del-dia"}
           onClick={() => setTab("menu-del-dia")}
           count={counts.menuDelDia}
@@ -106,14 +141,33 @@ function TabsInner({
       </nav>
 
       <div>
-        {active === "productos" ? (
+        {active === "productos" && (
           <CatalogClient
             slug={slug}
             businessId={businessId}
             categories={categories}
             products={products}
+            stations={stations}
           />
-        ) : (
+        )}
+        {active === "categorias" && (
+          <CategoriasTab
+            slug={slug}
+            superCategories={superCategories}
+            stations={stations}
+            categories={categories}
+            products={products}
+          />
+        )}
+        {active === "sectores" && (
+          <SectoresTab
+            slug={slug}
+            stations={stations}
+            categories={categories}
+            products={products}
+          />
+        )}
+        {active === "menu-del-dia" && (
           <DailyMenuList slug={slug} menus={menus} todayDow={todayDow} />
         )}
       </div>
@@ -160,6 +214,8 @@ function TabButton({
 export function CatalogShell(props: {
   slug: string;
   businessId: string;
+  superCategories: AdminSuperCategory[];
+  stations: AdminStation[];
   categories: AdminCategory[];
   products: AdminProduct[];
   menus: AdminDailyMenu[];

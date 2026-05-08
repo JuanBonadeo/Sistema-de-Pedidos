@@ -176,7 +176,12 @@ const CreateSchema = z.object({
   email: z.string().email("Email inválido."),
   password: z.string().min(8, "Mínimo 8 caracteres.").max(72),
   role: z.enum(BUSINESS_ROLES),
-  full_name: z.string().trim().max(80).optional(),
+  full_name: z
+    .string()
+    .trim()
+    .min(1, "El nombre es obligatorio.")
+    .max(80, "Nombre demasiado largo."),
+  phone: z.string().trim().max(40, "Teléfono demasiado largo."),
 });
 type CreateValues = z.infer<typeof CreateSchema>;
 
@@ -210,6 +215,7 @@ function CreateWithPasswordForm({
       password: generatePassword(),
       role: "admin",
       full_name: "",
+      phone: "",
     },
   });
 
@@ -235,6 +241,7 @@ function CreateWithPasswordForm({
         password: generatePassword(),
         role: "admin",
         full_name: "",
+        phone: "",
       });
       router.refresh();
     } finally {
@@ -271,12 +278,34 @@ function CreateWithPasswordForm({
             name="full_name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>
-                  Nombre <span className="font-normal text-zinc-500">(opcional)</span>
-                </FormLabel>
+                <FormLabel>Nombre completo</FormLabel>
                 <FormControl>
                   <Input
                     placeholder="María López"
+                    {...field}
+                    value={field.value ?? ""}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="phone"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  Teléfono{" "}
+                  <span className="font-normal text-zinc-500">(opcional)</span>
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    type="tel"
+                    placeholder="+54 9 11 1234 5678"
                     {...field}
                     value={field.value ?? ""}
                   />
@@ -389,7 +418,7 @@ function CreatedCredentialsCard({
 
   const loginUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}${window.location.pathname.replace(/\/usuarios$/, "/login")}`
+      ? `${window.location.origin}${window.location.pathname.replace(/\/(empleados|usuarios)$/, "/login")}`
       : "";
 
   const copy = async (text: string, which: "email" | "password" | "both") => {
@@ -549,6 +578,12 @@ function CredField({
 const LinkSchema = z.object({
   email: z.string().email("Email inválido."),
   role: z.enum(BUSINESS_ROLES),
+  full_name: z
+    .string()
+    .trim()
+    .min(1, "El nombre es obligatorio.")
+    .max(80, "Nombre demasiado largo."),
+  phone: z.string().trim().max(40, "Teléfono demasiado largo."),
 });
 type LinkValues = z.infer<typeof LinkSchema>;
 
@@ -563,7 +598,7 @@ function LinkInviteForm({
   const [submitting, setSubmitting] = useState(false);
   const form = useForm<LinkValues>({
     resolver: zodResolver(LinkSchema),
-    defaultValues: { email: "", role: "admin" },
+    defaultValues: { email: "", role: "admin", full_name: "", phone: "" },
   });
 
   const onSubmit = async (values: LinkValues) => {
@@ -587,7 +622,7 @@ function LinkInviteForm({
       } else {
         toast.success(`${values.email} ya tiene acceso.`);
       }
-      form.reset({ email: "", role: "admin" });
+      form.reset({ email: "", role: "admin", full_name: "", phone: "" });
       router.refresh();
     } finally {
       setSubmitting(false);
@@ -598,38 +633,77 @@ function LinkInviteForm({
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="flex flex-wrap items-end gap-3 rounded-2xl bg-white p-4 ring-1 ring-zinc-200/70"
+        className="grid gap-3 rounded-2xl bg-white p-4 ring-1 ring-zinc-200/70"
       >
-        <FormField
-          control={form.control}
-          name="email"
-          render={({ field }) => (
-            <FormItem className="min-w-60 flex-1">
-              <FormLabel>Email</FormLabel>
-              <FormControl>
-                <Input
-                  type="email"
-                  placeholder="miembro@ejemplo.com"
-                  {...field}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="role"
-          render={({ field }) => (
-            <FormItem className="w-44">
-              <FormLabel>Rol</FormLabel>
-              <FormControl>
-                <RoleSelect value={field.value} onChange={field.onChange} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-        <button
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="full_name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Nombre completo</FormLabel>
+                <FormControl>
+                  <Input placeholder="María López" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email</FormLabel>
+                <FormControl>
+                  <Input
+                    type="email"
+                    placeholder="empleado@ejemplo.com"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+          <FormField
+            control={form.control}
+            name="phone"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  Teléfono{" "}
+                  <span className="font-normal text-zinc-500">(opcional)</span>
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    type="tel"
+                    placeholder="+54 9 11 1234 5678"
+                    {...field}
+                    value={field.value ?? ""}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="role"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Rol</FormLabel>
+                <FormControl>
+                  <RoleSelect value={field.value} onChange={field.onChange} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+        </div>
+        <div className="flex justify-end">
+          <button
           type="submit"
           disabled={submitting}
           className="inline-flex h-10 items-center gap-2 rounded-full px-5 text-sm font-semibold transition-all hover:brightness-95 active:translate-y-px disabled:pointer-events-none disabled:opacity-50"
@@ -642,6 +716,7 @@ function LinkInviteForm({
           <Link2 className="size-4" strokeWidth={1.75} />
           {submitting ? "Generando…" : "Generar link"}
         </button>
+        </div>
       </form>
     </Form>
   );

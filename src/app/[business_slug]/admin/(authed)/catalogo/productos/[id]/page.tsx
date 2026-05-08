@@ -17,7 +17,7 @@ export default async function EditProductoPage({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  const [product, { categories }] = await Promise.all([
+  const [product, { categories, stations }] = await Promise.all([
     getAdminProduct(id),
     getAdminCatalog(business.id),
   ]);
@@ -39,6 +39,7 @@ export default async function EditProductoPage({
           slug={business_slug}
           businessId={business.id}
           categories={categories}
+          stations={stations}
           product={product}
         />
       </Surface>

@@ -56,6 +56,7 @@ export function OrderCard({
   slug,
   timezone,
   onAdvance,
+  onConfirm,
   isNew = false,
   columnRing = "ring-border",
 }: {
@@ -63,11 +64,25 @@ export function OrderCard({
   slug: string;
   timezone: string;
   onAdvance: (order: AdminOrder, next: OrderStatus) => void;
+  /** Si está presente y la order está en `pending` (delivery/take-away), el
+   *  botón "Confirmar" llama acá en lugar de pasar a `confirmed`. La action
+   *  resuelve sectores y crea las comandas para cocina. */
+  onConfirm?: (order: AdminOrder) => void;
   isNew?: boolean;
   columnRing?: string;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const elapsed = useElapsedMinutes(order.created_at);
+
+  // Decide qué botón mostrar.
+  // Caso 1 · pending + delivery/take-away → "Confirmar pedido" (crea comandas).
+  // Caso 2 · pending + dine-in → SIN botón en este UI (lo gestiona el mozo).
+  // Caso 3 · pickup + ready → "Entregar" (saltea on_the_way).
+  // Caso 4 · resto → siguiente estado vía updateOrderStatus.
+  const isPendingOnline =
+    order.status === "pending" && order.delivery_type !== "dine_in";
+  const isPendingDineIn =
+    order.status === "pending" && order.delivery_type === "dine_in";
 
   const nextForDelivery =
     order.delivery_type === "pickup" && order.status === "ready"
@@ -160,17 +175,35 @@ export function OrderCard({
           <span className="text-foreground text-base font-bold tabular-nums">
             {formatCurrency(order.total_cents)}
           </span>
-          {advanceLabel && nextForDelivery && (
+          {isPendingDineIn ? (
+            <span className="text-muted-foreground/70 text-[11px] italic">
+              Lo carga el mozo
+            </span>
+          ) : isPendingOnline && onConfirm ? (
             <Button
               size="sm"
               className="h-8 font-semibold"
               onClick={(e) => {
                 e.stopPropagation();
-                onAdvance(order, nextForDelivery);
+                onConfirm(order);
               }}
             >
-              {advanceLabel}
+              Confirmar
             </Button>
+          ) : (
+            advanceLabel &&
+            nextForDelivery && (
+              <Button
+                size="sm"
+                className="h-8 font-semibold"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdvance(order, nextForDelivery);
+                }}
+              >
+                {advanceLabel}
+              </Button>
+            )
           )}
         </div>
       </article>

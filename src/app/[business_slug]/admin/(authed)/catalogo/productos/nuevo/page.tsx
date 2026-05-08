@@ -14,7 +14,7 @@ export default async function NuevoProductoPage({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  const { categories } = await getAdminCatalog(business.id);
+  const { categories, stations } = await getAdminCatalog(business.id);
 
   return (
     <PageShell width="narrow">
@@ -33,6 +33,7 @@ export default async function NuevoProductoPage({
           slug={business_slug}
           businessId={business.id}
           categories={categories}
+          stations={stations}
         />
       </Surface>
     </PageShell>

@@ -16,10 +16,11 @@ export default async function CatalogPage({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  const [{ categories, products }, menus] = await Promise.all([
-    getAdminCatalog(business.id),
-    getAdminDailyMenus(business.id),
-  ]);
+  const [{ superCategories, stations, categories, products }, menus] =
+    await Promise.all([
+      getAdminCatalog(business.id),
+      getAdminDailyMenus(business.id),
+    ]);
   const todayDow = currentDayOfWeek(business.timezone);
 
   return (
@@ -27,6 +28,8 @@ export default async function CatalogPage({
       <CatalogShell
         slug={business_slug}
         businessId={business.id}
+        superCategories={superCategories}
+        stations={stations}
         categories={categories}
         products={products}
         menus={menus}

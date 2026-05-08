@@ -15,7 +15,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import type { AdminCategory, AdminProduct } from "@/lib/admin/catalog-query";
+import type {
+  AdminCategory,
+  AdminProduct,
+  AdminStation,
+} from "@/lib/admin/catalog-query";
 import { deleteProduct } from "@/lib/catalog/product-actions";
 
 export function ProductDetailSheet({
@@ -25,6 +29,7 @@ export function ProductDetailSheet({
   businessId,
   product,
   categories,
+  stations = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -32,6 +37,7 @@ export function ProductDetailSheet({
   businessId: string;
   product: AdminProduct;
   categories: AdminCategory[];
+  stations?: AdminStation[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -89,6 +95,7 @@ export function ProductDetailSheet({
               slug={slug}
               businessId={businessId}
               categories={categories}
+              stations={stations}
               product={product}
               formId={formId}
               hideActions

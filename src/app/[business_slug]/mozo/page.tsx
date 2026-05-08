@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { getOrCreateFloorPlan } from "@/lib/admin/floor-plan/queries";
+import { getFloorPlansForBusiness } from "@/lib/admin/floor-plan/queries";
+import { ensureMozoAccess } from "@/lib/mozo/auth";
+import { getMozosByBusiness } from "@/lib/mozo/queries";
+import { listForUser, countUnread } from "@/lib/notifications/queries";
 import { getBusiness } from "@/lib/tenant";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
@@ -19,6 +22,8 @@ export default async function MozoPage({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
+  const ctx = await ensureMozoAccess(business.id, business_slug);
+
   const service = createSupabaseServiceClient() as unknown as SupabaseClient;
 
   const todayStart = new Date();
@@ -26,8 +31,15 @@ export default async function MozoPage({
   const tomorrowStart = new Date(todayStart);
   tomorrowStart.setDate(tomorrowStart.getDate() + 1);
 
-  const [{ plan, tables }, { data: reservations }, { data: activeOrders }] = await Promise.all([
-    getOrCreateFloorPlan(business.id),
+  const [
+    floorPlans,
+    { data: reservations },
+    { data: activeOrders },
+    mozos,
+    notifications,
+    unreadCount,
+  ] = await Promise.all([
+    getFloorPlansForBusiness(business.id),
 
     // Reservas confirmadas de hoy
     service
@@ -47,16 +59,27 @@ export default async function MozoPage({
       .eq("delivery_type", "dine_in")
       .neq("status", "cancelled")
       .gte("created_at", todayStart.toISOString()),
+
+    getMozosByBusiness(business.id),
+
+    listForUser({ userId: ctx.user.id, businessId: business.id, role: ctx.role, limit: 10 }),
+
+    countUnread({ userId: ctx.user.id, businessId: business.id, role: ctx.role }),
   ]);
 
   return (
     <MozoClient
       businessSlug={business_slug}
       businessName={business.name}
-      plan={plan}
-      tables={tables}
+      businessId={business.id}
+      floorPlans={floorPlans}
       reservations={(reservations ?? []) as ReservationForMozo[]}
       activeOrders={(activeOrders ?? []) as OrderForMozo[]}
+      mozos={mozos}
+      currentUserId={ctx.user.id}
+      role={ctx.role}
+      initialNotifications={notifications}
+      initialUnreadCount={unreadCount}
     />
   );
 }

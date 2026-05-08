@@ -52,6 +52,80 @@ export async function getOrCreateFloorPlan(businessId: string): Promise<FloorPla
   return { plan, tables: (tables ?? []) as FloorTable[] };
 }
 
+/**
+ * Devuelve todos los floor_plans del business con sus tables. Usado por
+ * `/admin/salones` (listado) y por la tab Salón de `/admin/local` para
+ * armar el selector multi-salón.
+ */
+export async function getFloorPlansForBusiness(
+  businessId: string,
+): Promise<FloorPlanWithTables[]> {
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const { data: plans } = await service
+    .from("floor_plans")
+    .select("*")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: true });
+
+  const planList = (plans ?? []) as FloorPlan[];
+  if (planList.length === 0) {
+    // Auto-crear el primero si el business no tiene ninguno (idempotente con
+    // `getOrCreateFloorPlan`).
+    const seeded = await getOrCreateFloorPlan(businessId);
+    return [seeded];
+  }
+
+  const planIds = planList.map((p) => p.id);
+  const { data: allTables } = await service
+    .from("tables")
+    .select("*")
+    .in("floor_plan_id", planIds)
+    .order("created_at", { ascending: true });
+
+  const tablesByPlan = new Map<string, FloorTable[]>();
+  for (const t of (allTables ?? []) as FloorTable[]) {
+    const list = tablesByPlan.get(t.floor_plan_id) ?? [];
+    list.push(t);
+    tablesByPlan.set(t.floor_plan_id, list);
+  }
+
+  return planList.map((plan) => ({
+    plan,
+    tables: tablesByPlan.get(plan.id) ?? [],
+  }));
+}
+
+/**
+ * Devuelve un floor_plan específico (por id) + sus tables. Valida pertenencia
+ * al business para defensa cross-tenant. Retorna null si no existe o es de
+ * otro business.
+ */
+export async function getFloorPlanById(
+  planId: string,
+  businessId: string,
+): Promise<FloorPlanWithTables | null> {
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const { data: plan } = await service
+    .from("floor_plans")
+    .select("*")
+    .eq("id", planId)
+    .eq("business_id", businessId)
+    .maybeSingle();
+
+  if (!plan) return null;
+  const planRow = plan as FloorPlan;
+
+  const { data: tables } = await service
+    .from("tables")
+    .select("*")
+    .eq("floor_plan_id", planRow.id)
+    .order("created_at", { ascending: true });
+
+  return { plan: planRow, tables: (tables ?? []) as FloorTable[] };
+}
+
 export async function getFloorPlanForCurrentUser(
   businessId: string,
 ): Promise<FloorPlanWithTables> {

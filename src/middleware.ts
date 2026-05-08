@@ -61,11 +61,16 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  // Protect /{slug}/admin/* (except /admin/login)
-  const adminMatch = effectivePath.match(/^\/([^/]+)\/admin(?:\/(.*))?$/);
-  if (adminMatch) {
-    const [, slug, rest = ""] = adminMatch;
-    if (rest !== "login") {
+  // Protect /{slug}/admin/* (except /admin/login) y /{slug}/mozo/*.
+  // El gating fino por rol/disabled lo hacen ensureAdminAccess/ensureMozoAccess
+  // en la page; el middleware solo bloquea sesiones anónimas.
+  const protectedMatch = effectivePath.match(
+    /^\/([^/]+)\/(admin|mozo)(?:\/(.*))?$/,
+  );
+  if (protectedMatch) {
+    const [, slug, area, rest = ""] = protectedMatch;
+    const isAdminLogin = area === "admin" && rest === "login";
+    if (!isAdminLogin) {
       const response = NextResponse.next();
       const supabase = makeSessionClient(request, response);
       const {

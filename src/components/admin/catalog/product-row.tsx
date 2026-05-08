@@ -5,7 +5,11 @@ import Image from "next/image";
 import { ChevronRight, EyeOff, ImageOff } from "lucide-react";
 
 import { ProductDetailSheet } from "@/components/admin/catalog/product-detail-sheet";
-import type { AdminCategory, AdminProduct } from "@/lib/admin/catalog-query";
+import type {
+  AdminCategory,
+  AdminProduct,
+  AdminStation,
+} from "@/lib/admin/catalog-query";
 import { formatCurrency } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
@@ -14,11 +18,13 @@ export function ProductRow({
   businessId,
   product,
   categories,
+  stations = [],
 }: {
   slug: string;
   businessId: string;
   product: AdminProduct;
   categories: AdminCategory[];
+  stations?: AdminStation[];
 }) {
   const [open, setOpen] = useState(false);
   const dimmed = !product.is_active;
@@ -85,6 +91,7 @@ export function ProductRow({
         businessId={businessId}
         product={product}
         categories={categories}
+        stations={stations}
       />
     </>
   );

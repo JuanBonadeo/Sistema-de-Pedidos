@@ -1,27 +1,16 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
-import { toast } from "sonner";
+import { useMemo, useState } from "react";
+import { Search, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { CategoryDialog } from "@/components/admin/catalog/category-dialog";
 import { ProductRow } from "@/components/admin/catalog/product-row";
 import type {
   AdminCategory,
   AdminProduct,
+  AdminStation,
 } from "@/lib/admin/catalog-query";
-import { deleteCategory } from "@/lib/catalog/category-actions";
 
 const UNCATEGORIZED = "__uncat__";
 
@@ -30,15 +19,14 @@ export function CatalogClient({
   businessId,
   categories,
   products,
+  stations = [],
 }: {
   slug: string;
   businessId: string;
   categories: AdminCategory[];
   products: AdminProduct[];
+  stations?: AdminStation[];
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [deleteTarget, setDeleteTarget] = useState<AdminCategory | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
@@ -60,23 +48,6 @@ export function CatalogClient({
 
     return result;
   }, [products, categoryFilter, search]);
-
-  const activeCategory = categories.find((c) => c.id === categoryFilter) ?? null;
-
-  const handleDeleteCategory = () => {
-    if (!deleteTarget) return;
-    startTransition(async () => {
-      const r = await deleteCategory(slug, deleteTarget.id);
-      if (!r.ok) {
-        toast.error(r.error);
-        return;
-      }
-      toast.success("Categoría eliminada.");
-      setDeleteTarget(null);
-      if (categoryFilter === deleteTarget.id) setCategoryFilter(null);
-      router.refresh();
-    });
-  };
 
   const filterChip = (
     id: string | null,
@@ -122,48 +93,12 @@ export function CatalogClient({
         </div>
       </div>
 
-      {/* Category filters */}
+      {/* Filtro por categoría — solo lectura, gestión vive en la tab Categorías. */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {filterChip(null, "Todas")}
-        {categories.map((c) =>
-          filterChip(c.id, c.name),
-        )}
+        {categories.map((c) => filterChip(c.id, c.name))}
         {hasUncategorized && filterChip(UNCATEGORIZED, "Sin categoría")}
-        <CategoryDialog
-          slug={slug}
-          trigger={
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 rounded-full px-3 text-sm"
-            >
-              <Plus className="size-3.5" /> Categoría
-            </Button>
-          }
-        />
       </div>
-
-      {/* Active category actions */}
-      {activeCategory && (
-        <div className="mt-2 flex items-center justify-end gap-2">
-          <CategoryDialog
-            slug={slug}
-            category={activeCategory}
-            trigger={
-              <Button size="xs" variant="ghost">
-                <Pencil className="size-3" /> Editar
-              </Button>
-            }
-          />
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() => setDeleteTarget(activeCategory)}
-          >
-            <Trash2 className="size-3" /> Eliminar
-          </Button>
-        </div>
-      )}
 
       {/* Product list */}
       <ul className="mt-4 grid gap-2">
@@ -183,43 +118,12 @@ export function CatalogClient({
               businessId={businessId}
               product={p}
               categories={categories}
+              stations={stations}
             />
           ))
         )}
       </ul>
 
-      <Dialog
-        open={!!deleteTarget}
-        onOpenChange={(o) => !o && setDeleteTarget(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Eliminar categoría &quot;{deleteTarget?.name}&quot;
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-muted-foreground text-sm">
-            Los productos de esta categoría van a quedar sin categoría. No se
-            borran.
-          </p>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteTarget(null)}
-              disabled={pending}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteCategory}
-              disabled={pending}
-            >
-              Eliminar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

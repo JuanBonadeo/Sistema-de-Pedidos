@@ -31,6 +31,7 @@ export type AdminProduct = {
   is_available: boolean;
   is_active: boolean;
   sort_order: number;
+  station_id: string | null;
   modifier_groups: AdminModifierGroup[];
 };
 
@@ -40,20 +41,54 @@ export type AdminCategory = {
   slug: string;
   sort_order: number;
   is_active: boolean;
+  super_category_id: string | null;
+  station_id: string | null;
+};
+
+export type AdminSuperCategory = {
+  id: string;
+  name: string;
+  slug: string;
+  sort_order: number;
+  icon: string;
+  color: string;
+  is_active: boolean;
+};
+
+export type AdminStation = {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
 };
 
 export async function getAdminCatalog(businessId: string) {
   const supabase = await createSupabaseServerClient();
-  const [{ data: categories }, { data: products }] = await Promise.all([
+  const [
+    { data: superCategories },
+    { data: stations },
+    { data: categories },
+    { data: products },
+  ] = await Promise.all([
+    supabase
+      .from("super_categories")
+      .select("id, name, slug, sort_order, icon, color, is_active")
+      .eq("business_id", businessId)
+      .order("sort_order"),
+    supabase
+      .from("stations")
+      .select("id, name, sort_order, is_active")
+      .eq("business_id", businessId)
+      .order("sort_order"),
     supabase
       .from("categories")
-      .select("id, name, slug, sort_order, is_active")
+      .select("id, name, slug, sort_order, is_active, super_category_id, station_id")
       .eq("business_id", businessId)
       .order("sort_order"),
     supabase
       .from("products")
       .select(
-        "id, category_id, name, slug, description, price_cents, image_url, is_available, is_active, sort_order, modifier_groups(id, name, min_selection, max_selection, is_required, sort_order, modifiers(id, name, price_delta_cents, is_available, sort_order))",
+        "id, category_id, name, slug, description, price_cents, image_url, is_available, is_active, sort_order, station_id, modifier_groups(id, name, min_selection, max_selection, is_required, sort_order, modifiers(id, name, price_delta_cents, is_available, sort_order))",
       )
       .eq("business_id", businessId)
       .order("sort_order"),
@@ -70,6 +105,7 @@ export async function getAdminCatalog(businessId: string) {
     is_available: p.is_available,
     is_active: p.is_active,
     sort_order: p.sort_order,
+    station_id: p.station_id,
     modifier_groups: (p.modifier_groups ?? [])
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
@@ -94,6 +130,8 @@ export async function getAdminCatalog(businessId: string) {
   }));
 
   return {
+    superCategories: (superCategories ?? []) as AdminSuperCategory[],
+    stations: (stations ?? []) as AdminStation[],
     categories: (categories ?? []) as AdminCategory[],
     products: productsList,
   };
@@ -104,7 +142,7 @@ export async function getAdminProduct(id: string): Promise<AdminProduct | null> 
   const { data } = await supabase
     .from("products")
     .select(
-      "id, category_id, name, slug, description, price_cents, image_url, is_available, is_active, sort_order, modifier_groups(id, name, min_selection, max_selection, is_required, sort_order, modifiers(id, name, price_delta_cents, is_available, sort_order))",
+      "id, category_id, name, slug, description, price_cents, image_url, is_available, is_active, sort_order, station_id, modifier_groups(id, name, min_selection, max_selection, is_required, sort_order, modifiers(id, name, price_delta_cents, is_available, sort_order))",
     )
     .eq("id", id)
     .maybeSingle();
@@ -120,6 +158,7 @@ export async function getAdminProduct(id: string): Promise<AdminProduct | null> 
     is_available: data.is_available,
     is_active: data.is_active,
     sort_order: data.sort_order,
+    station_id: data.station_id,
     modifier_groups: (data.modifier_groups ?? [])
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)

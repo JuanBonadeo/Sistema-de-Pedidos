@@ -134,9 +134,9 @@ export default async function DemoHubPage({
       icon: BarChart3,
     },
     {
-      href: `/${business_slug}/admin/usuarios`,
-      title: "Equipo",
-      description: "Sumá a tu equipo con permisos según el rol de cada uno.",
+      href: `/${business_slug}/admin/empleados`,
+      title: "Empleados",
+      description: "Sumá empleados con permisos según el rol de cada uno.",
       icon: ShieldCheck,
     },
     {

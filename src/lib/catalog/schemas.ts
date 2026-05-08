@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  SUPER_CATEGORY_COLORS,
+  SUPER_CATEGORY_ICONS,
+} from "@/lib/super-categories/visual";
+
 export const CategoryInput = z.object({
   name: z.string().min(1, "Requerido.").max(60),
   slug: z
@@ -8,8 +13,31 @@ export const CategoryInput = z.object({
     .max(60)
     .regex(/^[a-z0-9-]+$/, "Sólo minúsculas, números y guiones."),
   sort_order: z.number().int().min(0),
+  super_category_id: z.string().uuid().nullable().optional(),
+  station_id: z.string().uuid().nullable().optional(),
 });
 export type CategoryInput = z.infer<typeof CategoryInput>;
+
+export const StationInput = z.object({
+  name: z.string().min(1, "Requerido.").max(60),
+  sort_order: z.number().int().min(0),
+  is_active: z.boolean(),
+});
+export type StationInput = z.infer<typeof StationInput>;
+
+export const SuperCategoryInput = z.object({
+  name: z.string().min(1, "Requerido.").max(60),
+  slug: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(/^[a-z0-9-]+$/, "Sólo minúsculas, números y guiones."),
+  sort_order: z.number().int().min(0),
+  icon: z.enum(SUPER_CATEGORY_ICONS),
+  color: z.enum(SUPER_CATEGORY_COLORS),
+  is_active: z.boolean(),
+});
+export type SuperCategoryInput = z.infer<typeof SuperCategoryInput>;
 
 export const ModifierInput = z.object({
   id: z.string().uuid().optional(),
@@ -47,6 +75,7 @@ export const ProductInput = z.object({
   price_cents: z.number().int().min(0),
   image_url: z.string().url().nullable().optional(),
   category_id: z.string().uuid().nullable().optional(),
+  station_id: z.string().uuid().nullable().optional(),
   is_available: z.boolean(),
   is_active: z.boolean(),
   sort_order: z.number().int().min(0),

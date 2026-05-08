@@ -61,6 +61,9 @@ function renderInner(
 }
 
 export function BrandButton(props: ButtonProps | LinkProps) {
+  // Extraemos las props custom del componente para que NO viajen al DOM via
+  // {...rest}. React advertía con `leadingIcon`/`size`/`variant` como atributos
+  // desconocidos del <a>/<button>.
   const {
     size = "md",
     variant = "brand",
@@ -68,19 +71,29 @@ export function BrandButton(props: ButtonProps | LinkProps) {
     trailingIcon,
     className,
     children,
-  } = props;
+    ...domProps
+  } = props as CommonProps & {
+    href?: string;
+    children?: ReactNode;
+  } & Record<string, unknown>;
   const cls = cn(BASE, SIZES[size], VARIANTS[variant], className);
   if ("href" in props && props.href) {
-    const { href, ...rest } = props as LinkProps;
+    const { href: _href, ...rest } = domProps;
     return (
-      <Link href={href} {...rest} className={cls}>
+      <Link
+        href={(props as LinkProps).href}
+        {...(rest as Omit<ComponentPropsWithoutRef<typeof Link>, "className" | "href">)}
+        className={cls}
+      >
         {renderInner(children, leadingIcon, trailingIcon)}
       </Link>
     );
   }
-  const { ...rest } = props as ButtonProps;
   return (
-    <button {...rest} className={cls}>
+    <button
+      {...(domProps as ComponentPropsWithoutRef<"button">)}
+      className={cls}
+    >
       {renderInner(children, leadingIcon, trailingIcon)}
     </button>
   );

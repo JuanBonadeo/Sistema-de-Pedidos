@@ -75,18 +75,27 @@ export type Database = {
         Row: {
           business_id: string
           created_at: string
+          disabled_at: string | null
+          full_name: string | null
+          phone: string | null
           role: string
           user_id: string
         }
         Insert: {
           business_id: string
           created_at?: string
+          disabled_at?: string | null
+          full_name?: string | null
+          phone?: string | null
           role: string
           user_id: string
         }
         Update: {
           business_id?: string
           created_at?: string
+          disabled_at?: string | null
+          full_name?: string | null
+          phone?: string | null
           role?: string
           user_id?: string
         }
@@ -185,6 +194,151 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_messages: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          customer_id: string
+          customer_name: string | null
+          customer_phone: string
+          id: string
+          promo_code_id: string | null
+          promo_code_text: string | null
+          redeemed_at: string | null
+          redeemed_order_id: string | null
+          rendered_message: string
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          customer_id: string
+          customer_name?: string | null
+          customer_phone: string
+          id?: string
+          promo_code_id?: string | null
+          promo_code_text?: string | null
+          redeemed_at?: string | null
+          redeemed_order_id?: string | null
+          rendered_message: string
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          customer_id?: string
+          customer_name?: string | null
+          customer_phone?: string
+          id?: string
+          promo_code_id?: string | null
+          promo_code_text?: string | null
+          redeemed_at?: string | null
+          redeemed_order_id?: string | null
+          rendered_message?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_messages_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_messages_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_messages_promo_code_id_fkey"
+            columns: ["promo_code_id"]
+            isOneToOne: false
+            referencedRelation: "promo_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_messages_redeemed_order_id_fkey"
+            columns: ["redeemed_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          audience_count: number
+          audience_customer_ids: string[] | null
+          audience_segment: string | null
+          audience_type: string
+          business_id: string
+          channel: string
+          created_at: string
+          description: string | null
+          id: string
+          launched_at: string | null
+          message_template: string
+          name: string
+          promo_template: Json
+          redeemed_count: number
+          sent_count: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          audience_count?: number
+          audience_customer_ids?: string[] | null
+          audience_segment?: string | null
+          audience_type?: string
+          business_id: string
+          channel?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          launched_at?: string | null
+          message_template: string
+          name: string
+          promo_template: Json
+          redeemed_count?: number
+          sent_count?: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          audience_count?: number
+          audience_customer_ids?: string[] | null
+          audience_segment?: string | null
+          audience_type?: string
+          business_id?: string
+          channel?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          launched_at?: string | null
+          message_template?: string
+          name?: string
+          promo_template?: Json
+          redeemed_count?: number
+          sent_count?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       categories: {
         Row: {
           business_id: string
@@ -193,6 +347,8 @@ export type Database = {
           name: string
           slug: string
           sort_order: number
+          station_id: string | null
+          super_category_id: string | null
         }
         Insert: {
           business_id: string
@@ -201,6 +357,8 @@ export type Database = {
           name: string
           slug: string
           sort_order?: number
+          station_id?: string | null
+          super_category_id?: string | null
         }
         Update: {
           business_id?: string
@@ -209,6 +367,8 @@ export type Database = {
           name?: string
           slug?: string
           sort_order?: number
+          station_id?: string | null
+          super_category_id?: string | null
         }
         Relationships: [
           {
@@ -216,6 +376,20 @@ export type Database = {
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "categories_station_id_fkey"
+            columns: ["station_id"]
+            isOneToOne: false
+            referencedRelation: "stations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "categories_super_category_id_fkey"
+            columns: ["super_category_id"]
+            isOneToOne: false
+            referencedRelation: "super_categories"
             referencedColumns: ["id"]
           },
         ]
@@ -366,6 +540,81 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "chatbot_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      comanda_items: {
+        Row: {
+          comanda_id: string
+          order_item_id: string
+        }
+        Insert: {
+          comanda_id: string
+          order_item_id: string
+        }
+        Update: {
+          comanda_id?: string
+          order_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comanda_items_comanda_id_fkey"
+            columns: ["comanda_id"]
+            isOneToOne: false
+            referencedRelation: "comandas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comanda_items_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      comandas: {
+        Row: {
+          batch: number
+          delivered_at: string | null
+          emitted_at: string
+          id: string
+          order_id: string
+          station_id: string
+          status: string
+        }
+        Insert: {
+          batch: number
+          delivered_at?: string | null
+          emitted_at?: string
+          id?: string
+          order_id: string
+          station_id: string
+          status?: string
+        }
+        Update: {
+          batch?: number
+          delivered_at?: string | null
+          emitted_at?: string
+          id?: string
+          order_id?: string
+          station_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comandas_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comandas_station_id_fkey"
+            columns: ["station_id"]
+            isOneToOne: false
+            referencedRelation: "stations"
             referencedColumns: ["id"]
           },
         ]
@@ -543,6 +792,50 @@ export type Database = {
           },
         ]
       }
+      floor_plans: {
+        Row: {
+          background_image_url: string | null
+          background_opacity: number
+          business_id: string
+          created_at: string
+          height: number
+          id: string
+          name: string
+          updated_at: string
+          width: number
+        }
+        Insert: {
+          background_image_url?: string | null
+          background_opacity?: number
+          business_id: string
+          created_at?: string
+          height?: number
+          id?: string
+          name?: string
+          updated_at?: string
+          width?: number
+        }
+        Update: {
+          background_image_url?: string | null
+          background_opacity?: number
+          business_id?: string
+          created_at?: string
+          height?: number
+          id?: string
+          name?: string
+          updated_at?: string
+          width?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "floor_plans_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       modifier_groups: {
         Row: {
           business_id: string
@@ -626,6 +919,54 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          business_id: string
+          created_at: string
+          id: string
+          payload: Json
+          read_at: string | null
+          target_role: string | null
+          type: string
+          user_id: string | null
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          read_at?: string | null
+          target_role?: string | null
+          type: string
+          user_id?: string | null
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          read_at?: string | null
+          target_role?: string | null
+          type?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_item_modifiers: {
         Row: {
           id: string
@@ -667,38 +1008,53 @@ export type Database = {
       }
       order_items: {
         Row: {
+          cancelled_at: string | null
+          cancelled_reason: string | null
           daily_menu_id: string | null
           daily_menu_snapshot: Json | null
           id: string
+          kitchen_status: string
+          loaded_by: string | null
           notes: string | null
           order_id: string
           product_id: string | null
           product_name: string
           quantity: number
+          station_id: string | null
           subtotal_cents: number
           unit_price_cents: number
         }
         Insert: {
+          cancelled_at?: string | null
+          cancelled_reason?: string | null
           daily_menu_id?: string | null
           daily_menu_snapshot?: Json | null
           id?: string
+          kitchen_status?: string
+          loaded_by?: string | null
           notes?: string | null
           order_id: string
           product_id?: string | null
           product_name: string
           quantity: number
+          station_id?: string | null
           subtotal_cents: number
           unit_price_cents: number
         }
         Update: {
+          cancelled_at?: string | null
+          cancelled_reason?: string | null
           daily_menu_id?: string | null
           daily_menu_snapshot?: Json | null
           id?: string
+          kitchen_status?: string
+          loaded_by?: string | null
           notes?: string | null
           order_id?: string
           product_id?: string | null
           product_name?: string
           quantity?: number
+          station_id?: string | null
           subtotal_cents?: number
           unit_price_cents?: number
         }
@@ -708,6 +1064,13 @@ export type Database = {
             columns: ["daily_menu_id"]
             isOneToOne: false
             referencedRelation: "daily_menus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_loaded_by_fkey"
+            columns: ["loaded_by"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
           {
@@ -722,6 +1085,13 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_station_id_fkey"
+            columns: ["station_id"]
+            isOneToOne: false
+            referencedRelation: "stations"
             referencedColumns: ["id"]
           },
         ]
@@ -771,6 +1141,7 @@ export type Database = {
       orders: {
         Row: {
           business_id: string
+          cancelled_at: string | null
           cancelled_reason: string | null
           created_at: string
           customer_id: string | null
@@ -784,18 +1155,24 @@ export type Database = {
           delivery_type: string
           discount_cents: number
           id: string
+          lifecycle_status: string
+          mozo_id: string | null
           mp_payment_id: string | null
           mp_preference_id: string | null
           order_number: number
           payment_method: string
           payment_status: string
+          promo_code_id: string | null
+          promo_code_snapshot: string | null
           status: string
           subtotal_cents: number
+          table_id: string | null
           total_cents: number
           updated_at: string
         }
         Insert: {
           business_id: string
+          cancelled_at?: string | null
           cancelled_reason?: string | null
           created_at?: string
           customer_id?: string | null
@@ -809,18 +1186,24 @@ export type Database = {
           delivery_type: string
           discount_cents?: number
           id?: string
+          lifecycle_status?: string
+          mozo_id?: string | null
           mp_payment_id?: string | null
           mp_preference_id?: string | null
           order_number: number
           payment_method?: string
           payment_status?: string
+          promo_code_id?: string | null
+          promo_code_snapshot?: string | null
           status?: string
           subtotal_cents: number
+          table_id?: string | null
           total_cents: number
           updated_at?: string
         }
         Update: {
           business_id?: string
+          cancelled_at?: string | null
           cancelled_reason?: string | null
           created_at?: string
           customer_id?: string | null
@@ -834,13 +1217,18 @@ export type Database = {
           delivery_type?: string
           discount_cents?: number
           id?: string
+          lifecycle_status?: string
+          mozo_id?: string | null
           mp_payment_id?: string | null
           mp_preference_id?: string | null
           order_number?: number
           payment_method?: string
           payment_status?: string
+          promo_code_id?: string | null
+          promo_code_snapshot?: string | null
           status?: string
           subtotal_cents?: number
+          table_id?: string | null
           total_cents?: number
           updated_at?: string
         }
@@ -859,6 +1247,27 @@ export type Database = {
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "orders_mozo_id_fkey"
+            columns: ["mozo_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_promo_code_id_fkey"
+            columns: ["promo_code_id"]
+            isOneToOne: false
+            referencedRelation: "promo_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "tables"
+            referencedColumns: ["id"]
+          },
         ]
       }
       products: {
@@ -875,6 +1284,7 @@ export type Database = {
           price_cents: number
           slug: string
           sort_order: number
+          station_id: string | null
         }
         Insert: {
           business_id: string
@@ -889,6 +1299,7 @@ export type Database = {
           price_cents: number
           slug: string
           sort_order?: number
+          station_id?: string | null
         }
         Update: {
           business_id?: string
@@ -903,6 +1314,7 @@ export type Database = {
           price_cents?: number
           slug?: string
           sort_order?: number
+          station_id?: string | null
         }
         Relationships: [
           {
@@ -917,6 +1329,405 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_station_id_fkey"
+            columns: ["station_id"]
+            isOneToOne: false
+            referencedRelation: "stations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      promo_codes: {
+        Row: {
+          business_id: string
+          code: string
+          created_at: string
+          customer_id: string | null
+          description: string | null
+          discount_type: string
+          discount_value: number
+          id: string
+          is_active: boolean
+          max_uses: number | null
+          min_order_cents: number
+          updated_at: string
+          uses_count: number
+          valid_from: string | null
+          valid_until: string | null
+        }
+        Insert: {
+          business_id: string
+          code: string
+          created_at?: string
+          customer_id?: string | null
+          description?: string | null
+          discount_type: string
+          discount_value?: number
+          id?: string
+          is_active?: boolean
+          max_uses?: number | null
+          min_order_cents?: number
+          updated_at?: string
+          uses_count?: number
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Update: {
+          business_id?: string
+          code?: string
+          created_at?: string
+          customer_id?: string | null
+          description?: string | null
+          discount_type?: string
+          discount_value?: number
+          id?: string
+          is_active?: boolean
+          max_uses?: number | null
+          min_order_cents?: number
+          updated_at?: string
+          uses_count?: number
+          valid_from?: string | null
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promo_codes_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promo_codes_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reservation_settings: {
+        Row: {
+          advance_days_max: number
+          buffer_min: number
+          business_id: string
+          lead_time_min: number
+          max_party_size: number
+          schedule: Json
+          slot_duration_min: number
+          updated_at: string
+        }
+        Insert: {
+          advance_days_max?: number
+          buffer_min?: number
+          business_id: string
+          lead_time_min?: number
+          max_party_size?: number
+          schedule?: Json
+          slot_duration_min?: number
+          updated_at?: string
+        }
+        Update: {
+          advance_days_max?: number
+          buffer_min?: number
+          business_id?: string
+          lead_time_min?: number
+          max_party_size?: number
+          schedule?: Json
+          slot_duration_min?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservation_settings_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: true
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reservations: {
+        Row: {
+          business_id: string
+          created_at: string
+          customer_name: string
+          customer_phone: string
+          ends_at: string
+          id: string
+          notes: string | null
+          party_size: number
+          source: string
+          starts_at: string
+          status: string
+          table_id: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          customer_name: string
+          customer_phone: string
+          ends_at: string
+          id?: string
+          notes?: string | null
+          party_size: number
+          source?: string
+          starts_at: string
+          status?: string
+          table_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          customer_name?: string
+          customer_phone?: string
+          ends_at?: string
+          id?: string
+          notes?: string | null
+          party_size?: number
+          source?: string
+          starts_at?: string
+          status?: string
+          table_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservations_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reservations_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "tables"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stations: {
+        Row: {
+          business_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stations_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      super_categories: {
+        Row: {
+          business_id: string
+          color: string
+          created_at: string
+          icon: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          sort_order: number
+        }
+        Insert: {
+          business_id: string
+          color?: string
+          created_at?: string
+          icon?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          sort_order?: number
+        }
+        Update: {
+          business_id?: string
+          color?: string
+          created_at?: string
+          icon?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "super_categories_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tables: {
+        Row: {
+          created_at: string
+          current_order_id: string | null
+          floor_plan_id: string
+          height: number
+          id: string
+          label: string
+          mozo_id: string | null
+          opened_at: string | null
+          operational_status: string
+          rotation: number
+          seats: number
+          shape: string
+          status: string
+          width: number
+          x: number
+          y: number
+        }
+        Insert: {
+          created_at?: string
+          current_order_id?: string | null
+          floor_plan_id: string
+          height: number
+          id?: string
+          label: string
+          mozo_id?: string | null
+          opened_at?: string | null
+          operational_status?: string
+          rotation?: number
+          seats: number
+          shape: string
+          status?: string
+          width: number
+          x: number
+          y: number
+        }
+        Update: {
+          created_at?: string
+          current_order_id?: string | null
+          floor_plan_id?: string
+          height?: number
+          id?: string
+          label?: string
+          mozo_id?: string | null
+          opened_at?: string | null
+          operational_status?: string
+          rotation?: number
+          seats?: number
+          shape?: string
+          status?: string
+          width?: number
+          x?: number
+          y?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tables_current_order_id_fkey"
+            columns: ["current_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tables_floor_plan_id_fkey"
+            columns: ["floor_plan_id"]
+            isOneToOne: false
+            referencedRelation: "floor_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tables_mozo_id_fkey"
+            columns: ["mozo_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tables_audit_log: {
+        Row: {
+          business_id: string
+          by_user_id: string | null
+          created_at: string
+          from_value: string | null
+          id: string
+          kind: string
+          reason: string | null
+          table_id: string
+          to_value: string | null
+        }
+        Insert: {
+          business_id: string
+          by_user_id?: string | null
+          created_at?: string
+          from_value?: string | null
+          id?: string
+          kind: string
+          reason?: string | null
+          table_id: string
+          to_value?: string | null
+        }
+        Update: {
+          business_id?: string
+          by_user_id?: string | null
+          created_at?: string
+          from_value?: string | null
+          id?: string
+          kind?: string
+          reason?: string | null
+          table_id?: string
+          to_value?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tables_audit_log_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tables_audit_log_by_user_id_fkey"
+            columns: ["by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tables_audit_log_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "tables"
             referencedColumns: ["id"]
           },
         ]
@@ -950,6 +1761,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      increment_promo_use: {
+        Args: { p_business_id: string; p_promo_id: string }
+        Returns: boolean
+      }
       is_business_member: { Args: { bid: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
     }

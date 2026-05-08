@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import type { AdminOrder } from "@/lib/admin/orders-query";
+import { confirmarPedido } from "@/lib/orders/confirm-order";
 import type { OrderStatus } from "@/lib/orders/status";
 import { updateOrderStatus } from "@/lib/orders/update-status";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -238,6 +239,38 @@ export function OrdersRealtimeBoard({
     [slug],
   );
 
+  const handleConfirm = useCallback(
+    async (order: AdminOrder) => {
+      // Optimistic: pasamos a "preparing" en local mientras la action corre.
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id ? { ...o, status: "preparing" } : o,
+        ),
+      );
+      const result = await confirmarPedido(order.id, slug);
+      if (!result.ok) {
+        toast.error(result.error);
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === order.id ? { ...o, status: order.status } : o,
+          ),
+        );
+        return;
+      }
+      const { comanda_ids, items_without_station } = result.data;
+      const cocinaPart =
+        comanda_ids.length === 0
+          ? "sin items para cocina"
+          : `${comanda_ids.length} comanda${comanda_ids.length === 1 ? "" : "s"} a sectores`;
+      const directPart =
+        items_without_station > 0
+          ? ` · ${items_without_station} ítem${items_without_station === 1 ? "" : "s"} va${items_without_station === 1 ? "" : "n"} directo (sin imprimir)`
+          : "";
+      toast.success(`Pedido #${order.order_number} confirmado · ${cocinaPart}${directPart}`);
+    },
+    [slug],
+  );
+
   const unlockSound = () => {
     playBeep();
     setSoundUnlocked(true);
@@ -312,6 +345,7 @@ export function OrdersRealtimeBoard({
                     slug={slug}
                     timezone={timezone}
                     onAdvance={handleAdvance}
+                    onConfirm={handleConfirm}
                     isNew={newlyArrived.has(order.id)}
                     columnRing={col.ring}
                   />

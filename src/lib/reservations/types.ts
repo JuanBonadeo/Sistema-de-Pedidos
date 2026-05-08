@@ -43,6 +43,8 @@ export type FloorTable = {
   operational_status?: OperationalStatus;
   current_order_id?: string | null;
   opened_at?: string | null;
+  // Added in migration 0029 (CU-09) — mozo asignado actualmente.
+  mozo_id?: string | null;
 };
 
 /**

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { RotateCcw, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -15,73 +15,116 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { removeBusinessMemberByAdmin } from "@/lib/admin/members-actions";
+import {
+  disableBusinessMember,
+  enableBusinessMember,
+} from "@/lib/admin/members-actions";
 import type { BusinessMember } from "@/lib/admin/members-query";
+import { cn } from "@/lib/utils";
 
 const ROLE_LABELS: Record<BusinessMember["role"], string> = {
   admin: "Admin",
-  staff: "Staff",
+  encargado: "Encargado",
   mozo: "Mozo",
-  cocina: "Cocina",
 };
 
 const ROLE_STYLES: Record<BusinessMember["role"], string> = {
   admin:
     "bg-[color-mix(in_srgb,var(--brand)_15%,transparent)] text-[var(--brand)] border-transparent",
-  staff: "bg-zinc-100 text-zinc-700 border-transparent",
+  encargado: "bg-zinc-100 text-zinc-700 border-transparent",
   mozo: "bg-amber-50 text-amber-700 border-transparent",
-  cocina: "bg-emerald-50 text-emerald-700 border-transparent",
 };
 
 export function UserRow({
   slug,
   member,
-  canRemove,
+  canManage,
   isCurrentUser,
 }: {
   slug: string;
   member: BusinessMember;
-  canRemove: boolean;
+  canManage: boolean;
   isCurrentUser: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
 
-  const handleRemove = () => {
+  const isDisabled = Boolean(member.disabled_at);
+
+  const handleDisable = () => {
     startTransition(async () => {
-      const r = await removeBusinessMemberByAdmin(slug, member.user_id);
+      const r = await disableBusinessMember(slug, member.user_id);
       if (!r.ok) {
         toast.error(r.error);
         return;
       }
-      toast.success("Miembro quitado.");
+      toast.success("Empleado deshabilitado.");
       setOpen(false);
       router.refresh();
     });
   };
 
+  const handleEnable = () => {
+    startTransition(async () => {
+      const r = await enableBusinessMember(slug, member.user_id);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success("Empleado reactivado.");
+      router.refresh();
+    });
+  };
+
+  const displayName = member.full_name?.trim() || member.email;
+  const showEmailSubtitle = Boolean(member.full_name?.trim());
+
   return (
-    <li className="flex items-center justify-between gap-3 rounded-2xl bg-white p-4 ring-1 ring-zinc-200/70 transition hover:ring-zinc-300">
+    <li
+      className={cn(
+        "flex items-center justify-between gap-3 rounded-2xl bg-white p-4 ring-1 ring-zinc-200/70 transition hover:ring-zinc-300",
+        isDisabled && "bg-zinc-50 opacity-70 hover:ring-zinc-200/70",
+      )}
+    >
       <div className="flex min-w-0 items-center gap-3">
         <span
-          className="flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-1 ring-black/10"
+          className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-1 ring-black/10",
+            isDisabled && "grayscale",
+          )}
           style={{
             background: "var(--brand)",
             color: "var(--brand-foreground)",
           }}
         >
-          {member.email[0]?.toUpperCase() ?? "?"}
+          {displayName[0]?.toUpperCase() ?? "?"}
         </span>
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-zinc-900">
-            {member.email}
+          <p
+            className={cn(
+              "truncate text-sm font-semibold text-zinc-900",
+              isDisabled && "text-zinc-500",
+            )}
+          >
+            {displayName}
             {isCurrentUser && (
               <span className="ml-2 text-xs font-normal text-zinc-500">
                 (vos)
               </span>
             )}
+            {isDisabled && (
+              <span className="ml-2 inline-flex items-center rounded-full bg-zinc-200 px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wider text-zinc-700">
+                Deshabilitado
+              </span>
+            )}
           </p>
+          {showEmailSubtitle && (
+            <p className="truncate text-xs text-zinc-500">{member.email}</p>
+          )}
+          {member.phone && (
+            <p className="truncate text-xs text-zinc-500">{member.phone}</p>
+          )}
           <p className="text-xs text-zinc-500">
             Desde{" "}
             {new Intl.DateTimeFormat("es-AR", {
@@ -99,26 +142,28 @@ export function UserRow({
         >
           {ROLE_LABELS[member.role]}
         </Badge>
-        {canRemove && !isCurrentUser && (
+        {canManage && !isCurrentUser && !isDisabled && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger
               render={
                 <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label="Quitar miembro"
+                  size="sm"
+                  variant="outline"
+                  aria-label="Deshabilitar empleado"
                 >
-                  <Trash2 className="size-3.5" />
+                  <UserMinus className="size-3.5" />
+                  Deshabilitar
                 </Button>
               }
             />
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Quitar a {member.email}</DialogTitle>
+                <DialogTitle>Deshabilitar a {displayName}</DialogTitle>
               </DialogHeader>
               <p className="text-muted-foreground text-sm">
-                Pierde acceso al panel del negocio. La cuenta sigue existiendo
-                y puede volver a invitarse después.
+                Pierde acceso al panel del negocio. La cuenta y su historial
+                (pedidos, comandas) quedan intactos. Podés reactivarla cuando
+                quieras.
               </p>
               <DialogFooter>
                 <Button
@@ -130,14 +175,26 @@ export function UserRow({
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={handleRemove}
+                  onClick={handleDisable}
                   disabled={pending}
                 >
-                  Quitar
+                  Deshabilitar
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
+        )}
+        {canManage && isDisabled && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleEnable}
+            disabled={pending}
+            aria-label="Reactivar empleado"
+          >
+            <RotateCcw className="size-3.5" />
+            Reactivar
+          </Button>
         )}
       </div>
     </li>

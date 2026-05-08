@@ -20,6 +20,9 @@ export const FloorTableInputSchema = z.object({
 
 export const SaveFloorPlanInputSchema = z.object({
   business_slug: z.string().min(1),
+  /** Si viene, edita ese floor_plan específico. Si no, comportamiento legacy
+   *  (primero existente o crea uno). Necesario para multi-salón. */
+  floor_plan_id: z.string().uuid().nullable().optional(),
   name: z.string().trim().min(1).max(60).default("Salón"),
   width: z.coerce.number().int().min(100).max(5000),
   height: z.coerce.number().int().min(100).max(5000),

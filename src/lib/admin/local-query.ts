@@ -1,0 +1,180 @@
+import "server-only";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { ComandaStatus, KitchenItemStatus } from "@/lib/comandas/types";
+
+type GenericClient = SupabaseClient;
+
+export type LocalComandaItem = {
+  order_item_id: string;
+  product_name: string;
+  quantity: number;
+  notes: string | null;
+  cancelled_at: string | null;
+  cancelled_reason: string | null;
+  modifiers: string[];
+  kitchen_status: KitchenItemStatus;
+};
+
+export type LocalComanda = {
+  id: string;
+  order_id: string;
+  order_number: number;
+  station_id: string;
+  station_name: string;
+  /** Color slug del super_category (lime/orange/sky/...) si la categoría
+   *  del primer item resuelve a una super con color asignado. Para el chip. */
+  station_color_hint: string | null;
+  batch: number;
+  status: ComandaStatus;
+  emitted_at: string;
+  delivered_at: string | null;
+  /** Tipo de la order — "dine_in" / "delivery" / "take_away".
+   *  El dine-in se rotula como Mesa N en la card. */
+  delivery_type: string;
+  table_label: string | null;
+  customer_name: string | null;
+  items: LocalComandaItem[];
+};
+
+export type LocalStation = {
+  id: string;
+  name: string;
+  sort_order: number;
+};
+
+/**
+ * Comandas activas del día (status != entregado, o entregadas hace menos de
+ * 30 min). Usado por la tab "Comandas" del nuevo `/admin/local`.
+ *
+ * No filtramos por mozo/encargado — esta vista es panorámica del operativo.
+ *
+ * "Activas" = pendiente | en_preparacion. Sumamos también las "entregado"
+ * recientes para que no desaparezcan justo cuando el encargado las marca.
+ */
+export async function getActiveComandas(
+  businessId: string,
+): Promise<LocalComanda[]> {
+  const supabase = (await createSupabaseServerClient()) as unknown as GenericClient;
+
+  const thirtyMinAgo = new Date(Date.now() - 30 * 60_000).toISOString();
+
+  // Dos queries paralelas: pendientes/en_preparacion + entregadas recientes.
+  // Antes había una sola con `.or()` + `and()` anidado pero la sintaxis
+  // PostgREST con timestamp ISO embebido era frágil.
+  const select = `
+    id, order_id, station_id, batch, status, emitted_at, delivered_at,
+    stations!inner ( name ),
+    orders!inner (
+      id, business_id, order_number, delivery_type, customer_name,
+      tables!orders_table_id_fkey ( label )
+    ),
+    comanda_items (
+      order_items (
+        id, product_name, quantity, notes, cancelled_at, cancelled_reason,
+        kitchen_status,
+        order_item_modifiers ( modifier_name )
+      )
+    )
+  `;
+
+  const [activeRes, deliveredRes] = await Promise.all([
+    supabase
+      .from("comandas")
+      .select(select)
+      .eq("orders.business_id", businessId)
+      .in("status", ["pendiente", "en_preparacion"])
+      .order("emitted_at", { ascending: false }),
+    supabase
+      .from("comandas")
+      .select(select)
+      .eq("orders.business_id", businessId)
+      .eq("status", "entregado")
+      .gte("delivered_at", thirtyMinAgo)
+      .order("delivered_at", { ascending: false }),
+  ]);
+
+  if (activeRes.error) {
+    console.error("getActiveComandas active", activeRes.error);
+    return [];
+  }
+  if (deliveredRes.error) {
+    console.error("getActiveComandas delivered", deliveredRes.error);
+    return [];
+  }
+  const data = [...(activeRes.data ?? []), ...(deliveredRes.data ?? [])];
+
+  type RawRow = {
+    id: string;
+    order_id: string;
+    station_id: string;
+    batch: number;
+    status: ComandaStatus;
+    emitted_at: string;
+    delivered_at: string | null;
+    stations: { name: string };
+    orders: {
+      id: string;
+      order_number: number;
+      delivery_type: string;
+      customer_name: string;
+      tables: { label: string } | null;
+    };
+    comanda_items: {
+      order_items: {
+        id: string;
+        product_name: string;
+        quantity: number;
+        notes: string | null;
+        cancelled_at: string | null;
+        cancelled_reason: string | null;
+        kitchen_status: KitchenItemStatus;
+        order_item_modifiers: { modifier_name: string }[] | null;
+      } | null;
+    }[] | null;
+  };
+
+  return ((data ?? []) as unknown as RawRow[]).map((c) => ({
+    id: c.id,
+    order_id: c.order_id,
+    order_number: c.orders.order_number,
+    station_id: c.station_id,
+    station_name: c.stations.name,
+    station_color_hint: null,
+    batch: c.batch,
+    status: c.status,
+    emitted_at: c.emitted_at,
+    delivered_at: c.delivered_at,
+    delivery_type: c.orders.delivery_type,
+    table_label: c.orders.tables?.label ?? null,
+    customer_name: c.orders.customer_name,
+    items: (c.comanda_items ?? [])
+      .map((ci) => ci.order_items)
+      .filter((it): it is NonNullable<typeof it> => Boolean(it))
+      .map((it) => ({
+        order_item_id: it.id,
+        product_name: it.product_name,
+        quantity: it.quantity,
+        notes: it.notes,
+        cancelled_at: it.cancelled_at,
+        cancelled_reason: it.cancelled_reason,
+        modifiers: (it.order_item_modifiers ?? []).map((m) => m.modifier_name),
+        kitchen_status: it.kitchen_status,
+      })),
+  }));
+}
+
+export async function getStationsForLocal(
+  businessId: string,
+): Promise<LocalStation[]> {
+  const supabase = (await createSupabaseServerClient()) as unknown as GenericClient;
+  const { data } = await supabase
+    .from("stations")
+    .select("id, name, sort_order")
+    .eq("business_id", businessId)
+    .eq("is_active", true)
+    .order("sort_order");
+  return (data ?? []) as LocalStation[];
+}

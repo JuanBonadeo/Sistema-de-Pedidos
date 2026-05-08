@@ -8,10 +8,25 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { BUSINESS_ROLES, type BusinessRoleInput } from "@/lib/admin/roles";
 
+const FullNameSchema = z
+  .string()
+  .trim()
+  .min(1, "El nombre es obligatorio.")
+  .max(80, "Nombre demasiado largo.");
+
+const PhoneSchema = z
+  .string()
+  .trim()
+  .max(40, "Teléfono demasiado largo.")
+  .optional()
+  .transform((v) => (v === "" ? undefined : v));
+
 const InviteInput = z.object({
   business_slug: z.string().min(1),
   email: z.string().email("Email inválido."),
   role: z.enum(BUSINESS_ROLES),
+  full_name: FullNameSchema,
+  phone: PhoneSchema,
 });
 
 export type InvitePayload = {
@@ -26,12 +41,8 @@ const CreateWithPasswordInput = z.object({
   email: z.string().email("Email inválido."),
   password: z.string().min(8, "Contraseña muy corta (mínimo 8).").max(72),
   role: z.enum(BUSINESS_ROLES),
-  full_name: z
-    .string()
-    .trim()
-    .max(80)
-    .optional()
-    .transform((v) => (v === "" ? undefined : v)),
+  full_name: FullNameSchema,
+  phone: PhoneSchema,
 });
 
 export type CreateMemberPayload = {
@@ -40,6 +51,13 @@ export type CreateMemberPayload = {
   role: BusinessRoleInput;
   wasCreated: boolean;
 };
+
+const UpdateProfileInput = z.object({
+  business_slug: z.string().min(1),
+  user_id: z.string().min(1),
+  full_name: FullNameSchema.optional(),
+  phone: PhoneSchema,
+});
 
 async function assertCanManage(businessSlug: string) {
   const supabase = await createSupabaseServerClient();
@@ -64,14 +82,16 @@ async function assertCanManage(businessSlug: string) {
       .maybeSingle(),
     service
       .from("business_users")
-      .select("role")
+      .select("role, disabled_at")
       .eq("business_id", business.id)
       .eq("user_id", user.id)
       .maybeSingle(),
   ]);
 
   const isPlatformAdmin = profile?.is_platform_admin ?? false;
-  const isAdmin = membership?.role === "admin";
+  const isAdmin =
+    membership?.role === "admin" &&
+    (membership as { disabled_at: string | null }).disabled_at === null;
   if (!isPlatformAdmin && !isAdmin) {
     return { ok: false as const, error: "Permiso denegado." };
   }
@@ -83,12 +103,19 @@ async function assertCanManage(businessSlug: string) {
   };
 }
 
+function revalidateEmpleados(slug: string) {
+  revalidatePath(`/${slug}/admin/empleados`);
+  revalidatePath(`/${slug}/admin/usuarios`);
+}
+
 export async function inviteBusinessMemberByAdmin(
   input: unknown,
 ): Promise<ActionResult<InvitePayload>> {
   const parsed = InviteInput.safeParse(input);
-  if (!parsed.success) return actionError("Datos inválidos.");
-  const { business_slug, email, role } = parsed.data;
+  if (!parsed.success) {
+    return actionError(parsed.error.issues[0]?.message ?? "Datos inválidos.");
+  }
+  const { business_slug, email, role, full_name, phone } = parsed.data;
 
   const guard = await assertCanManage(business_slug);
   if (!guard.ok) return actionError(guard.error);
@@ -155,6 +182,10 @@ export async function inviteBusinessMemberByAdmin(
       business_id: guard.businessId,
       user_id: user.id,
       role,
+      full_name,
+      phone: phone ?? null,
+      // Reactivar membership si previamente fue deshabilitada (re-invite).
+      disabled_at: null,
     },
     { onConflict: "business_id,user_id" },
   );
@@ -198,7 +229,7 @@ export async function inviteBusinessMemberByAdmin(
     }
   }
 
-  revalidatePath(`/${business_slug}/admin/usuarios`);
+  revalidateEmpleados(business_slug);
   return actionOk({
     email,
     role,
@@ -222,7 +253,7 @@ export async function createBusinessMemberWithPassword(
       parsed.error.issues[0]?.message ?? "Datos inválidos.",
     );
   }
-  const { business_slug, email, password, role, full_name } = parsed.data;
+  const { business_slug, email, password, role, full_name, phone } = parsed.data;
 
   const guard = await assertCanManage(business_slug);
   if (!guard.ok) return actionError(guard.error);
@@ -249,7 +280,7 @@ export async function createBusinessMemberWithPassword(
         email_confirm: true,
         user_metadata: {
           ...(existing.user_metadata ?? {}),
-          ...(full_name ? { full_name } : {}),
+          full_name,
           welcomed_at:
             (existing.user_metadata as Record<string, unknown> | null)
               ?.welcomed_at ?? new Date().toISOString(),
@@ -268,7 +299,7 @@ export async function createBusinessMemberWithPassword(
         password,
         email_confirm: true,
         user_metadata: {
-          ...(full_name ? { full_name } : {}),
+          full_name,
           welcomed_at: new Date().toISOString(),
         },
       });
@@ -283,7 +314,7 @@ export async function createBusinessMemberWithPassword(
   const { error: userUpsertErr } = await service
     .from("users")
     .upsert(
-      { id: userId, email, ...(full_name ? { full_name } : {}) },
+      { id: userId, email },
       { onConflict: "id" },
     );
   if (userUpsertErr) {
@@ -296,6 +327,10 @@ export async function createBusinessMemberWithPassword(
       business_id: guard.businessId,
       user_id: userId,
       role,
+      full_name,
+      phone: phone ?? null,
+      // Reactivar si la membership existía deshabilitada.
+      disabled_at: null,
     },
     { onConflict: "business_id,user_id" },
   );
@@ -304,7 +339,7 @@ export async function createBusinessMemberWithPassword(
     return actionError("No pudimos asignar al miembro.");
   }
 
-  revalidatePath(`/${business_slug}/admin/usuarios`);
+  revalidateEmpleados(business_slug);
   return actionOk({
     email,
     password,
@@ -313,31 +348,93 @@ export async function createBusinessMemberWithPassword(
   });
 }
 
-export async function removeBusinessMemberByAdmin(
+/**
+ * Soft-delete: setea `disabled_at = now()`. Preserva el histórico
+ * (orders.mozo_id, comandas.created_by, etc.). El acceso al panel queda
+ * bloqueado en `ensureAdminAccess`.
+ *
+ * Antes se llamaba `removeBusinessMemberByAdmin` y hacía `delete` físico.
+ * Ver: wiki/casos-de-uso/CU-12-alta-empleado.md (D-CU12-2).
+ */
+export async function disableBusinessMember(
   businessSlug: string,
   userId: string,
 ): Promise<ActionResult<null>> {
   const guard = await assertCanManage(businessSlug);
   if (!guard.ok) return actionError(guard.error);
 
-  // Can't remove yourself unless you're a platform admin.
   if (userId === guard.user.id && !guard.isPlatformAdmin) {
-    return actionError("No podés quitarte a vos mismo.");
+    return actionError("No podés deshabilitarte a vos mismo.");
   }
 
   const service = createSupabaseServiceClient();
 
   const { error } = await service
     .from("business_users")
-    .delete()
+    .update({ disabled_at: new Date().toISOString() })
     .eq("business_id", guard.businessId)
     .eq("user_id", userId);
   if (error) {
-    console.error("removeBusinessMemberByAdmin", error);
-    return actionError("No pudimos quitar al miembro.");
+    console.error("disableBusinessMember", error);
+    return actionError("No pudimos deshabilitar al miembro.");
   }
 
-  revalidatePath(`/${businessSlug}/admin/usuarios`);
+  revalidateEmpleados(businessSlug);
+  return actionOk(null);
+}
+
+export async function enableBusinessMember(
+  businessSlug: string,
+  userId: string,
+): Promise<ActionResult<null>> {
+  const guard = await assertCanManage(businessSlug);
+  if (!guard.ok) return actionError(guard.error);
+
+  const service = createSupabaseServiceClient();
+
+  const { error } = await service
+    .from("business_users")
+    .update({ disabled_at: null })
+    .eq("business_id", guard.businessId)
+    .eq("user_id", userId);
+  if (error) {
+    console.error("enableBusinessMember", error);
+    return actionError("No pudimos reactivar al miembro.");
+  }
+
+  revalidateEmpleados(businessSlug);
+  return actionOk(null);
+}
+
+export async function updateMemberProfile(
+  input: unknown,
+): Promise<ActionResult<null>> {
+  const parsed = UpdateProfileInput.safeParse(input);
+  if (!parsed.success) {
+    return actionError(parsed.error.issues[0]?.message ?? "Datos inválidos.");
+  }
+  const { business_slug, user_id, full_name, phone } = parsed.data;
+
+  const guard = await assertCanManage(business_slug);
+  if (!guard.ok) return actionError(guard.error);
+
+  const patch: { full_name?: string; phone?: string | null } = {};
+  if (full_name !== undefined) patch.full_name = full_name;
+  if (phone !== undefined) patch.phone = phone ?? null;
+  if (Object.keys(patch).length === 0) return actionOk(null);
+
+  const service = createSupabaseServiceClient();
+  const { error } = await service
+    .from("business_users")
+    .update(patch)
+    .eq("business_id", guard.businessId)
+    .eq("user_id", user_id);
+  if (error) {
+    console.error("updateMemberProfile", error);
+    return actionError("No pudimos actualizar al miembro.");
+  }
+
+  revalidateEmpleados(business_slug);
   return actionOk(null);
 }
 

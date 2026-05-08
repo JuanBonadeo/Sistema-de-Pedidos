@@ -10,7 +10,7 @@ export type AdminOrder = {
   created_at: string;
   customer_name: string;
   customer_phone: string;
-  delivery_type: "delivery" | "pickup";
+  delivery_type: "delivery" | "pickup" | "dine_in" | "take_away";
   total_cents: number;
   status: OrderStatus;
   payment_method: string;
@@ -65,7 +65,11 @@ export async function getTodayOrders(
     created_at: o.created_at,
     customer_name: o.customer_name,
     customer_phone: o.customer_phone,
-    delivery_type: o.delivery_type as "delivery" | "pickup",
+    delivery_type: o.delivery_type as
+      | "delivery"
+      | "pickup"
+      | "dine_in"
+      | "take_away",
     total_cents: Number(o.total_cents),
     status: o.status as OrderStatus,
     payment_method: o.payment_method,
@@ -193,7 +197,11 @@ export async function getOrdersList(
     created_at: o.created_at,
     customer_name: o.customer_name,
     customer_phone: o.customer_phone,
-    delivery_type: o.delivery_type as "delivery" | "pickup",
+    delivery_type: o.delivery_type as
+      | "delivery"
+      | "pickup"
+      | "dine_in"
+      | "take_away",
     total_cents: Number(o.total_cents),
     status: o.status as OrderStatus,
     payment_method: o.payment_method,

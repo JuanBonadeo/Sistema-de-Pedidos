@@ -26,7 +26,11 @@ import {
 } from "@/components/ui/select";
 import { ImageUploader } from "@/components/admin/catalog/image-uploader";
 import { ModifierGroupsEditor } from "@/components/admin/catalog/modifier-groups-editor";
-import type { AdminCategory, AdminProduct } from "@/lib/admin/catalog-query";
+import type {
+  AdminCategory,
+  AdminProduct,
+  AdminStation,
+} from "@/lib/admin/catalog-query";
 import {
   createProduct,
   updateProduct,
@@ -37,6 +41,7 @@ export function ProductForm({
   slug,
   businessId,
   categories,
+  stations = [],
   product,
   onSuccess,
   onCancel,
@@ -46,6 +51,7 @@ export function ProductForm({
   slug: string;
   businessId: string;
   categories: AdminCategory[];
+  stations?: AdminStation[];
   product?: AdminProduct;
   onSuccess?: () => void;
   onCancel?: () => void;
@@ -65,6 +71,7 @@ export function ProductForm({
           price_cents: product.price_cents / 100,
           image_url: product.image_url,
           category_id: product.category_id,
+          station_id: product.station_id,
           is_available: product.is_available,
           is_active: product.is_active,
           sort_order: product.sort_order,
@@ -88,6 +95,7 @@ export function ProductForm({
           name: "",
           slug: "",
           price_cents: 0,
+          station_id: null,
           is_available: true,
           is_active: true,
           sort_order: 0,
@@ -261,6 +269,75 @@ export function ProductForm({
             )}
           />
         </div>
+
+        {/* Sector de cocina · null = hereda de la categoría */}
+        <FormField
+          control={form.control}
+          name="station_id"
+          render={({ field }) => {
+            // Resolvemos el sector heredado de la categoría seleccionada para
+            // que el placeholder ("Hereda de Pizzas → Cocina") sea informativo.
+            const currentCategoryId = form.watch("category_id");
+            const inherited = currentCategoryId
+              ? categories.find((c) => c.id === currentCategoryId) ?? null
+              : null;
+            const inheritedStation = inherited?.station_id
+              ? stations.find((s) => s.id === inherited.station_id) ?? null
+              : null;
+
+            return (
+              <FormItem>
+                <FormLabel>Sector de cocina</FormLabel>
+                <FormControl>
+                  <Select
+                    value={field.value ?? "__inherit__"}
+                    onValueChange={(v) =>
+                      field.onChange(v === "__inherit__" ? null : v)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue>
+                        {(value) => {
+                          if (!value || value === "__inherit__") {
+                            return inheritedStation
+                              ? `Hereda · ${inheritedStation.name}`
+                              : "Hereda de la categoría";
+                          }
+                          return (
+                            stations.find((s) => s.id === value)?.name ?? null
+                          );
+                        }}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__inherit__">
+                        <span className="text-zinc-500">
+                          {inheritedStation
+                            ? `Hereda · ${inheritedStation.name}`
+                            : "Hereda de la categoría"}
+                        </span>
+                      </SelectItem>
+                      {stations
+                        .filter((s) => s.is_active)
+                        .map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </FormControl>
+                <p className="text-muted-foreground text-xs">
+                  A qué sector se imprime la comanda. Si no especificás,
+                  hereda el de la categoría. Override útil cuando un producto
+                  sale de otro sector (ej: papas en categoría Cocina pero
+                  rutean a Fritera).
+                </p>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
+        />
 
         <div className="flex gap-4">
           <FormField

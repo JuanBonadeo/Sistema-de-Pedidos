@@ -146,7 +146,7 @@ export async function createBusiness(
 const InviteInput = z.object({
   business_id: z.string().uuid(),
   email: z.string().email(),
-  role: z.enum(["admin", "staff"]),
+  role: z.enum(["admin", "encargado"]),
 });
 
 export async function inviteBusinessMember(

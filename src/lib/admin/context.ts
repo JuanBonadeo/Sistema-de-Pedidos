@@ -6,7 +6,9 @@ import type { User } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
-export type BusinessRole = "admin" | "staff" | "mozo" | "cocina";
+// Roles operativos del MVP. Decisión 2026-05-07: `staff` y `cocina` salieron.
+// Ver `wiki/decisiones/roles-mvp.md`.
+export type BusinessRole = "admin" | "encargado" | "mozo";
 
 export type AdminContext = {
   user: User;
@@ -35,7 +37,7 @@ export async function ensureAdminAccess(
   const [{ data: membership }, { data: profile }] = await Promise.all([
     service
       .from("business_users")
-      .select("role")
+      .select("role, disabled_at")
       .eq("business_id", businessId)
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -49,6 +51,14 @@ export async function ensureAdminAccess(
   const isPlatformAdmin = profile?.is_platform_admin ?? false;
   if (!membership && !isPlatformAdmin) {
     redirect(`/${businessSlug}/admin/login`);
+  }
+
+  // Soft-delete: cuenta deshabilitada por un admin no entra al panel.
+  // El platform admin nunca queda bloqueado por esto. Ver CU-12.
+  const disabledAt =
+    (membership as { disabled_at: string | null } | null)?.disabled_at ?? null;
+  if (disabledAt && !isPlatformAdmin) {
+    redirect(`/${businessSlug}/admin/login?reason=disabled`);
   }
 
   const userName =
@@ -67,7 +77,7 @@ export async function ensureAdminAccess(
 /**
  * True when the user can administer the business: edit settings, manage team,
  * change catalog structure, etc. Platform admin always; business admin yes;
- * staff no.
+ * encargado y mozo no.
  */
 export function canManageBusiness(ctx: AdminContext): boolean {
   if (ctx.isPlatformAdmin) return true;

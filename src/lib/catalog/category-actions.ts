@@ -84,3 +84,136 @@ export async function deleteCategory(
   revalidatePath(`/${businessSlug}/admin/catalogo`);
   return actionOk(null);
 }
+
+/**
+ * Asignar una categoría a una supercategoría (o desasignar con null). Action
+ * dedicada — más simple que el `updateCategory` completo y deja libre al UI
+ * para reasignar desde una lista sin recargar el form entero.
+ */
+export async function assignCategoryToSuper(
+  businessSlug: string,
+  categoryId: string,
+  superCategoryId: string | null,
+): Promise<ActionResult<null>> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("categories")
+    .update({ super_category_id: superCategoryId })
+    .eq("id", categoryId);
+  if (error) {
+    console.error("assignCategoryToSuper", error);
+    return actionError("No pudimos cambiar la supercategoría.");
+  }
+  revalidatePath(`/${businessSlug}/admin/catalogo`);
+  return actionOk(null);
+}
+
+/**
+ * Reordena las categorías de un scope (mismo business + misma super, o
+ * huérfanas si `superCategoryId` es null). Asigna `sort_order = idx` a cada
+ * id según el orden recibido. Usado por el drag&drop de la tab Categorías.
+ *
+ * Valida que los ids cubran exactamente las categorías existentes del scope
+ * para evitar updates parciales que dejen orden inconsistente.
+ */
+export async function reorderCategories(
+  businessSlug: string,
+  superCategoryId: string | null,
+  idsInOrder: string[],
+): Promise<ActionResult<null>> {
+  const businessId = await getBusinessIdBySlug(businessSlug);
+  if (!businessId) return actionError("Negocio no encontrado.");
+
+  const supabase = await createSupabaseServerClient();
+
+  const baseQuery = supabase
+    .from("categories")
+    .select("id")
+    .eq("business_id", businessId);
+  const { data: existing } = superCategoryId
+    ? await baseQuery.eq("super_category_id", superCategoryId)
+    : await baseQuery.is("super_category_id", null);
+  if (!existing) return actionError("No pudimos leer las categorías.");
+
+  const existingIds = new Set(existing.map((r) => r.id));
+  const inputIds = new Set(idsInOrder);
+  if (
+    existingIds.size !== inputIds.size ||
+    [...existingIds].some((id) => !inputIds.has(id))
+  ) {
+    return actionError("Lista de orden inconsistente.");
+  }
+
+  for (let i = 0; i < idsInOrder.length; i++) {
+    await supabase
+      .from("categories")
+      .update({ sort_order: 100_000 + i })
+      .eq("id", idsInOrder[i]!);
+  }
+  for (let i = 0; i < idsInOrder.length; i++) {
+    await supabase
+      .from("categories")
+      .update({ sort_order: i })
+      .eq("id", idsInOrder[i]!);
+  }
+
+  revalidatePath(`/${businessSlug}/admin/catalogo`);
+  return actionOk(null);
+}
+
+/**
+ * Mueve una categoría una posición arriba o abajo. Quedó por compatibilidad
+ * — el drag&drop usa `reorderCategories`.
+ */
+export async function moveCategory(
+  businessSlug: string,
+  id: string,
+  direction: "up" | "down",
+): Promise<ActionResult<null>> {
+  const businessId = await getBusinessIdBySlug(businessSlug);
+  if (!businessId) return actionError("Negocio no encontrado.");
+
+  const supabase = await createSupabaseServerClient();
+
+  const { data: target } = await supabase
+    .from("categories")
+    .select("id, super_category_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!target) return actionError("Categoría no encontrada.");
+
+  // Cargamos solo las hermanas dentro del mismo super (o sin super).
+  const sameSuperQuery = supabase
+    .from("categories")
+    .select("id, sort_order")
+    .eq("business_id", businessId)
+    .order("sort_order");
+  const { data: list } = target.super_category_id
+    ? await sameSuperQuery.eq("super_category_id", target.super_category_id)
+    : await sameSuperQuery.is("super_category_id", null);
+  if (!list) return actionError("No pudimos leer las categorías.");
+
+  const idx = list.findIndex((c) => c.id === id);
+  if (idx < 0) return actionError("Categoría no encontrada.");
+
+  const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= list.length) {
+    return actionOk(null);
+  }
+
+  const a = list[idx]!;
+  const b = list[swapIdx]!;
+
+  await supabase.from("categories").update({ sort_order: -1 }).eq("id", a.id);
+  await supabase
+    .from("categories")
+    .update({ sort_order: a.sort_order })
+    .eq("id", b.id);
+  await supabase
+    .from("categories")
+    .update({ sort_order: b.sort_order })
+    .eq("id", a.id);
+
+  revalidatePath(`/${businessSlug}/admin/catalogo`);
+  return actionOk(null);
+}

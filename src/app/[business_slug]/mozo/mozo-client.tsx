@@ -188,7 +188,11 @@ export function MozoClient({
   initialUnreadCount,
 }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<MozoTab>("salon");
+  // Default tab: "Mis mesas" para el mozo (su día a día). Encargado/admin
+  // arrancan en "Salón" (vista global). Platform admin = admin acá.
+  const [activeTab, setActiveTab] = useState<MozoTab>(
+    role === "mozo" ? "mesas" : "salon",
+  );
   const [selected, setSelected] = useState<FloorTable | null>(null);
   const [loading, setLoading] = useState(false);
   const [walkInTableId, setWalkInTableId] = useState<string | null>(null);
@@ -283,11 +287,35 @@ export function MozoClient({
 
   const active = localTables.filter((t) => t.status === "active");
 
-  const myTables = active.filter(
-    (t) =>
-      t.mozo_id === currentUserId &&
-      (t.operational_status ?? "libre") !== "libre",
-  );
+  // "Mis mesas": todas las mesas asignadas al mozo current, en cualquier
+  // estado. Ordenadas: pidio_cuenta primero (urgente), después ocupada,
+  // después libre. Si hay empate de estado, por label.
+  const MY_TABLES_PRIORITY: Record<OperationalStatus, number> = {
+    pidio_cuenta: 0,
+    ocupada: 1,
+    libre: 2,
+  };
+  const myTables = active
+    .filter((t) => t.mozo_id === currentUserId)
+    .slice()
+    .sort((a, b) => {
+      const pa =
+        MY_TABLES_PRIORITY[
+          (a.operational_status ?? "libre") as OperationalStatus
+        ];
+      const pb =
+        MY_TABLES_PRIORITY[
+          (b.operational_status ?? "libre") as OperationalStatus
+        ];
+      if (pa !== pb) return pa - pb;
+      return a.label.localeCompare(b.label);
+    });
+
+  // Para el badge del tab bar: solo cuento las que requieren atención
+  // (pidio_cuenta + ocupada). Las libres asignadas no son "activas".
+  const myActiveCount = myTables.filter(
+    (t) => (t.operational_status ?? "libre") !== "libre",
+  ).length;
   const ocupadas = active.filter(
     (t) => t.operational_status && t.operational_status !== "libre",
   ).length;
@@ -507,7 +535,7 @@ export function MozoClient({
             name={myName}
             role={role}
             initials={myInitials}
-            myActiveCount={myTables.length}
+            myActiveCount={myActiveCount}
           />
         )}
       </main>
@@ -1228,82 +1256,152 @@ function MyTablesSection({
         <div className="flex h-20 w-20 items-center justify-center rounded-full bg-zinc-100">
           <Check className="h-10 w-10 text-zinc-400" />
         </div>
-        <p className="mt-4 font-semibold text-zinc-900">No tenés mesas activas</p>
+        <p className="mt-4 font-semibold text-zinc-900">
+          No tenés mesas asignadas
+        </p>
         <p className="mt-1 max-w-xs text-sm text-zinc-500">
-          Cuando abras una mesa o te asignen una, aparece acá.
+          Pedile al encargado que te distribuya mesas desde la vista del salón.
         </p>
       </div>
     );
   }
 
+  // Separamos para renderizar con look distinto.
+  const activas = myTables.filter(
+    (t) => (t.operational_status ?? "libre") !== "libre",
+  );
+  const libres = myTables.filter(
+    (t) => (t.operational_status ?? "libre") === "libre",
+  );
+
   return (
-    <div className="space-y-3">
-      {myTables.map((t) => {
-        const status = (t.operational_status ?? "libre") as OperationalStatus;
-        const min = minutesSince(t.opened_at ?? undefined);
-        const reservation = reservationByTable[t.id];
-        const order = orderByTable[t.id];
-        const isUrgent = status === "pidio_cuenta";
-        return (
-          <button
-            key={t.id}
-            onClick={() => onTableTap(t)}
-            className={`block w-full rounded-2xl border-l-[6px] bg-white p-4 text-left ring-1 ring-zinc-200 transition active:scale-[0.99] active:bg-zinc-50 ${STATUS_BORDER[status]}`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-heading text-2xl font-extrabold leading-none tracking-tight text-zinc-900">
-                    Mesa {t.label}
+    <div className="space-y-4">
+      {/* Activas: cards completas con info */}
+      {activas.length > 0 && (
+        <div className="space-y-3">
+          {activas.map((t) => (
+            <ActiveTableCard
+              key={t.id}
+              table={t}
+              reservation={reservationByTable[t.id]}
+              order={orderByTable[t.id]}
+              onTap={onTableTap}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Libres: divider + grid denso */}
+      {libres.length > 0 && (
+        <section>
+          <div className="mb-2 flex items-center gap-3">
+            <span className="h-px flex-1 bg-zinc-200" />
+            <span className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              Disponibles ({libres.length})
+            </span>
+            <span className="h-px flex-1 bg-zinc-200" />
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {libres.map((t) => {
+              const reservation = reservationByTable[t.id];
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => onTableTap(t)}
+                  className="flex flex-col items-center justify-center gap-0.5 rounded-2xl bg-white px-2 py-3 ring-1 ring-zinc-200 transition active:scale-[0.97] active:bg-zinc-50"
+                >
+                  <span className="font-heading text-xl font-extrabold leading-none tracking-tight text-zinc-900">
+                    {t.label}
                   </span>
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_PILL[status]}`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`}
-                    />
-                    {STATUS_LABEL[status]}
-                  </span>
-                </div>
-                {reservation ? (
-                  <p className="mt-2 text-sm font-medium text-zinc-700">
-                    {reservation.customer_name}
-                    <span className="ml-1.5 text-xs font-normal text-zinc-500">
-                      · {reservation.party_size}p
+                  {reservation ? (
+                    <span className="text-[0.65rem] font-semibold text-indigo-700">
+                      Reserva
                     </span>
-                  </p>
-                ) : (
-                  <p className="mt-2 text-sm text-zinc-500">Walk-in</p>
-                )}
-              </div>
-              {min != null && (
-                <div className="shrink-0 text-right">
-                  <div
-                    className={`flex items-center justify-end gap-1 text-base font-bold tabular-nums ${
-                      isUrgent ? "text-amber-600" : "text-zinc-900"
-                    }`}
-                  >
-                    <Clock className="h-4 w-4" />
-                    {min}m
-                  </div>
-                  <div className="text-[10px] text-zinc-400">abierta</div>
-                </div>
-              )}
-            </div>
-            {order && (
-              <div className="mt-3 flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
-                <span className="text-xs text-zinc-500">
-                  Orden #{order.order_number}
-                </span>
-                <span className="text-base font-bold tabular-nums text-zinc-900">
-                  {formatMoney(order.total_cents)}
-                </span>
-              </div>
-            )}
-          </button>
-        );
-      })}
+                  ) : (
+                    <span className="text-[0.65rem] text-zinc-500 tabular-nums">
+                      {t.seats}p
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
+  );
+}
+
+function ActiveTableCard({
+  table,
+  reservation,
+  order,
+  onTap,
+}: {
+  table: FloorTable;
+  reservation: ReservationForMozo | undefined;
+  order: OrderForMozo | undefined;
+  onTap: (t: FloorTable) => void;
+}) {
+  const status = (table.operational_status ?? "libre") as OperationalStatus;
+  const min = minutesSince(table.opened_at ?? undefined);
+  const isUrgent = status === "pidio_cuenta";
+  return (
+    <button
+      onClick={() => onTap(table)}
+      className={`block w-full rounded-2xl border-l-[6px] bg-white p-4 text-left ring-1 ring-zinc-200 transition active:scale-[0.99] active:bg-zinc-50 ${STATUS_BORDER[status]}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-heading text-2xl font-extrabold leading-none tracking-tight text-zinc-900">
+              Mesa {table.label}
+            </span>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_PILL[status]}`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`}
+              />
+              {STATUS_LABEL[status]}
+            </span>
+          </div>
+          {reservation ? (
+            <p className="mt-2 text-sm font-medium text-zinc-700">
+              {reservation.customer_name}
+              <span className="ml-1.5 text-xs font-normal text-zinc-500">
+                · {reservation.party_size}p
+              </span>
+            </p>
+          ) : (
+            <p className="mt-2 text-sm text-zinc-500">Walk-in</p>
+          )}
+        </div>
+        {min != null && (
+          <div className="shrink-0 text-right">
+            <div
+              className={`flex items-center justify-end gap-1 text-base font-bold tabular-nums ${
+                isUrgent ? "text-amber-600" : "text-zinc-900"
+              }`}
+            >
+              <Clock className="h-4 w-4" />
+              {min}m
+            </div>
+            <div className="text-[10px] text-zinc-400">abierta</div>
+          </div>
+        )}
+      </div>
+      {order && (
+        <div className="mt-3 flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
+          <span className="text-xs text-zinc-500">
+            Orden #{order.order_number}
+          </span>
+          <span className="text-base font-bold tabular-nums text-zinc-900">
+            {formatMoney(order.total_cents)}
+          </span>
+        </div>
+      )}
+    </button>
   );
 }
 

@@ -676,18 +676,27 @@ function ActiveTablesList({
                     )}
                   </div>
                   {/* Nombre del comensal: prefiere reserva, cae a snapshot
-                      de la order (walk-in con nombre cargado), sino "Walk-in". */}
-                  {(reservation ||
-                    (order && order.customer_name && order.customer_name.trim() !== "")) && (
-                    <p className="truncate text-xs font-semibold text-zinc-800">
-                      {reservation?.customer_name ?? order?.customer_name}
-                      {reservation && (
-                        <span className="ml-1 text-[11px] font-normal text-zinc-500 tabular-nums">
-                          · {reservation.party_size}p
-                        </span>
-                      )}
-                    </p>
-                  )}
+                      de la order si no es placeholder. */}
+                  {(() => {
+                    const name = reservation?.customer_name ??
+                      (order?.customer_name &&
+                      !["Mesa", "Walk-in", "-"].includes(
+                        order.customer_name.trim(),
+                      )
+                        ? order.customer_name
+                        : null);
+                    if (!name) return null;
+                    return (
+                      <p className="truncate text-xs font-semibold text-zinc-800">
+                        {name}
+                        {reservation && (
+                          <span className="ml-1 text-[11px] font-normal text-zinc-500 tabular-nums">
+                            · {reservation.party_size}p
+                          </span>
+                        )}
+                      </p>
+                    );
+                  })()}
                   {order && (
                     <p className="text-muted-foreground text-[11px] tabular-nums">
                       #{order.order_number} ·{" "}
@@ -771,10 +780,14 @@ function TableDetail({
     !!order && order.items.some((it) => it.cancelled_at === null);
 
   const tiempoLabel = formatRelativeTime(minutes);
+  // Placeholders que enviarComanda usaba antes de que walk-in creara la
+  // order con nombre real. Si vienen así los tratamos como "sin nombre".
+  const PLACEHOLDER_CUSTOMER_NAMES = new Set(["Mesa", "Walk-in", "-"]);
+  const orderName = order?.customer_name?.trim();
   const partyName =
     reservation?.customer_name ??
-    (order?.customer_name && order.customer_name.trim() !== ""
-      ? order.customer_name
+    (orderName && !PLACEHOLDER_CUSTOMER_NAMES.has(orderName)
+      ? orderName
       : null);
   const partySize = reservation?.party_size ?? null;
 
@@ -822,7 +835,8 @@ function TableDetail({
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {/* Comensal: una sola fila con nombre + party_size + reserva si hay. */}
+        {/* Comensal: solo se muestra si hay reserva o nombre real cargado.
+            Si es walk-in sin nombre, no agregamos un bloque vacío. */}
         {(partyName || reservation) && (
           <div
             className={cn(
@@ -840,7 +854,7 @@ function TableDetail({
             />
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold text-zinc-900">
-                {partyName ?? "Walk-in"}
+                {partyName}
                 {partySize != null && (
                   <span className="ml-1.5 text-xs font-normal text-zinc-500 tabular-nums">
                     · {partySize}p
@@ -939,9 +953,9 @@ function TableDetail({
           return null;
         })()}
 
-        {/* Secundarios en grid 2-cols. Mismo estilo que el drawer mozo:
-            rounded-xl h-10 text-sm font-semibold, tonos pastel por acción.
-            Anular entra al grid (no separado abajo). */}
+        {/* Secundarios en grid 2-cols (operativos). Mismo estilo que el
+            drawer mozo: rounded-xl h-10 text-sm font-semibold, tonos
+            pastel por acción. Anular va separada abajo (destructiva). */}
         {(() => {
           const showVolverAPedir = status === "pidio_cuenta" && canPedir;
           const showCargarMas = status === "ocupada" && hasItems && canPedir;
@@ -949,7 +963,6 @@ function TableDetail({
             status === "ocupada" && !hasItems && canShowCuenta;
           const hasAny =
             canTransfer ||
-            canAnular ||
             showVolverAPedir ||
             showCargarMas ||
             showPedirCuentaSec;
@@ -1006,20 +1019,22 @@ function TableDetail({
                   Transferir
                 </button>
               )}
-              {canAnular && (
-                <button
-                  type="button"
-                  onClick={onAnular}
-                  disabled={pending}
-                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-rose-50/40 px-3 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-50 active:scale-[0.97] disabled:opacity-60"
-                >
-                  <Ban className="h-3.5 w-3.5" />
-                  Anular
-                </button>
-              )}
             </div>
           );
         })()}
+
+        {/* Destructiva: full-width, separada del grid operativo */}
+        {canAnular && (
+          <button
+            type="button"
+            onClick={onAnular}
+            disabled={pending}
+            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-rose-50 px-3 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-100 active:scale-[0.97] disabled:opacity-60"
+          >
+            <Ban className="h-3.5 w-3.5" />
+            Anular
+          </button>
+        )}
       </div>
     </>
   );

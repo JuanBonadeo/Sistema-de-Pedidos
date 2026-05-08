@@ -672,22 +672,23 @@ export function MozoClient({
                     Transferir
                   </button>
                 )}
-                {canShowAnularButton && (
-                  <button
-                    disabled={loading}
-                    onClick={() =>
-                      setAnularPrompt({
-                        tableId: selectedSync.id,
-                        label: selectedSync.label,
-                      })
-                    }
-                    className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-rose-50/40 px-3 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-50 active:scale-[0.97] disabled:opacity-60"
-                  >
-                    <Ban className="h-3.5 w-3.5" />
-                    Anular
-                  </button>
-                )}
               </div>
+              {/* Destructiva: full-width separada del grid operativo */}
+              {canShowAnularButton && (
+                <button
+                  disabled={loading}
+                  onClick={() =>
+                    setAnularPrompt({
+                      tableId: selectedSync.id,
+                      label: selectedSync.label,
+                    })
+                  }
+                  className="flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-rose-50 px-3 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-100 active:scale-[0.97] disabled:opacity-60"
+                >
+                  <Ban className="h-3.5 w-3.5" />
+                  Anular
+                </button>
+              )}
             </div>
           ) : null
         }
@@ -1276,12 +1277,12 @@ function ActiveTableCard({
   const isUrgent = status === "pidio_cuenta";
   // Nombre de quién está en la mesa: prefiere reserva (más rico, tiene
   // party_size), cae al snapshot de la order (walk-in con nombre cargado),
-  // sino muestra "Walk-in".
+  // sino muestra "Walk-in". Filtra placeholders de orders viejas.
+  const PLACEHOLDER_NAMES = new Set(["Mesa", "Walk-in", "-"]);
+  const orderName = order?.customer_name?.trim();
   const partyName =
     reservation?.customer_name ??
-    (order?.customer_name && order.customer_name.trim() !== ""
-      ? order.customer_name
-      : null);
+    (orderName && !PLACEHOLDER_NAMES.has(orderName) ? orderName : null);
   const partySize = reservation?.party_size ?? null;
 
   // Items activos para el preview (primeros 3 + "+N más").

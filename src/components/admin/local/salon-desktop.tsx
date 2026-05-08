@@ -7,6 +7,7 @@ import {
   Ban,
   ClipboardList,
   Clock,
+  Receipt,
   UserPlus,
   Users,
   X,
@@ -772,6 +773,10 @@ function TableDetail({
   // cargados no hay nada que cobrar.
   const canShowCuenta =
     !!order && (status === "ocupada" || status === "pidio_cuenta");
+  // ¿La mesa ya tiene items cargados? Decide si el botón primario es
+  // "Cargar pedido" (vacía) o "Pedir cuenta" (con items, flujo natural).
+  const hasItems =
+    !!order && order.items.some((it) => it.cancelled_at === null);
 
   const tiempoLabel = formatRelativeTime(minutes);
   const partyName =
@@ -875,94 +880,137 @@ function TableDetail({
       {/* Footer: jerarquía clara — primario grande, secundarios en grid,
           acción destructiva separada al final. */}
       <div className="border-border/60 space-y-2 border-t p-3">
-        {/* Primario: siguiente paso natural según estado */}
-        {canWalkIn && (
-          <Button
-            onClick={onWalkIn}
-            disabled={pending}
-            className="h-11 w-full font-semibold"
-          >
-            <UserPlus className="size-4" />
-            Sentar walk-in
-          </Button>
-        )}
-        {status === "pidio_cuenta" && canShowCuenta && (
-          <Button
-            className="h-11 w-full font-semibold"
-            onClick={() =>
-              (window.location.href = `/${slug}/mozo/mesa/${table.id}/cobrar`)
-            }
-          >
-            <ClipboardList className="size-4" />
-            Cobrar mesa
-          </Button>
-        )}
-        {status !== "pidio_cuenta" && canPedir && (
-          <Button
-            className="h-11 w-full font-semibold"
-            onClick={() =>
-              (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
-            }
-          >
-            <ClipboardList className="size-4" />
-            Cargar pedido
-          </Button>
-        )}
+        {/* Primario: depende del estado Y de si hay items cargados.
+            - libre → Sentar walk-in.
+            - pidio_cuenta → Cobrar mesa.
+            - ocupada CON items → Pedir cuenta (flujo natural).
+            - ocupada SIN items → Cargar pedido (acaba de sentarse). */}
+        {(() => {
+          if (canWalkIn) {
+            return (
+              <Button
+                onClick={onWalkIn}
+                disabled={pending}
+                className="h-11 w-full font-semibold"
+              >
+                <UserPlus className="size-4" />
+                Sentar walk-in
+              </Button>
+            );
+          }
+          if (status === "pidio_cuenta" && canShowCuenta) {
+            return (
+              <Button
+                className="h-11 w-full font-semibold"
+                onClick={() =>
+                  (window.location.href = `/${slug}/mozo/mesa/${table.id}/cobrar`)
+                }
+              >
+                <Receipt className="size-4" />
+                Cobrar mesa
+              </Button>
+            );
+          }
+          if (hasItems && canShowCuenta) {
+            return (
+              <Button
+                className="h-11 w-full font-semibold"
+                onClick={() =>
+                  (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
+                }
+              >
+                <Receipt className="size-4" />
+                Pedir cuenta
+              </Button>
+            );
+          }
+          if (canPedir) {
+            return (
+              <Button
+                className="h-11 w-full font-semibold"
+                onClick={() =>
+                  (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
+                }
+              >
+                <ClipboardList className="size-4" />
+                Cargar pedido
+              </Button>
+            );
+          }
+          return null;
+        })()}
 
-        {/* Secundarios en grid 2-cols, compactos */}
+        {/* Secundarios en grid 2-cols, con identidad visual propia */}
         {(() => {
           const showVolverAPedir = status === "pidio_cuenta" && canPedir;
-          const showPedirCuenta = status === "ocupada" && canShowCuenta;
-          const hasAny = canTransfer || showVolverAPedir || showPedirCuenta;
+          const showCargarMas = status === "ocupada" && hasItems && canPedir;
+          const showPedirCuentaSec =
+            status === "ocupada" && !hasItems && canShowCuenta;
+          const hasAny =
+            canTransfer || showVolverAPedir || showCargarMas || showPedirCuentaSec;
           if (!hasAny) return null;
           return (
             <div className="grid grid-cols-2 gap-2">
               {showVolverAPedir && (
-                <Button
-                  variant="outline"
-                  className="h-9 text-xs"
+                <button
+                  type="button"
                   onClick={() =>
                     (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
                   }
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-95"
                 >
+                  <ClipboardList className="size-3.5" />
                   Volver a pedir
-                </Button>
+                </button>
               )}
-              {showPedirCuenta && (
-                <Button
-                  variant="outline"
-                  className="h-9 text-xs"
+              {showCargarMas && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
+                  }
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-emerald-50 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100 active:scale-95"
+                >
+                  <ClipboardList className="size-3.5" />
+                  Cargar más
+                </button>
+              )}
+              {showPedirCuentaSec && (
+                <button
+                  type="button"
                   onClick={() =>
                     (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
                   }
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-amber-50 text-xs font-semibold text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100 active:scale-95"
                 >
+                  <Receipt className="size-3.5" />
                   Pedir cuenta
-                </Button>
+                </button>
               )}
               {canTransfer && (
-                <Button
+                <button
+                  type="button"
                   onClick={onTransfer}
                   disabled={pending}
-                  variant="outline"
-                  className="h-9 text-xs"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-sky-50 text-xs font-semibold text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100 active:scale-95 disabled:opacity-50"
                 >
-                  <ArrowLeftRight className="size-3" />
+                  <ArrowLeftRight className="size-3.5" />
                   Transferir
-                </Button>
+                </button>
               )}
             </div>
           );
         })()}
 
-        {/* Destructiva al final, ghost rojo, separada visualmente */}
+        {/* Destructiva al final: rojo, separada visualmente */}
         {canAnular && (
           <button
             type="button"
             onClick={onAnular}
             disabled={pending}
-            className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-[11px] font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+            className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-200 bg-rose-50/40 transition hover:bg-rose-50 disabled:opacity-50"
           >
-            <Ban className="size-3" />
+            <Ban className="size-3.5" />
             Anular mesa
           </button>
         )}

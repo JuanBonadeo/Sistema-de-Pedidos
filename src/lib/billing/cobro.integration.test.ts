@@ -84,7 +84,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
         seats: 2,
         shape: "circle",
         x: 0, y: 0, width: 80, height: 80,
-        operational_status: "esperando_cuenta",
+        operational_status: "pidio_cuenta",
         opened_at: new Date().toISOString(),
       })
       .select("id")
@@ -202,7 +202,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
       .select("operational_status")
       .eq("id", tid)
       .single();
-    expect(tbl!.operational_status).toBe("limpiar");
+    expect(tbl!.operational_status).toBe("libre");
   });
 
   it("mixto cash + card_manual → 2 splits paid → order closed", { timeout: 30_000 }, async () => {
@@ -288,7 +288,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
     expect(ord!.lifecycle_status).toBe("closed");
   });
 
-  it("anularCobro: order cerrada vuelve a open + mesa esperando_cuenta", { timeout: 30_000 }, async () => {
+  it("anularCobro: order cerrada vuelve a open + mesa pidio_cuenta", { timeout: 30_000 }, async () => {
     const { tableId: tid, orderId } = await newOrder("E");
     CURRENT_USER_ID = mozoId;
     await registrarPago({
@@ -318,7 +318,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
       .select("operational_status")
       .eq("id", tid)
       .single();
-    expect(tbl!.operational_status).toBe("esperando_cuenta");
+    expect(tbl!.operational_status).toBe("pidio_cuenta");
 
     const { data: payments } = await supabase
       .from("payments")
@@ -434,6 +434,6 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
       .select("operational_status")
       .eq("id", tid)
       .single();
-    expect(tbl!.operational_status).toBe("limpiar");
+    expect(tbl!.operational_status).toBe("libre");
   });
 });

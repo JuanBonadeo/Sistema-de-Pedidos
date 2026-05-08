@@ -1384,6 +1384,7 @@ export type Database = {
       }
       orders: {
         Row: {
+          bill_requested_at: string | null
           business_id: string
           cancelled_at: string | null
           cancelled_reason: string | null
@@ -1419,6 +1420,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          bill_requested_at?: string | null
           business_id: string
           cancelled_at?: string | null
           cancelled_reason?: string | null
@@ -1454,6 +1456,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          bill_requested_at?: string | null
           business_id?: string
           cancelled_at?: string | null
           cancelled_reason?: string | null

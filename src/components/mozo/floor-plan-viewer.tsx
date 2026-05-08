@@ -5,9 +5,7 @@ import type { FloorPlan, FloorTable, OperationalStatus } from "@/lib/reservation
 const STATUS_COLORS: Record<OperationalStatus, { fill: string; stroke: string }> = {
   libre: { fill: "#f4f4f5", stroke: "#a1a1aa" },
   ocupada: { fill: "#d1fae5", stroke: "#059669" },
-  esperando_pedido: { fill: "#e0f2fe", stroke: "#0284c7" },
-  esperando_cuenta: { fill: "#fef3c7", stroke: "#d97706" },
-  limpiar: { fill: "#e4e4e7", stroke: "#71717a" },
+  pidio_cuenta: { fill: "#fef3c7", stroke: "#d97706" },
 };
 
 export type TableExtra = {
@@ -100,7 +98,7 @@ function ViewerTable({
 
   // Línea secundaria bajo el label
   let subLine: string | null = null;
-  if (hasReservation && (opStatus === "libre" || opStatus === "esperando_pedido")) {
+  if (hasReservation && opStatus === "libre") {
     subLine = `${extra!.reservation!.starts_at ? formatTime(extra!.reservation!.starts_at) : ""} · ${extra!.reservation!.party_size}p`;
   } else if (minutesOpen != null && minutesOpen >= 0) {
     subLine = `${minutesOpen}m`;

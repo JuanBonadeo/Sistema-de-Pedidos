@@ -65,7 +65,7 @@ export default async function CuentaPage({
           <ClipboardList className="h-10 w-10 text-muted-foreground" />
           <h2 className="text-lg font-semibold">No hay cuenta para esta mesa</h2>
           <p className="text-sm text-muted-foreground max-w-xs">
-            {operationalStatus === "libre" || operationalStatus === "limpiar"
+            {operationalStatus === "libre"
               ? "La mesa está libre. Cargá un pedido primero para poder cobrar."
               : "Esta mesa todavía no tiene items cargados. Pedile al mozo que cargue el pedido antes de cobrar."}
           </p>

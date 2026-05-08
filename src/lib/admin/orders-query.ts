@@ -50,12 +50,15 @@ export async function getTodayOrders(
 ): Promise<AdminOrder[]> {
   const supabase = await createSupabaseServerClient();
   const since = startOfTodayUtc(timezone).toISOString();
+  // Filtramos `dine_in` afuera: las orders de mesa viven en otra pantalla
+  // (Salón). Aquí solo queremos delivery / pickup / take_away (canal online).
   const { data } = await supabase
     .from("orders")
     .select(
       "id, order_number, created_at, customer_name, customer_phone, delivery_type, total_cents, status, payment_method, payment_status, cancelled_reason, order_items(product_name, quantity)",
     )
     .eq("business_id", businessId)
+    .neq("delivery_type", "dine_in")
     .gte("created_at", since)
     .order("created_at", { ascending: false });
 

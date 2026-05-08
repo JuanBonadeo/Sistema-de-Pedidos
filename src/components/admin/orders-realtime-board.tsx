@@ -133,6 +133,9 @@ export function OrdersRealtimeBoard({
         .eq("id", orderId)
         .maybeSingle();
       if (!data) return null;
+      // Las orders dine_in viven en el flow de salón, no en el board de
+      // pedidos online. Si el realtime nos trae una, la ignoramos.
+      if (data.delivery_type === "dine_in") return null;
       return {
         id: data.id,
         order_number: data.order_number,

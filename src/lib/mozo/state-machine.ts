@@ -1,21 +1,25 @@
 // State machine pura de estados operacionales de mesa.
 // Sin side effects, sin DB. Espejo de la matriz de CU-07.
 //
+// Modelo simplificado (post 2026-05-08, migración 0038):
+//   - libre: nadie sentado.
+//   - ocupada: alguien sentado (con o sin items cargados).
+//   - pidio_cuenta: pidió la cuenta, hay que cobrar.
+//
+// Estados eliminados (vs el modelo anterior de 5):
+//   - esperando_pedido: era un sub-estado de ocupada sin diferencia
+//     operativa. Absorbido en `ocupada`.
+//   - limpiar: agregaba una transición intermedia que nadie respetaba.
+//     Post-cobro la mesa va directo a `libre`.
+//
 // Ver: wiki/casos-de-uso/CU-07-estados-mesa.md
 
-export type OperationalStatus =
-  | "libre"
-  | "ocupada"
-  | "esperando_pedido"
-  | "esperando_cuenta"
-  | "limpiar";
+export type OperationalStatus = "libre" | "ocupada" | "pidio_cuenta";
 
 export const ALL_OPERATIONAL_STATUSES: readonly OperationalStatus[] = [
   "libre",
   "ocupada",
-  "esperando_pedido",
-  "esperando_cuenta",
-  "limpiar",
+  "pidio_cuenta",
 ] as const;
 
 const LEGAL_TRANSITIONS: Record<
@@ -23,15 +27,13 @@ const LEGAL_TRANSITIONS: Record<
   readonly OperationalStatus[]
 > = {
   libre: ["ocupada"],
-  ocupada: ["libre", "esperando_pedido", "esperando_cuenta", "limpiar"],
-  esperando_pedido: ["ocupada", "esperando_cuenta", "limpiar"],
-  esperando_cuenta: ["esperando_pedido", "libre", "limpiar"],
-  limpiar: ["libre"],
+  ocupada: ["libre", "pidio_cuenta"],
+  pidio_cuenta: ["ocupada", "libre"],
 } as const;
 
 /**
- * `from === to` se trata como no-op aceptado para que el call site no tenga que
- * filtrarlo. La action upstream igual decide si insertar audit log o no.
+ * `from === to` se trata como no-op aceptado para que el call site no tenga
+ * que filtrarlo. La action upstream igual decide si insertar audit log o no.
  */
 export function canTransition(
   from: OperationalStatus,
@@ -43,7 +45,6 @@ export function canTransition(
 
 /**
  * Calcula el próximo valor de `tables.opened_at` dada una transición.
- * Reglas R2 de CU-07:
  *   - libre → ocupada: setea ahora si era null (preserva si ya tenía valor).
  *   - X → libre: limpia.
  *   - resto: preserva el valor actual.

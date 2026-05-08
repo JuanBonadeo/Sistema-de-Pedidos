@@ -148,19 +148,127 @@ export async function updateTableOperationalStatus(
   return actionOk(undefined);
 }
 
-// Sugar actions sobre updateTableOperationalStatus.
+/**
+ * Pedir cuenta: setea `orders.bill_requested_at = now()` (timestamp persistente,
+ * fuente de verdad) y transiciona la mesa a `pidio_cuenta` para el color en el
+ * plano. Falla si la mesa no tiene order open o no está en estado `ocupada`.
+ */
 export async function pedirCuenta(
   tableId: string,
   businessSlug: string,
 ): Promise<ActionResult<void>> {
-  return updateTableOperationalStatus(tableId, "esperando_cuenta", businessSlug);
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const table = await loadTableForBusiness(service, tableId, business.id);
+  if (!table) return actionError("Mesa no encontrada.");
+
+  const from = table.operational_status;
+  if (!canTransition(from, "pidio_cuenta")) {
+    return actionError("La mesa no puede pedir cuenta desde este estado.");
+  }
+  if (!canTransitionMesa(ctx.role, from, "pidio_cuenta")) {
+    return actionError("No tenés permisos para esta acción.");
+  }
+
+  // Setear bill_requested_at en la order activa (verdad inmutable del evento).
+  const { error: orderErr } = await service
+    .from("orders")
+    .update({ bill_requested_at: new Date().toISOString() })
+    .eq("table_id", tableId)
+    .eq("business_id", business.id)
+    .eq("lifecycle_status", "open")
+    .is("bill_requested_at", null);
+  if (orderErr) {
+    console.error("pedirCuenta order", orderErr);
+    return actionError("No pudimos registrar el pedido de cuenta.");
+  }
+
+  if (from !== "pidio_cuenta") {
+    const { error: tableErr } = await service
+      .from("tables")
+      .update({ operational_status: "pidio_cuenta" })
+      .eq("id", tableId);
+    if (tableErr) {
+      console.error("pedirCuenta table", tableErr);
+      return actionError("No pudimos cambiar el estado de la mesa.");
+    }
+    await insertAudit(service, {
+      tableId,
+      businessId: business.id,
+      kind: "status",
+      fromValue: from,
+      toValue: "pidio_cuenta",
+      byUserId: ctx.userId,
+    });
+  }
+
+  revalidatePath(`/${businessSlug}/mozo`);
+  return actionOk(undefined);
 }
 
+/**
+ * Volver a pedir: cliente pidió cuenta pero se arrepintió y quiere postre.
+ * Limpia `orders.bill_requested_at` y vuelve la mesa a `ocupada`.
+ */
 export async function volverAPedir(
   tableId: string,
   businessSlug: string,
 ): Promise<ActionResult<void>> {
-  return updateTableOperationalStatus(tableId, "esperando_pedido", businessSlug);
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const table = await loadTableForBusiness(service, tableId, business.id);
+  if (!table) return actionError("Mesa no encontrada.");
+
+  const from = table.operational_status;
+  if (!canTransition(from, "ocupada")) {
+    return actionError("La mesa no puede volver a pedir desde este estado.");
+  }
+  if (!canTransitionMesa(ctx.role, from, "ocupada")) {
+    return actionError("No tenés permisos para esta acción.");
+  }
+
+  await service
+    .from("orders")
+    .update({ bill_requested_at: null })
+    .eq("table_id", tableId)
+    .eq("business_id", business.id)
+    .eq("lifecycle_status", "open");
+
+  if (from !== "ocupada") {
+    const { error: tableErr } = await service
+      .from("tables")
+      .update({ operational_status: "ocupada" })
+      .eq("id", tableId);
+    if (tableErr) {
+      console.error("volverAPedir table", tableErr);
+      return actionError("No pudimos cambiar el estado de la mesa.");
+    }
+    await insertAudit(service, {
+      tableId,
+      businessId: business.id,
+      kind: "status",
+      fromValue: from,
+      toValue: "ocupada",
+      byUserId: ctx.userId,
+    });
+  }
+
+  revalidatePath(`/${businessSlug}/mozo`);
+  return actionOk(undefined);
 }
 
 export async function liberarMesa(
@@ -171,9 +279,8 @@ export async function liberarMesa(
 }
 
 /**
- * Anular mesa: pasa a 'limpiar' y marca todas las orders abiertas asociadas
- * como 'cancelled' con motivo. Solo encargado/admin (canTransitionMesa
- * filtra el caso ocupada/esp_pedido → limpiar como anulación).
+ * Anular mesa: pasa a `libre` y marca todas las orders abiertas asociadas
+ * como `cancelled` con motivo. Solo encargado/admin.
  */
 export async function anularMesa(
   tableId: string,
@@ -196,10 +303,10 @@ export async function anularMesa(
   if (!table) return actionError("Mesa no encontrada.");
 
   const from = table.operational_status;
-  if (!canTransition(from, "limpiar")) {
+  if (!canTransition(from, "libre")) {
     return actionError("La mesa no está en un estado anulable.");
   }
-  if (!canTransitionMesa(ctx.role, from, "limpiar")) {
+  if (!canTransitionMesa(ctx.role, from, "libre")) {
     return actionError("Solo encargado o admin pueden anular una mesa.");
   }
 
@@ -223,8 +330,10 @@ export async function anularMesa(
   const { error: tableErr } = await service
     .from("tables")
     .update({
-      operational_status: "limpiar",
-      // opened_at se preserva: lo limpiará la transición limpiar→libre.
+      operational_status: "libre",
+      opened_at: null,
+      mozo_id: null,
+      current_order_id: null,
     })
     .eq("id", tableId);
   if (tableErr) {
@@ -237,7 +346,7 @@ export async function anularMesa(
     businessId: business.id,
     kind: "status",
     fromValue: from,
-    toValue: "limpiar",
+    toValue: "libre",
     byUserId: ctx.userId,
     reason,
   });

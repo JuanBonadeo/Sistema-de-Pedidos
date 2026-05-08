@@ -19,12 +19,7 @@ export type FloorPlan = {
   updated_at: string;
 };
 
-export type OperationalStatus =
-  | "libre"
-  | "ocupada"
-  | "esperando_pedido"
-  | "esperando_cuenta"
-  | "limpiar";
+export type OperationalStatus = "libre" | "ocupada" | "pidio_cuenta";
 
 export type FloorTable = {
   id: string;

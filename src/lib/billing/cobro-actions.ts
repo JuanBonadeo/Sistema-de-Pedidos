@@ -172,18 +172,9 @@ export async function closeOrderIfFullyPaid(
     })
     .eq("id", orderId);
 
-  // Transición de mesa: limpiar (default) o libre según business_settings.
+  // Post-cobro: mesa va directo a `libre`. Eliminamos la transición
+  // intermedia `limpiar` con la simplificación de estados (migración 0038).
   if (order.table_id) {
-    const { data: bizSettings } = await service
-      .from("businesses")
-      .select("settings")
-      .eq("id", business.id)
-      .single();
-    const settings = (bizSettings?.settings ?? {}) as Record<string, unknown>;
-    const salon = (settings.salon ?? {}) as { usa_limpiar?: boolean };
-    const usaLimpiar = salon.usa_limpiar !== false;
-    const targetStatus = usaLimpiar ? "limpiar" : "libre";
-
     const { data: tableRow } = await service
       .from("tables")
       .select("id, operational_status")
@@ -194,8 +185,10 @@ export async function closeOrderIfFullyPaid(
     await service
       .from("tables")
       .update({
-        operational_status: targetStatus,
-        ...(targetStatus === "libre" && { opened_at: null, mozo_id: null }),
+        operational_status: "libre",
+        opened_at: null,
+        mozo_id: null,
+        current_order_id: null,
       })
       .eq("id", order.table_id);
 
@@ -204,7 +197,7 @@ export async function closeOrderIfFullyPaid(
       business_id: business.id,
       kind: "status",
       from_value: fromStatus ?? null,
-      to_value: targetStatus,
+      to_value: "libre",
       by_user_id: null,
       reason: `cobro completo order ${order.order_number}`,
     });
@@ -716,7 +709,9 @@ export async function anularCobro(
       .eq("id", orderId);
   }
 
-  // Volver mesa a esperando_cuenta si estaba en limpiar/libre tras cobro.
+  // Volver mesa a `pidio_cuenta` si estaba `libre` tras el cobro (queremos
+  // que el flow vuelva al estado pre-cobro). También reabrimos la order y
+  // re-marcamos `bill_requested_at`.
   if (order.table_id) {
     const { data: tableRow } = await service
       .from("tables")
@@ -724,17 +719,24 @@ export async function anularCobro(
       .eq("id", order.table_id)
       .single();
     const fromStatus = tableRow?.operational_status as string;
-    if (fromStatus === "limpiar" || fromStatus === "libre") {
+    if (fromStatus === "libre") {
       await service
         .from("tables")
-        .update({ operational_status: "esperando_cuenta" })
+        .update({
+          operational_status: "pidio_cuenta",
+          opened_at: new Date().toISOString(),
+        })
         .eq("id", order.table_id);
+      await service
+        .from("orders")
+        .update({ bill_requested_at: new Date().toISOString() })
+        .eq("id", orderId);
       await service.from("tables_audit_log").insert({
         table_id: order.table_id,
         business_id: business.id,
         kind: "status",
         from_value: fromStatus,
-        to_value: "esperando_cuenta",
+        to_value: "pidio_cuenta",
         by_user_id: ctx.userId,
         reason: `anular cobro: ${motivo.trim()}`,
       });

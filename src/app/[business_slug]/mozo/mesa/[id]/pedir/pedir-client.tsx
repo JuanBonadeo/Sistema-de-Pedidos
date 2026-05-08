@@ -170,9 +170,7 @@ const STATUS_DOT: Record<ComandaStatus, string> = {
 const TABLE_STATUS_LABEL: Record<string, string> = {
   libre: "Libre",
   ocupada: "Ocupada",
-  esperando_pedido: "Esperando pedido",
-  esperando_cuenta: "Pidió la cuenta",
-  limpiar: "Por limpiar",
+  pidio_cuenta: "Pidió la cuenta",
 };
 
 function minutesSince(iso: string | null | undefined): number | null {

@@ -103,17 +103,17 @@ export function canMakeSangria(role: BusinessRole): boolean {
  * fue validado por la state machine — esto solo decide si el rol puede
  * disparar esa transición concreta.
  *
- * Regla CU-11: anulación de mesa (ocupada/esp_pedido → limpiar) es solo para
- * encargado/admin. El cierre normal (esperando_cuenta → limpiar, post-cobro)
- * lo puede hacer cualquiera porque deriva de un cobro autorizado por separado.
+ * Regla CU-11: anulación de mesa (ocupada/pidio_cuenta → libre sin cobro) es
+ * solo encargado/admin. El cierre normal post-cobro (pidio_cuenta → libre)
+ * lo dispara `closeOrderIfFullyPaid` con `byUserId=null` y service client,
+ * por lo que no pasa por este check.
  */
 export function canTransitionMesa(
   role: BusinessRole,
   from: OperationalStatus,
   to: OperationalStatus,
 ): boolean {
-  const isAnulacion =
-    to === "limpiar" && (from === "ocupada" || from === "esperando_pedido");
+  const isAnulacion = to === "libre" && from === "ocupada";
   if (isAnulacion) return role === "admin" || role === "encargado";
   return true;
 }

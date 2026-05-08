@@ -309,18 +309,27 @@ export async function enviarComanda(
     } as any)
     .eq("id", orderId);
 
-  // Mesa pasa a esperando_pedido (entre tandas). Si estaba libre o limpiar,
-  // forzamos ocupada con opened_at primero.
+  // Mesa queda `ocupada` al enviar comanda. Si estaba libre, fijamos
+  // opened_at. Si estaba pidio_cuenta y vuelven a pedir, pasa a ocupada
+  // y limpiamos bill_requested_at (cliente se arrepintió, quiere más).
   const tableStatus = (table as { operational_status: string }).operational_status;
   const tableOpenedAt = (table as { opened_at: string | null }).opened_at;
   const tablePatch: Record<string, unknown> = {
-    operational_status: "esperando_pedido",
+    operational_status: "ocupada",
     current_order_id: orderId,
   };
-  if (tableStatus === "libre" || tableStatus === "limpiar" || !tableOpenedAt) {
+  if (tableStatus === "libre" || !tableOpenedAt) {
     tablePatch.opened_at = tableOpenedAt ?? new Date().toISOString();
   }
   await service.from("tables").update(tablePatch).eq("id", input.tableId);
+
+  // Si la mesa venía de pidio_cuenta (cliente pidió más), limpiamos el flag.
+  if (tableStatus === "pidio_cuenta") {
+    await service
+      .from("orders")
+      .update({ bill_requested_at: null })
+      .eq("id", orderId);
+  }
 
   revalidatePath(`/${input.slug}/mozo`);
   revalidatePath(`/${input.slug}/cocina`);

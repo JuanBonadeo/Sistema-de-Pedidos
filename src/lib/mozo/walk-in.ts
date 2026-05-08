@@ -75,7 +75,7 @@ export async function sentarWalkIn(
   }
   const table = tableRow as {
     id: string;
-    operational_status: "libre" | "ocupada" | "esperando_pedido" | "esperando_cuenta" | "limpiar";
+    operational_status: "libre" | "ocupada" | "pidio_cuenta";
     opened_at: string | null;
     mozo_id: string | null;
   };

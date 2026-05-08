@@ -362,7 +362,7 @@ describe.skipIf(!dbAvailable)("comandas (integration)", () => {
       .select("operational_status, current_order_id, opened_at")
       .eq("id", tableId)
       .single();
-    expect(tableRow!.operational_status).toBe("esperando_pedido");
+    expect(tableRow!.operational_status).toBe("ocupada");
     expect(tableRow!.current_order_id).toBe(result.data.order_id);
     expect(tableRow!.opened_at).not.toBeNull();
   });

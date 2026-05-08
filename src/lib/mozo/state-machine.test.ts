@@ -7,8 +7,9 @@ import {
   type OperationalStatus,
 } from "./state-machine";
 
-// Matriz canónica de CU-07 (5x5).
-// `null` para self-transitions (legal por convención no-op).
+// Matriz canónica del modelo simplificado (post 2026-05-08, migración 0038).
+// 3 estados: libre, ocupada, pidio_cuenta.
+// `true` = transición legal; las self-transitions también son legales (no-op).
 const LEGAL_MATRIX: Record<
   OperationalStatus,
   Record<OperationalStatus, boolean>
@@ -16,37 +17,17 @@ const LEGAL_MATRIX: Record<
   libre: {
     libre: true,
     ocupada: true,
-    esperando_pedido: false,
-    esperando_cuenta: false,
-    limpiar: false,
+    pidio_cuenta: false,
   },
   ocupada: {
     libre: true,
     ocupada: true,
-    esperando_pedido: true,
-    esperando_cuenta: true,
-    limpiar: true,
+    pidio_cuenta: true,
   },
-  esperando_pedido: {
-    libre: false,
+  pidio_cuenta: {
+    libre: true,
     ocupada: true,
-    esperando_pedido: true,
-    esperando_cuenta: true,
-    limpiar: true,
-  },
-  esperando_cuenta: {
-    libre: true,
-    ocupada: false,
-    esperando_pedido: true,
-    esperando_cuenta: true,
-    limpiar: true,
-  },
-  limpiar: {
-    libre: true,
-    ocupada: false,
-    esperando_pedido: false,
-    esperando_cuenta: false,
-    limpiar: true,
+    pidio_cuenta: true,
   },
 };
 
@@ -92,18 +73,11 @@ describe("nextOpenedAt (CU-07 R2)", () => {
 
   it("transiciones intermedias preservan opened_at", () => {
     const existing = "2026-01-01T00:00:00.000Z";
-    expect(nextOpenedAt("ocupada", "esperando_pedido", existing)).toBe(existing);
-    expect(nextOpenedAt("esperando_pedido", "esperando_cuenta", existing)).toBe(
-      existing,
-    );
-    expect(nextOpenedAt("esperando_cuenta", "esperando_pedido", existing)).toBe(
-      existing,
-    );
-    expect(nextOpenedAt("ocupada", "limpiar", existing)).toBe(existing);
-    expect(nextOpenedAt("esperando_cuenta", "limpiar", existing)).toBe(existing);
+    expect(nextOpenedAt("ocupada", "pidio_cuenta", existing)).toBe(existing);
+    expect(nextOpenedAt("pidio_cuenta", "ocupada", existing)).toBe(existing);
   });
 
-  it("self-transition preserva opened_at", () => {
+  it("self-transition preserva opened_at salvo libre→libre", () => {
     const existing = "2026-01-01T00:00:00.000Z";
     for (const s of ALL_OPERATIONAL_STATUSES) {
       if (s === "libre") {

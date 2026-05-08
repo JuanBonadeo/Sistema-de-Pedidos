@@ -61,9 +61,7 @@ export type SalonReservationRef = {
 const STATUS_LABEL: Record<OperationalStatus, string> = {
   libre: "Libre",
   ocupada: "Ocupada",
-  esperando_pedido: "Esperando pedido",
-  esperando_cuenta: "Pidió la cuenta",
-  limpiar: "Por limpiar",
+  pidio_cuenta: "Pidió la cuenta",
 };
 
 const STATUS_COLORS: Record<
@@ -72,18 +70,10 @@ const STATUS_COLORS: Record<
 > = {
   libre: { dot: "bg-zinc-300", bg: "bg-zinc-50", text: "text-zinc-600" },
   ocupada: { dot: "bg-emerald-500", bg: "bg-emerald-50", text: "text-emerald-800" },
-  esperando_pedido: { dot: "bg-sky-500", bg: "bg-sky-50", text: "text-sky-800" },
-  esperando_cuenta: { dot: "bg-amber-500", bg: "bg-amber-50", text: "text-amber-800" },
-  limpiar: { dot: "bg-zinc-400", bg: "bg-zinc-100", text: "text-zinc-700" },
+  pidio_cuenta: { dot: "bg-amber-500", bg: "bg-amber-50", text: "text-amber-800" },
 };
 
-const STATS_ORDER: OperationalStatus[] = [
-  "libre",
-  "ocupada",
-  "esperando_pedido",
-  "esperando_cuenta",
-  "limpiar",
-];
+const STATS_ORDER: OperationalStatus[] = ["libre", "ocupada", "pidio_cuenta"];
 
 function minutesSince(iso: string | null | undefined): number | null {
   if (!iso) return null;
@@ -205,9 +195,7 @@ export function SalonDesktop({
     const out: Record<OperationalStatus, number> = {
       libre: 0,
       ocupada: 0,
-      esperando_pedido: 0,
-      esperando_cuenta: 0,
-      limpiar: 0,
+      pidio_cuenta: 0,
     };
     for (const t of allActiveTables) {
       const s = (t.operational_status ?? "libre") as OperationalStatus;
@@ -444,8 +432,7 @@ export function SalonDesktop({
               </button>
             </div>
             <p className="mt-1 text-xs text-zinc-500">
-              Cancela la orden activa con motivo. La mesa pasa a &quot;por
-              limpiar&quot;.
+              Cancela la orden activa con motivo. La mesa queda libre.
             </p>
             <textarea
               value={anularReason}
@@ -592,13 +579,11 @@ function ActiveTablesList({
   mozoNameById: Map<string, string>;
   onSelect: (id: string) => void;
 }) {
-  // Orden: ocupadas primero, después esperando_cuenta, esperando_pedido, libre, limpiar.
+  // Orden: pidio_cuenta primero (urgente), después ocupadas, después libres.
   const priority: Record<OperationalStatus, number> = {
-    esperando_cuenta: 0,
-    esperando_pedido: 1,
-    ocupada: 2,
-    limpiar: 3,
-    libre: 4,
+    pidio_cuenta: 0,
+    ocupada: 1,
+    libre: 2,
   };
   const sorted = tables.slice().sort((a, b) => {
     const pa = priority[(a.operational_status ?? "libre") as OperationalStatus];
@@ -735,12 +720,8 @@ function TableDetail({
     status !== "libre" &&
     (role !== "mozo" || table.mozo_id === currentUserId);
   const canAnular =
-    (status === "ocupada" || status === "esperando_pedido") &&
-    canTransitionMesa(role, status, "limpiar");
-  const canPedir =
-    status === "ocupada" ||
-    status === "esperando_pedido" ||
-    status === "esperando_cuenta";
+    status === "ocupada" && canTransitionMesa(role, status, "libre");
+  const canPedir = status === "ocupada" || status === "pidio_cuenta";
 
   return (
     <>

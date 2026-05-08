@@ -87,33 +87,25 @@ type Props = {
 const STATUS_LABEL: Record<OperationalStatus, string> = {
   libre: "Libre",
   ocupada: "Ocupada",
-  esperando_pedido: "Esperando pedido",
-  esperando_cuenta: "Pidió la cuenta",
-  limpiar: "Por limpiar",
+  pidio_cuenta: "Pidió la cuenta",
 };
 
 const STATUS_DOT: Record<OperationalStatus, string> = {
   libre: "bg-zinc-300",
   ocupada: "bg-emerald-500",
-  esperando_pedido: "bg-sky-500",
-  esperando_cuenta: "bg-amber-500",
-  limpiar: "bg-zinc-400",
+  pidio_cuenta: "bg-amber-500",
 };
 
 const STATUS_PILL: Record<OperationalStatus, string> = {
   libre: "bg-zinc-100 text-zinc-700",
   ocupada: "bg-emerald-100 text-emerald-800",
-  esperando_pedido: "bg-sky-100 text-sky-800",
-  esperando_cuenta: "bg-amber-100 text-amber-800",
-  limpiar: "bg-zinc-200 text-zinc-700",
+  pidio_cuenta: "bg-amber-100 text-amber-800",
 };
 
 const STATUS_BORDER: Record<OperationalStatus, string> = {
   libre: "border-l-zinc-200",
   ocupada: "border-l-emerald-500",
-  esperando_pedido: "border-l-sky-500",
-  esperando_cuenta: "border-l-amber-500",
-  limpiar: "border-l-zinc-400",
+  pidio_cuenta: "border-l-amber-500",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -295,10 +287,7 @@ export function MozoClient({
       (t.operational_status ?? "libre") !== "libre",
   );
   const ocupadas = active.filter(
-    (t) =>
-      t.operational_status &&
-      t.operational_status !== "libre" &&
-      t.operational_status !== "limpiar",
+    (t) => t.operational_status && t.operational_status !== "libre",
   ).length;
 
 
@@ -416,13 +405,11 @@ export function MozoClient({
     (role !== "mozo" || selectedSync.mozo_id === currentUserId);
   const canShowAnularButton =
     !!selectedSync &&
-    (selectedStatus === "ocupada" || selectedStatus === "esperando_pedido") &&
-    canTransitionMesa(role, selectedStatus, "limpiar");
+    selectedStatus === "ocupada" &&
+    canTransitionMesa(role, selectedStatus, "libre");
   const canShowPedirButton =
     !!selectedSync &&
-    (selectedStatus === "ocupada" ||
-      selectedStatus === "esperando_pedido" ||
-      selectedStatus === "esperando_cuenta");
+    (selectedStatus === "ocupada" || selectedStatus === "pidio_cuenta");
   // "Pedir cuenta" / "Cobrar mesa" requiere order activa. Si la mesa está
   // ocupada por walk-in pero todavía no se cargó pedido, no hay nada que
   // cobrar — el botón no debería aparecer. Estado canónico: order existe en
@@ -430,9 +417,7 @@ export function MozoClient({
   const canShowCuentaButton =
     !!selectedSync &&
     !!orderByTable[selectedSync.id] &&
-    (selectedStatus === "ocupada" ||
-      selectedStatus === "esperando_pedido" ||
-      selectedStatus === "esperando_cuenta");
+    (selectedStatus === "ocupada" || selectedStatus === "pidio_cuenta");
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -562,10 +547,10 @@ export function MozoClient({
                 <button
                   disabled={loading}
                   onClick={async () => {
-                    // Si la mesa estaba en "esperando_cuenta", volvemos a
-                    // "esperando_pedido" antes de navegar (para que el mozo
-                    // pueda agregar items sin chocar con la state machine).
-                    if (selectedStatus === "esperando_cuenta") {
+                    // Si la mesa estaba en `pidio_cuenta`, volvemos a `ocupada`
+                    // y limpiamos `bill_requested_at` antes de navegar a
+                    // `/pedir` — el cliente se arrepintió y quiere más.
+                    if (selectedStatus === "pidio_cuenta") {
                       const r = await volverAPedir(
                         selectedSync.id,
                         businessSlug,
@@ -582,7 +567,7 @@ export function MozoClient({
                   className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-base font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-60"
                 >
                   <ClipboardList className="h-5 w-5" />
-                  {selectedStatus === "esperando_cuenta"
+                  {selectedStatus === "pidio_cuenta"
                     ? "Volver a pedir"
                     : "Cargar pedido"}
                 </button>
@@ -598,7 +583,7 @@ export function MozoClient({
                   className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-amber-50 text-base font-semibold text-amber-700 ring-1 ring-amber-200 transition active:scale-[0.98] disabled:opacity-60"
                 >
                   <ClipboardList className="h-4 w-4" />
-                  {selectedStatus === "esperando_cuenta" ? "Cobrar mesa" : "Pedir cuenta"}
+                  {selectedStatus === "pidio_cuenta" ? "Cobrar mesa" : "Pedir cuenta"}
                 </button>
               )}
               {canShowTransferButton && (
@@ -805,8 +790,7 @@ export function MozoClient({
               Anular mesa {anularPrompt.label}
             </h3>
             <p className="mt-1 text-sm text-zinc-600">
-              Cancela las órdenes abiertas y deja la mesa en "por limpiar". Queda
-              en el audit log.
+              Cancela las órdenes abiertas y libera la mesa. Queda en el audit log.
             </p>
             <textarea
               autoFocus
@@ -848,18 +832,14 @@ const FILTER_LABEL: Record<SalonFilter, string> = {
   todas: "Todas",
   libre: "Libres",
   ocupada: "Ocupadas",
-  esperando_pedido: "Esperando",
-  esperando_cuenta: "Cuenta",
-  limpiar: "Por limpiar",
+  pidio_cuenta: "Cuenta",
 };
 
 const FILTER_ORDER: SalonFilter[] = [
   "todas",
   "libre",
   "ocupada",
-  "esperando_pedido",
-  "esperando_cuenta",
-  "limpiar",
+  "pidio_cuenta",
 ];
 
 // ─── Selector multi-salón (mobile) ──────────────────────────────────────────
@@ -940,9 +920,7 @@ function SalonSection({
       todas: active.length,
       libre: 0,
       ocupada: 0,
-      esperando_pedido: 0,
-      esperando_cuenta: 0,
-      limpiar: 0,
+      pidio_cuenta: 0,
     };
     for (const t of active) {
       const s = (t.operational_status ?? "libre") as OperationalStatus;
@@ -1031,7 +1009,7 @@ function SalonSection({
               : undefined;
             const mozoInitial = mozoName ? initialsFromName(mozoName) : null;
             const isMine = t.mozo_id === currentUserId;
-            const isUrgent = status === "esperando_cuenta";
+            const isUrgent = status === "pidio_cuenta";
 
             // Línea principal: quién está, o capacidad si está libre.
             let primaryLine: React.ReactNode = null;
@@ -1053,9 +1031,6 @@ function SalonSection({
                 );
                 primaryClass = "text-zinc-500";
               }
-            } else if (status === "limpiar") {
-              primaryLine = "Pendiente limpieza";
-              primaryClass = "text-zinc-500";
             } else if (reservation) {
               primaryLine = (
                 <>
@@ -1215,7 +1190,7 @@ function MyTablesSection({
         const min = minutesSince(t.opened_at ?? undefined);
         const reservation = reservationByTable[t.id];
         const order = orderByTable[t.id];
-        const isUrgent = status === "esperando_cuenta";
+        const isUrgent = status === "pidio_cuenta";
         return (
           <button
             key={t.id}

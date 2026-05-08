@@ -1,0 +1,749 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { actionError, actionOk, type ActionResult } from "@/lib/actions";
+import { getActiveTurnos } from "@/lib/caja/queries";
+import type { ActiveTurnoView, PaymentMethod } from "@/lib/caja/types";
+import { requireMozoActionContext } from "@/lib/mozo/auth";
+import { canCancelItem } from "@/lib/permissions/can";
+import { createPreference } from "@/lib/payments/mercadopago";
+import { createSupabaseServiceClient } from "@/lib/supabase/service";
+import { getBusiness } from "@/lib/tenant";
+
+import { sumActiveItems } from "./totals";
+import type { OrderSplit, Payment } from "./types";
+
+type GenericClient = SupabaseClient;
+
+// ── Helpers ────────────────────────────────────────────────────
+
+function getSiteUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (envUrl) return envUrl.replace(/\/$/, "");
+  const rootDomain = process.env.ROOT_DOMAIN ?? "localhost:3000";
+  const proto = rootDomain.includes("localhost") ? "http" : "https";
+  return `${proto}://${rootDomain}`;
+}
+
+type LoadedOrder = {
+  id: string;
+  business_id: string;
+  order_number: number;
+  table_id: string | null;
+  lifecycle_status: "open" | "closed" | "cancelled";
+  total_cents: number;
+  total_paid_cents: number;
+  tip_cents: number;
+  discount_cents: number;
+};
+
+async function loadOrder(
+  service: GenericClient,
+  orderId: string,
+  businessId: string,
+): Promise<LoadedOrder | null> {
+  const { data } = await service
+    .from("orders")
+    .select(
+      "id, business_id, order_number, table_id, lifecycle_status, total_cents, total_paid_cents, tip_cents, discount_cents",
+    )
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as LoadedOrder;
+  if (row.business_id !== businessId) return null;
+  return row;
+}
+
+async function loadSplit(
+  service: GenericClient,
+  splitId: string,
+  businessId: string,
+): Promise<OrderSplit | null> {
+  const { data } = await service
+    .from("order_splits")
+    .select(
+      "id, order_id, business_id, split_mode, split_index, expected_amount_cents, paid_amount_cents, status, label",
+    )
+    .eq("id", splitId)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as OrderSplit;
+  if (row.business_id !== businessId) return null;
+  return row;
+}
+
+async function loadTurno(
+  service: GenericClient,
+  turnoId: string,
+  businessId: string,
+): Promise<{ id: string; status: "open" | "closed" } | null> {
+  const { data } = await service
+    .from("caja_turnos")
+    .select("id, business_id, status")
+    .eq("id", turnoId)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as { id: string; business_id: string; status: "open" | "closed" };
+  if (row.business_id !== businessId) return null;
+  return { id: row.id, status: row.status };
+}
+
+/**
+ * Atribuye la propina al mozo que atendió: derivado server-side desde
+ * order_items.loaded_by del último item activo cargado en la order
+ * (R10 de CU-03).
+ */
+async function deriveAttributedMozo(
+  service: GenericClient,
+  orderId: string,
+): Promise<string | null> {
+  const { data } = await service
+    .from("order_items")
+    .select("loaded_by, cancelled_at")
+    .eq("order_id", orderId)
+    .not("loaded_by", "is", null)
+    .is("cancelled_at", null)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return (data as { loaded_by: string | null }).loaded_by;
+}
+
+/**
+ * Si todos los splits no cancelados están paid (o si no hay splits y
+ * total_paid_cents >= total_cents), cierra la order y transiciona la mesa.
+ */
+export async function closeOrderIfFullyPaid(
+  service: GenericClient,
+  orderId: string,
+  businessSlug: string,
+): Promise<{ orderClosed: boolean }> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return { orderClosed: false };
+
+  const order = await loadOrder(service, orderId, business.id);
+  if (!order) return { orderClosed: false };
+  if (order.lifecycle_status !== "open") return { orderClosed: false };
+
+  // Suma de payments paid del order.
+  const { data: paid } = await service
+    .from("payments")
+    .select("amount_cents")
+    .eq("order_id", orderId)
+    .eq("payment_status", "paid");
+  const total_paid = (paid ?? []).reduce(
+    (acc, p) => acc + (p as { amount_cents: number }).amount_cents,
+    0,
+  );
+
+  // Splits no cancelados.
+  const { data: splits } = await service
+    .from("order_splits")
+    .select("id, expected_amount_cents, paid_amount_cents, status")
+    .eq("order_id", orderId);
+  const splitsActivos = (splits ?? []).filter(
+    (s) => (s as { status: string }).status !== "cancelled",
+  );
+
+  let fullyPaid: boolean;
+  if (splitsActivos.length === 0) {
+    // Sin splits: total_paid debe cubrir total_cents.
+    fullyPaid = total_paid >= order.total_cents && order.total_cents > 0;
+  } else {
+    fullyPaid = splitsActivos.every(
+      (s) =>
+        (s as { paid_amount_cents: number }).paid_amount_cents >=
+        (s as { expected_amount_cents: number }).expected_amount_cents,
+    );
+  }
+
+  if (!fullyPaid) return { orderClosed: false };
+
+  await service
+    .from("orders")
+    .update({
+      lifecycle_status: "closed",
+      closed_at: new Date().toISOString(),
+      total_paid_cents: total_paid,
+    })
+    .eq("id", orderId);
+
+  // Transición de mesa: limpiar (default) o libre según business_settings.
+  if (order.table_id) {
+    const { data: bizSettings } = await service
+      .from("businesses")
+      .select("settings")
+      .eq("id", business.id)
+      .single();
+    const settings = (bizSettings?.settings ?? {}) as Record<string, unknown>;
+    const salon = (settings.salon ?? {}) as { usa_limpiar?: boolean };
+    const usaLimpiar = salon.usa_limpiar !== false;
+    const targetStatus = usaLimpiar ? "limpiar" : "libre";
+
+    const { data: tableRow } = await service
+      .from("tables")
+      .select("id, operational_status")
+      .eq("id", order.table_id)
+      .single();
+    const fromStatus = tableRow?.operational_status as string;
+
+    await service
+      .from("tables")
+      .update({
+        operational_status: targetStatus,
+        ...(targetStatus === "libre" && { opened_at: null, mozo_id: null }),
+      })
+      .eq("id", order.table_id);
+
+    await service.from("tables_audit_log").insert({
+      table_id: order.table_id,
+      business_id: business.id,
+      kind: "status",
+      from_value: fromStatus ?? null,
+      to_value: targetStatus,
+      by_user_id: null,
+      reason: `cobro completo order ${order.order_number}`,
+    });
+  }
+
+  return { orderClosed: true };
+}
+
+// ── Iniciar cobro ─────────────────────────────────────────────
+
+export type IniciarCobroResult = {
+  order: LoadedOrder;
+  splits: OrderSplit[]; // Si la order no tiene splits, devolvemos uno virtual.
+  hasImplicitSplit: boolean;
+  cajas: ActiveTurnoView[];
+};
+
+export async function iniciarCobro(
+  orderId: string,
+  businessSlug: string,
+): Promise<ActionResult<IniciarCobroResult>> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const order = await loadOrder(service, orderId, business.id);
+  if (!order) return actionError("Orden no encontrada.");
+  if (order.lifecycle_status !== "open") {
+    return actionError("La orden ya está cerrada.");
+  }
+
+  const cajas = await getActiveTurnos(business.id);
+  if (cajas.length === 0) {
+    return actionError("No hay caja abierta. Pedile al encargado que abra el turno.");
+  }
+
+  const { data: splitsData } = await service
+    .from("order_splits")
+    .select(
+      "id, order_id, business_id, split_mode, split_index, expected_amount_cents, paid_amount_cents, status, label",
+    )
+    .eq("order_id", orderId)
+    .order("split_index", { ascending: true });
+  const splits = (splitsData ?? []) as OrderSplit[];
+
+  // Si no hay splits, devolvemos uno virtual con expected = total.
+  const hasImplicitSplit = splits.length === 0;
+
+  return actionOk({
+    order,
+    splits,
+    hasImplicitSplit,
+    cajas,
+  });
+}
+
+// ── Registrar pago ────────────────────────────────────────────
+
+export type RegistrarPagoInput = {
+  orderId: string;
+  splitId: string | null;
+  method: PaymentMethod;
+  amount_cents: number;
+  tip_cents: number;
+  caja_turno_id: string;
+  last_four?: string;
+  card_brand?: "visa" | "mastercard" | "amex" | "otro";
+  notes?: string;
+  slug: string;
+};
+
+export async function registrarPago(
+  input: RegistrarPagoInput,
+): Promise<ActionResult<{ payment: Payment; splitDone: boolean; orderClosed: boolean }>> {
+  const business = await getBusiness(input.slug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  if (input.amount_cents < 0) return actionError("El monto no puede ser negativo.");
+  if (input.tip_cents < 0) return actionError("La propina no puede ser negativa.");
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  // Cross-tenant: order, split (si hay), caja_turno.
+  const order = await loadOrder(service, input.orderId, business.id);
+  if (!order) return actionError("Orden no encontrada.");
+  if (order.lifecycle_status !== "open") {
+    return actionError("La orden ya está cerrada.");
+  }
+
+  let split: OrderSplit | null = null;
+  if (input.splitId) {
+    split = await loadSplit(service, input.splitId, business.id);
+    if (!split) return actionError("Split no encontrado.");
+    if (split.order_id !== order.id) {
+      return actionError("El split no corresponde a esta orden.");
+    }
+    if (split.status === "cancelled") {
+      return actionError("El split fue cancelado.");
+    }
+  }
+
+  const turno = await loadTurno(service, input.caja_turno_id, business.id);
+  if (!turno) return actionError("Turno de caja no encontrado.");
+  if (turno.status !== "open") {
+    return actionError("El turno de caja está cerrado.");
+  }
+
+  // Validación específica por método.
+  if (input.method === "card_manual") {
+    if (input.last_four && input.last_four.length !== 4) {
+      return actionError("Los últimos 4 dígitos deben ser 4.");
+    }
+  }
+  if (input.method === "other" && (!input.notes || input.notes.trim() === "")) {
+    return actionError('Para método "otro", se requiere una nota.');
+  }
+
+  if (input.method === "mp_link" || input.method === "mp_qr") {
+    return actionError(
+      "Para MP, usá iniciarPagoMp para generar la preference primero.",
+    );
+  }
+
+  const attributed = await deriveAttributedMozo(service, order.id);
+  const payment_status =
+    input.method === "cash" || input.method === "card_manual" || input.method === "other"
+      ? "paid"
+      : "pending";
+
+  const { data: inserted, error } = await service
+    .from("payments")
+    .insert({
+      order_id: order.id,
+      business_id: business.id,
+      split_id: input.splitId,
+      caja_turno_id: input.caja_turno_id,
+      operated_by: ctx.userId,
+      attributed_mozo_id: attributed,
+      method: input.method,
+      amount_cents: input.amount_cents,
+      tip_cents: input.tip_cents,
+      last_four: input.last_four ?? null,
+      card_brand: input.card_brand ?? null,
+      payment_status,
+      notes: input.notes?.trim() || null,
+    })
+    .select(
+      "id, order_id, business_id, split_id, caja_turno_id, operated_by, attributed_mozo_id, method, amount_cents, tip_cents, last_four, card_brand, mp_payment_id, mp_preference_id, payment_status, notes, refunded_at, refunded_reason, created_at",
+    )
+    .single();
+
+  if (error) return actionError(`No se pudo registrar el pago: ${error.message}`);
+  const payment = inserted as Payment;
+
+  let splitDone = false;
+  if (split && payment_status === "paid") {
+    const newPaid = split.paid_amount_cents + input.amount_cents;
+    splitDone = newPaid >= split.expected_amount_cents;
+    await service
+      .from("order_splits")
+      .update({
+        paid_amount_cents: newPaid,
+        status: splitDone ? "paid" : "pending",
+      })
+      .eq("id", split.id);
+  }
+
+  let orderClosed = false;
+  if (payment_status === "paid") {
+    const r = await closeOrderIfFullyPaid(service, order.id, input.slug);
+    orderClosed = r.orderClosed;
+  }
+
+  revalidatePath(`/${input.slug}/mozo`);
+  revalidatePath(`/${input.slug}/caja`);
+  return actionOk({ payment, splitDone, orderClosed });
+}
+
+// ── Iniciar pago MP ───────────────────────────────────────────
+
+export type IniciarPagoMpInput = {
+  orderId: string;
+  splitId: string | null;
+  method: "mp_link" | "mp_qr";
+  amount_cents: number;
+  tip_cents: number;
+  caja_turno_id: string;
+  slug: string;
+};
+
+export async function iniciarPagoMp(
+  input: IniciarPagoMpInput,
+): Promise<ActionResult<{ paymentId: string; initPoint: string; preferenceId: string }>> {
+  const business = await getBusiness(input.slug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  if (input.amount_cents <= 0) return actionError("El monto debe ser mayor a 0.");
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const { data: bizRow } = await service
+    .from("businesses")
+    .select("id, slug, mp_access_token, mp_accepts_payments")
+    .eq("id", business.id)
+    .single();
+  if (!bizRow?.mp_access_token || !bizRow.mp_accepts_payments) {
+    return actionError("MP no está configurado o habilitado en este negocio.");
+  }
+
+  const order = await loadOrder(service, input.orderId, business.id);
+  if (!order) return actionError("Orden no encontrada.");
+  if (order.lifecycle_status !== "open") {
+    return actionError("La orden ya está cerrada.");
+  }
+
+  if (input.splitId) {
+    const split = await loadSplit(service, input.splitId, business.id);
+    if (!split) return actionError("Split no encontrado.");
+    if (split.order_id !== order.id) return actionError("El split no corresponde a esta orden.");
+    if (split.status === "cancelled") return actionError("El split fue cancelado.");
+  }
+
+  const turno = await loadTurno(service, input.caja_turno_id, business.id);
+  if (!turno || turno.status !== "open") {
+    return actionError("Turno de caja inválido.");
+  }
+
+  // Insert payment row pendiente para que el webhook pueda asociar el id.
+  const attributed = await deriveAttributedMozo(service, order.id);
+  const { data: inserted, error: insErr } = await service
+    .from("payments")
+    .insert({
+      order_id: order.id,
+      business_id: business.id,
+      split_id: input.splitId,
+      caja_turno_id: input.caja_turno_id,
+      operated_by: ctx.userId,
+      attributed_mozo_id: attributed,
+      method: input.method,
+      amount_cents: input.amount_cents,
+      tip_cents: input.tip_cents,
+      payment_status: "pending",
+    })
+    .select("id")
+    .single();
+  if (insErr || !inserted) {
+    return actionError(`No se pudo iniciar el pago MP: ${insErr?.message}`);
+  }
+  const paymentId = (inserted as { id: string }).id;
+
+  let pref;
+  try {
+    const totalPesos = (input.amount_cents + input.tip_cents) / 100;
+    pref = await createPreference({
+      accessToken: bizRow.mp_access_token,
+      siteUrl: getSiteUrl(),
+      businessId: business.id,
+      businessSlug: bizRow.slug as string,
+      orderId: paymentId, // external_reference = paymentRowId para que el webhook lo identifique
+      orderNumber: order.order_number,
+      items: [
+        {
+          id: paymentId,
+          title: `Mesa orden #${order.order_number}`,
+          quantity: 1,
+          unit_price: totalPesos,
+        },
+      ],
+    });
+  } catch (e) {
+    // Rollback del payment row.
+    await service.from("payments").delete().eq("id", paymentId);
+    return actionError(`MP rechazó la creación: ${(e as Error).message}`);
+  }
+
+  await service
+    .from("payments")
+    .update({ mp_preference_id: pref.preferenceId })
+    .eq("id", paymentId);
+
+  revalidatePath(`/${input.slug}/mozo`);
+  return actionOk({
+    paymentId,
+    initPoint: pref.initPoint,
+    preferenceId: pref.preferenceId,
+  });
+}
+
+// ── Forzar pago (admin/encargado) ─────────────────────────────
+
+export async function forzarPago(
+  paymentId: string,
+  motivo: string,
+  businessSlug: string,
+): Promise<ActionResult<void>> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  if (ctx.role !== "admin" && ctx.role !== "encargado") {
+    return actionError("Solo encargado o admin pueden forzar un pago.");
+  }
+  if (!motivo || motivo.trim() === "") {
+    return actionError("Forzar el pago requiere un motivo.");
+  }
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const { data: paymentRow } = await service
+    .from("payments")
+    .select(
+      "id, order_id, business_id, split_id, amount_cents, payment_status, notes",
+    )
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (!paymentRow || (paymentRow as { business_id: string }).business_id !== business.id) {
+    return actionError("Pago no encontrado.");
+  }
+  const p = paymentRow as {
+    id: string;
+    order_id: string;
+    split_id: string | null;
+    amount_cents: number;
+    payment_status: string;
+    notes: string | null;
+  };
+  if (p.payment_status === "paid") {
+    return actionError("El pago ya está marcado como cobrado.");
+  }
+
+  await service
+    .from("payments")
+    .update({
+      payment_status: "paid",
+      notes: `${p.notes ?? ""}\n[forzado: ${motivo.trim()}]`.trim(),
+    })
+    .eq("id", paymentId);
+
+  if (p.split_id) {
+    const split = await loadSplit(service, p.split_id, business.id);
+    if (split) {
+      const newPaid = split.paid_amount_cents + p.amount_cents;
+      const splitDone = newPaid >= split.expected_amount_cents;
+      await service
+        .from("order_splits")
+        .update({
+          paid_amount_cents: newPaid,
+          status: splitDone ? "paid" : "pending",
+        })
+        .eq("id", split.id);
+    }
+  }
+
+  await closeOrderIfFullyPaid(service, p.order_id, businessSlug);
+  revalidatePath(`/${businessSlug}/mozo`);
+  return actionOk(undefined);
+}
+
+// ── Cancelar split ────────────────────────────────────────────
+
+export async function cancelarSplit(
+  splitId: string,
+  motivo: string,
+  businessSlug: string,
+): Promise<ActionResult<void>> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  if (ctx.role !== "admin" && ctx.role !== "encargado") {
+    return actionError("Solo encargado o admin pueden cancelar un split.");
+  }
+  if (!motivo || motivo.trim() === "") {
+    return actionError("Cancelar split requiere un motivo.");
+  }
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const split = await loadSplit(service, splitId, business.id);
+  if (!split) return actionError("Split no encontrado.");
+  if (split.status === "cancelled") {
+    return actionError("El split ya fue cancelado.");
+  }
+  if (split.paid_amount_cents > 0) {
+    return actionError(
+      "El split tiene pagos. Anulá los pagos primero o anulá el cobro completo.",
+    );
+  }
+
+  await service
+    .from("order_splits")
+    .update({ status: "cancelled", label: `cancelado: ${motivo.trim()}` })
+    .eq("id", splitId);
+
+  // Redistribuir expected entre splits activos restantes.
+  const { data: activos } = await service
+    .from("order_splits")
+    .select("id, expected_amount_cents, status")
+    .eq("order_id", split.order_id)
+    .neq("status", "cancelled");
+
+  const totalActivo = (activos ?? []).reduce(
+    (acc, s) =>
+      acc + (s as { expected_amount_cents: number }).expected_amount_cents,
+    0,
+  );
+  // Solo redistribuimos si quedan splits activos y el cancelado tenía monto.
+  if ((activos ?? []).length > 0 && split.expected_amount_cents > 0) {
+    const extraTotal = split.expected_amount_cents;
+    const N = (activos ?? []).length;
+    const base = Math.floor(extraTotal / N);
+    const remainder = extraTotal - base * N;
+    for (let i = 0; i < N; i++) {
+      const s = (activos ?? [])[i] as {
+        id: string;
+        expected_amount_cents: number;
+      };
+      const add = base + (i === 0 ? remainder : 0);
+      await service
+        .from("order_splits")
+        .update({ expected_amount_cents: s.expected_amount_cents + add })
+        .eq("id", s.id);
+    }
+  } else if ((activos ?? []).length === 0) {
+    // No queda nada activo: cerrar la order vacía si total = 0.
+    void totalActivo;
+  }
+
+  revalidatePath(`/${businessSlug}/mozo`);
+  return actionOk(undefined);
+}
+
+// ── Anular cobro completo ─────────────────────────────────────
+
+export async function anularCobro(
+  orderId: string,
+  motivo: string,
+  businessSlug: string,
+): Promise<ActionResult<void>> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  if (!canCancelItem(ctx.role)) {
+    return actionError("Solo encargado o admin pueden anular cobros.");
+  }
+  if (!motivo || motivo.trim() === "") {
+    return actionError("Anular cobro requiere un motivo.");
+  }
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+  const order = await loadOrder(service, orderId, business.id);
+  if (!order) return actionError("Orden no encontrada.");
+
+  // Marcar payments paid como refunded (no borrar para auditoría).
+  await service
+    .from("payments")
+    .update({
+      payment_status: "refunded",
+      refunded_at: new Date().toISOString(),
+      refunded_reason: motivo.trim(),
+    })
+    .eq("order_id", orderId)
+    .eq("payment_status", "paid");
+
+  // Borrar payments pending (MP en curso, etc).
+  await service
+    .from("payments")
+    .delete()
+    .eq("order_id", orderId)
+    .eq("payment_status", "pending");
+
+  // Reset splits.
+  await service
+    .from("order_splits")
+    .update({ paid_amount_cents: 0, status: "pending" })
+    .eq("order_id", orderId);
+
+  // Si la order ya estaba cerrada, reabrirla.
+  if (order.lifecycle_status === "closed") {
+    await service
+      .from("orders")
+      .update({
+        lifecycle_status: "open",
+        closed_at: null,
+        total_paid_cents: 0,
+      })
+      .eq("id", orderId);
+  }
+
+  // Volver mesa a esperando_cuenta si estaba en limpiar/libre tras cobro.
+  if (order.table_id) {
+    const { data: tableRow } = await service
+      .from("tables")
+      .select("id, operational_status")
+      .eq("id", order.table_id)
+      .single();
+    const fromStatus = tableRow?.operational_status as string;
+    if (fromStatus === "limpiar" || fromStatus === "libre") {
+      await service
+        .from("tables")
+        .update({ operational_status: "esperando_cuenta" })
+        .eq("id", order.table_id);
+      await service.from("tables_audit_log").insert({
+        table_id: order.table_id,
+        business_id: business.id,
+        kind: "status",
+        from_value: fromStatus,
+        to_value: "esperando_cuenta",
+        by_user_id: ctx.userId,
+        reason: `anular cobro: ${motivo.trim()}`,
+      });
+    }
+  }
+
+  revalidatePath(`/${businessSlug}/mozo`);
+  return actionOk(undefined);
+}
+
+// Suprimir warning de import sin uso si el helper llega a no llamarse.
+void sumActiveItems;

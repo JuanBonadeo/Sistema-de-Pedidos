@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { closeOrderIfFullyPaid } from "@/lib/billing/cobro-actions";
 import { fetchPayment, verifySignature } from "@/lib/payments/mercadopago";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
@@ -100,9 +102,99 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // Locate the order (either via external_reference, or we matched it earlier
-  // via mp_payment_id for idempotent re-delivery).
-  const orderId = payment.externalReference;
+  // ── Flow nuevo (Bloque 5): payment row de mesa ────────────────
+  // El external_reference apunta al payments.id (UUID). Si lo encontramos,
+  // procesamos el cobro de mesa + cierre de la order si corresponde.
+  // Si no, el external_reference es el orderId legacy (delivery).
+  const externalRef = payment.externalReference;
+  const { data: paymentRow } = await service
+    .from("payments")
+    .select(
+      "id, order_id, business_id, split_id, amount_cents, payment_status",
+    )
+    .eq("id", externalRef)
+    .maybeSingle();
+
+  if (paymentRow) {
+    if ((paymentRow as { business_id: string }).business_id !== business.id) {
+      console.error("MP webhook: payment business mismatch", {
+        externalRef,
+        businessId,
+      });
+      return NextResponse.json({ error: "business mismatch" }, { status: 403 });
+    }
+
+    const nextStatus =
+      payment.status === "approved"
+        ? "paid"
+        : payment.status === "rejected" || payment.status === "cancelled"
+          ? "failed"
+          : payment.status === "refunded" || payment.status === "charged_back"
+            ? "refunded"
+            : "pending";
+
+    const prow = paymentRow as {
+      id: string;
+      order_id: string;
+      split_id: string | null;
+      amount_cents: number;
+      payment_status: string;
+    };
+    if (prow.payment_status === nextStatus && prow.payment_status !== "pending") {
+      // Idempotent skip.
+      return NextResponse.json({ ok: true, skipped: true });
+    }
+
+    await service
+      .from("payments")
+      .update({ mp_payment_id: paymentId, payment_status: nextStatus })
+      .eq("id", prow.id);
+
+    if (nextStatus === "paid" && prow.split_id) {
+      const { data: splitRow } = await service
+        .from("order_splits")
+        .select("id, expected_amount_cents, paid_amount_cents")
+        .eq("id", prow.split_id)
+        .maybeSingle();
+      if (splitRow) {
+        const s = splitRow as {
+          id: string;
+          expected_amount_cents: number;
+          paid_amount_cents: number;
+        };
+        const newPaid = s.paid_amount_cents + prow.amount_cents;
+        const splitDone = newPaid >= s.expected_amount_cents;
+        await service
+          .from("order_splits")
+          .update({
+            paid_amount_cents: newPaid,
+            status: splitDone ? "paid" : "pending",
+          })
+          .eq("id", s.id);
+      }
+    }
+
+    if (nextStatus === "paid") {
+      // Resolver slug del business para closeOrderIfFullyPaid.
+      const { data: bizRow } = await service
+        .from("businesses")
+        .select("slug")
+        .eq("id", business.id)
+        .single();
+      if (bizRow?.slug) {
+        await closeOrderIfFullyPaid(
+          service as unknown as SupabaseClient,
+          prow.order_id,
+          bizRow.slug as string,
+        );
+      }
+    }
+
+    return NextResponse.json({ ok: true, payment_status: nextStatus, kind: "mesa" });
+  }
+
+  // ── Flow legacy: orders (delivery / take-away) ────────────────
+  const orderId = externalRef;
   const { data: order } = await service
     .from("orders")
     .select("id, business_id, status, payment_status")

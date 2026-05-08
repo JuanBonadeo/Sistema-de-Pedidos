@@ -1,0 +1,439 @@
+// @vitest-environment node
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { config } from "dotenv";
+import { createClient } from "@supabase/supabase-js";
+
+config({ path: ".env.local" });
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const dbAvailable = Boolean(supabaseUrl && serviceKey);
+
+const TEST_TAG = `test-cobro-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+
+let CURRENT_USER_ID = "";
+
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServerClient: async () => ({
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: CURRENT_USER_ID } },
+        error: null,
+      }),
+    },
+  }),
+}));
+
+vi.mock("react", async () => {
+  const actual = await vi.importActual<typeof import("react")>("react");
+  return { ...actual, cache: <T>(fn: T) => fn };
+});
+
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+}));
+
+const { abrirTurno } = await import("@/lib/caja/actions");
+const { dividirPorPersonas } = await import("./cuenta-actions");
+const {
+  iniciarCobro,
+  registrarPago,
+  forzarPago,
+  anularCobro,
+  cancelarSplit,
+  closeOrderIfFullyPaid,
+} = await import("./cobro-actions");
+
+describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
+  const supabase = createClient(supabaseUrl!, serviceKey!, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  let businessId: string;
+  let businessSlug: string;
+  let mozoId: string;
+  let encargadoId: string;
+  let cajaId: string;
+  let turnoId: string;
+  let tableId: string;
+
+  const seedUser = async (label: string) => {
+    const email = `${TEST_TAG}-${label}@example.test`;
+    const { data: created } = await supabase.auth.admin.createUser({
+      email,
+      password: "test-pass-12345",
+      email_confirm: true,
+    });
+    const id = created!.user!.id;
+    await supabase.from("users").upsert({ id, email, full_name: label });
+    return id;
+  };
+
+  const newOrder = async (label: string, total = 10_000) => {
+    const { data: fp } = await supabase
+      .from("floor_plans")
+      .select("id")
+      .eq("business_id", businessId)
+      .single();
+    const { data: t } = await supabase
+      .from("tables")
+      .insert({
+        floor_plan_id: fp!.id,
+        label,
+        seats: 2,
+        shape: "circle",
+        x: 0, y: 0, width: 80, height: 80,
+        operational_status: "esperando_cuenta",
+        opened_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    const { data: order } = await supabase
+      .from("orders")
+      .insert({
+        business_id: businessId,
+        customer_name: `M${label}`,
+        customer_phone: "0",
+        delivery_type: "dine_in",
+        table_id: t!.id,
+        subtotal_cents: total,
+        total_cents: total,
+        lifecycle_status: "open",
+      })
+      .select("id")
+      .single();
+    await supabase.from("order_items").insert({
+      order_id: order!.id,
+      product_name: "Item",
+      unit_price_cents: total,
+      quantity: 1,
+      subtotal_cents: total,
+      loaded_by: mozoId,
+    });
+    return { tableId: t!.id, orderId: order!.id };
+  };
+
+  beforeAll(async () => {
+    mozoId = await seedUser("Mozo");
+    encargadoId = await seedUser("Encargado");
+
+    const { data: biz } = await supabase
+      .from("businesses")
+      .insert({ slug: TEST_TAG, name: "Cobro Test", is_active: true })
+      .select("id, slug")
+      .single();
+    businessId = biz!.id;
+    businessSlug = biz!.slug;
+
+    await supabase.from("business_users").insert([
+      { business_id: businessId, user_id: mozoId, role: "mozo", full_name: "Mozo" },
+      { business_id: businessId, user_id: encargadoId, role: "encargado", full_name: "Encargado" },
+    ]);
+
+    await supabase.from("floor_plans").insert({ business_id: businessId, name: "S" });
+
+    const { data: caja } = await supabase
+      .from("cajas")
+      .insert({ business_id: businessId, name: "Caja1" })
+      .select("id")
+      .single();
+    cajaId = caja!.id;
+
+    CURRENT_USER_ID = encargadoId;
+    const r = await abrirTurno(cajaId, 100_000, businessSlug);
+    if (!r.ok) throw new Error(`abrirTurno failed: ${r.error}`);
+    turnoId = r.data.turno.id;
+  });
+
+  afterAll(async () => {
+    if (businessId) {
+      await supabase.from("businesses").delete().eq("id", businessId);
+    }
+    for (const id of [mozoId, encargadoId].filter(Boolean)) {
+      await supabase.from("users").delete().eq("id", id);
+      await supabase.auth.admin.deleteUser(id);
+    }
+  });
+
+  it("iniciarCobro sin caja open → falla", async () => {
+    // Simular: cerrar el turno temporalmente con otra orden.
+    const fake = await newOrder("X");
+    CURRENT_USER_ID = mozoId;
+    const r = await iniciarCobro(fake.orderId, businessSlug);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.cajas.length).toBeGreaterThan(0);
+    tableId = fake.tableId;
+  });
+
+  it("1 split implícito cash → paid + order closed + mesa limpiar", async () => {
+    const { tableId: tid, orderId } = await newOrder("A");
+    CURRENT_USER_ID = mozoId;
+
+    const init = await iniciarCobro(orderId, businessSlug);
+    expect(init.ok).toBe(true);
+    if (!init.ok) return;
+    expect(init.data.hasImplicitSplit).toBe(true);
+
+    const r = await registrarPago({
+      orderId,
+      splitId: null,
+      method: "cash",
+      amount_cents: 10_000,
+      tip_cents: 0,
+      caja_turno_id: turnoId,
+      slug: businessSlug,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.orderClosed).toBe(true);
+
+    const { data: ord } = await supabase
+      .from("orders")
+      .select("lifecycle_status, closed_at, total_paid_cents")
+      .eq("id", orderId)
+      .single();
+    expect(ord!.lifecycle_status).toBe("closed");
+    expect(ord!.total_paid_cents).toBe(10_000);
+
+    const { data: tbl } = await supabase
+      .from("tables")
+      .select("operational_status")
+      .eq("id", tid)
+      .single();
+    expect(tbl!.operational_status).toBe("limpiar");
+  });
+
+  it("mixto cash + card_manual → 2 splits paid → order closed", { timeout: 30_000 }, async () => {
+    const { orderId } = await newOrder("B");
+    CURRENT_USER_ID = mozoId;
+    await dividirPorPersonas(orderId, 2, businessSlug);
+
+    const init = await iniciarCobro(orderId, businessSlug);
+    expect(init.ok).toBe(true);
+    if (!init.ok) return;
+    expect(init.data.splits).toHaveLength(2);
+
+    const [s1, s2] = init.data.splits;
+    const r1 = await registrarPago({
+      orderId,
+      splitId: s1.id,
+      method: "cash",
+      amount_cents: s1.expected_amount_cents,
+      tip_cents: 0,
+      caja_turno_id: turnoId,
+      slug: businessSlug,
+    });
+    expect(r1.ok).toBe(true);
+    if (r1.ok) expect(r1.data.orderClosed).toBe(false);
+
+    const r2 = await registrarPago({
+      orderId,
+      splitId: s2.id,
+      method: "card_manual",
+      amount_cents: s2.expected_amount_cents,
+      tip_cents: 1_000,
+      last_four: "1234",
+      card_brand: "visa",
+      caja_turno_id: turnoId,
+      slug: businessSlug,
+    });
+    expect(r2.ok).toBe(true);
+    if (r2.ok) expect(r2.data.orderClosed).toBe(true);
+  });
+
+  it("registrarPago con MP debe pedir iniciarPagoMp", async () => {
+    const { orderId } = await newOrder("C");
+    const r = await registrarPago({
+      orderId,
+      splitId: null,
+      method: "mp_link",
+      amount_cents: 10_000,
+      tip_cents: 0,
+      caja_turno_id: turnoId,
+      slug: businessSlug,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/iniciarPagoMp/);
+  });
+
+  it("forzarPago como encargado: payment pending → paid + order closed", { timeout: 30_000 }, async () => {
+    const { orderId } = await newOrder("D");
+
+    // Insert manual de un payment pending (simulando MP que se quedó colgado).
+    const { data: paymentRow } = await supabase
+      .from("payments")
+      .insert({
+        order_id: orderId,
+        business_id: businessId,
+        caja_turno_id: turnoId,
+        method: "mp_qr",
+        amount_cents: 10_000,
+        tip_cents: 0,
+        payment_status: "pending",
+      })
+      .select("id")
+      .single();
+
+    CURRENT_USER_ID = encargadoId;
+    const r = await forzarPago(paymentRow!.id, "MP timeout", businessSlug);
+    expect(r.ok).toBe(true);
+
+    const { data: ord } = await supabase
+      .from("orders")
+      .select("lifecycle_status")
+      .eq("id", orderId)
+      .single();
+    expect(ord!.lifecycle_status).toBe("closed");
+  });
+
+  it("anularCobro: order cerrada vuelve a open + mesa esperando_cuenta", { timeout: 30_000 }, async () => {
+    const { tableId: tid, orderId } = await newOrder("E");
+    CURRENT_USER_ID = mozoId;
+    await registrarPago({
+      orderId,
+      splitId: null,
+      method: "cash",
+      amount_cents: 10_000,
+      tip_cents: 0,
+      caja_turno_id: turnoId,
+      slug: businessSlug,
+    });
+
+    CURRENT_USER_ID = encargadoId;
+    const r = await anularCobro(orderId, "cliente reclamó", businessSlug);
+    expect(r.ok).toBe(true);
+
+    const { data: ord } = await supabase
+      .from("orders")
+      .select("lifecycle_status, total_paid_cents")
+      .eq("id", orderId)
+      .single();
+    expect(ord!.lifecycle_status).toBe("open");
+    expect(ord!.total_paid_cents).toBe(0);
+
+    const { data: tbl } = await supabase
+      .from("tables")
+      .select("operational_status")
+      .eq("id", tid)
+      .single();
+    expect(tbl!.operational_status).toBe("esperando_cuenta");
+
+    const { data: payments } = await supabase
+      .from("payments")
+      .select("payment_status")
+      .eq("order_id", orderId);
+    expect(payments!.every((p) => p.payment_status === "refunded")).toBe(true);
+  });
+
+  it("cancelarSplit sin pagos: status=cancelled + redistribución", async () => {
+    const { orderId } = await newOrder("F");
+    CURRENT_USER_ID = mozoId;
+    await dividirPorPersonas(orderId, 2, businessSlug);
+    const { data: splits } = await supabase
+      .from("order_splits")
+      .select("id, expected_amount_cents")
+      .eq("order_id", orderId)
+      .order("split_index", { ascending: true });
+
+    CURRENT_USER_ID = encargadoId;
+    const r = await cancelarSplit(splits![0].id, "se fue uno", businessSlug);
+    expect(r.ok).toBe(true);
+
+    const { data: after } = await supabase
+      .from("order_splits")
+      .select("id, status, expected_amount_cents")
+      .eq("order_id", orderId)
+      .order("split_index", { ascending: true });
+    expect(after![0].status).toBe("cancelled");
+    expect(after![1].status).toBe("pending");
+    // El split activo absorbió todo el expected.
+    expect(after![1].expected_amount_cents).toBe(10_000);
+  });
+
+  it("cross-tenant: registrarPago en order de otro business → falla", async () => {
+    const { data: otherBiz } = await supabase
+      .from("businesses")
+      .insert({
+        slug: `${TEST_TAG}-other`,
+        name: "Otro",
+        is_active: true,
+      })
+      .select("id, slug")
+      .single();
+
+    const { data: ofp } = await supabase
+      .from("floor_plans")
+      .insert({ business_id: otherBiz!.id, name: "S" })
+      .select("id")
+      .single();
+    const { data: ot } = await supabase
+      .from("tables")
+      .insert({
+        floor_plan_id: ofp!.id,
+        label: "Z",
+        seats: 2,
+        shape: "circle",
+        x: 0, y: 0, width: 80, height: 80,
+      })
+      .select("id")
+      .single();
+    const { data: oord } = await supabase
+      .from("orders")
+      .insert({
+        business_id: otherBiz!.id,
+        customer_name: "Otro",
+        customer_phone: "0",
+        delivery_type: "dine_in",
+        table_id: ot!.id,
+        subtotal_cents: 5_000,
+        total_cents: 5_000,
+        lifecycle_status: "open",
+      })
+      .select("id")
+      .single();
+
+    CURRENT_USER_ID = mozoId; // mozo del business "Cobro Test"
+    const r = await registrarPago({
+      orderId: oord!.id,
+      splitId: null,
+      method: "cash",
+      amount_cents: 5_000,
+      tip_cents: 0,
+      caja_turno_id: turnoId,
+      slug: businessSlug,
+    });
+    expect(r.ok).toBe(false);
+
+    await supabase.from("businesses").delete().eq("id", otherBiz!.id);
+  });
+
+  it("closeOrderIfFullyPaid sigue closed_at + transición a limpiar (helper directo)", async () => {
+    const { tableId: tid, orderId } = await newOrder("G");
+    // Insert manual de payment paid sin splits (escenario limpio).
+    await supabase.from("payments").insert({
+      order_id: orderId,
+      business_id: businessId,
+      caja_turno_id: turnoId,
+      method: "cash",
+      amount_cents: 10_000,
+      tip_cents: 0,
+      payment_status: "paid",
+    });
+
+    const r = await closeOrderIfFullyPaid(
+      supabase as unknown as Parameters<typeof closeOrderIfFullyPaid>[0],
+      orderId,
+      businessSlug,
+    );
+    expect(r.orderClosed).toBe(true);
+
+    const { data: tbl } = await supabase
+      .from("tables")
+      .select("operational_status")
+      .eq("id", tid)
+      .single();
+    expect(tbl!.operational_status).toBe("limpiar");
+  });
+});

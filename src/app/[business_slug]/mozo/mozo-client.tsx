@@ -543,36 +543,63 @@ export function MozoClient({
                   Sentar walk-in
                 </button>
               )}
-              {canShowPedirButton && (
+              {/* Acción primaria: depende del estado.
+                  - pidio_cuenta → "Cobrar mesa" (emerald) → /cobrar.
+                  - ocupada → "Cargar pedido" (emerald) → /pedir. */}
+              {selectedStatus === "pidio_cuenta" && canShowCuentaButton && (
+                <button
+                  disabled={loading}
+                  onClick={() =>
+                    router.push(
+                      `/${businessSlug}/mozo/mesa/${selectedSync.id}/cobrar`,
+                    )
+                  }
+                  className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-base font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-60"
+                >
+                  <ClipboardList className="h-5 w-5" />
+                  Cobrar mesa
+                </button>
+              )}
+              {selectedStatus !== "pidio_cuenta" && canShowPedirButton && (
+                <button
+                  disabled={loading}
+                  onClick={() =>
+                    router.push(
+                      `/${businessSlug}/mozo/mesa/${selectedSync.id}/pedir`,
+                    )
+                  }
+                  className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-base font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-60"
+                >
+                  <ClipboardList className="h-5 w-5" />
+                  Cargar pedido
+                </button>
+              )}
+              {/* Acción secundaria contextual */}
+              {selectedStatus === "pidio_cuenta" && canShowPedirButton && (
                 <button
                   disabled={loading}
                   onClick={async () => {
-                    // Si la mesa estaba en `pidio_cuenta`, volvemos a `ocupada`
-                    // y limpiamos `bill_requested_at` antes de navegar a
-                    // `/pedir` — el cliente se arrepintió y quiere más.
-                    if (selectedStatus === "pidio_cuenta") {
-                      const r = await volverAPedir(
-                        selectedSync.id,
-                        businessSlug,
-                      );
-                      if (!r.ok) {
-                        toast.error(r.error);
-                        return;
-                      }
+                    // Cliente se arrepintió: volvemos a `ocupada` y limpiamos
+                    // `bill_requested_at` antes de navegar a `/pedir`.
+                    const r = await volverAPedir(
+                      selectedSync.id,
+                      businessSlug,
+                    );
+                    if (!r.ok) {
+                      toast.error(r.error);
+                      return;
                     }
                     router.push(
                       `/${businessSlug}/mozo/mesa/${selectedSync.id}/pedir`,
                     );
                   }}
-                  className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-base font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-60"
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 text-base font-semibold text-zinc-700 transition active:scale-[0.98] disabled:opacity-60"
                 >
-                  <ClipboardList className="h-5 w-5" />
-                  {selectedStatus === "pidio_cuenta"
-                    ? "Volver a pedir"
-                    : "Cargar pedido"}
+                  <ClipboardList className="h-4 w-4" />
+                  Volver a pedir
                 </button>
               )}
-              {canShowCuentaButton && (
+              {selectedStatus !== "pidio_cuenta" && canShowCuentaButton && (
                 <button
                   disabled={loading}
                   onClick={() =>
@@ -583,7 +610,7 @@ export function MozoClient({
                   className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-amber-50 text-base font-semibold text-amber-700 ring-1 ring-amber-200 transition active:scale-[0.98] disabled:opacity-60"
                 >
                   <ClipboardList className="h-4 w-4" />
-                  {selectedStatus === "pidio_cuenta" ? "Cobrar mesa" : "Pedir cuenta"}
+                  Pedir cuenta
                 </button>
               )}
               {canShowTransferButton && (

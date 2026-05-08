@@ -722,6 +722,10 @@ function TableDetail({
   const canAnular =
     status === "ocupada" && canTransitionMesa(role, status, "libre");
   const canPedir = status === "ocupada" || status === "pidio_cuenta";
+  // "Pedir cuenta" / "Cobrar mesa" requiere order activa: sin items
+  // cargados no hay nada que cobrar.
+  const canShowCuenta =
+    !!order && (status === "ocupada" || status === "pidio_cuenta");
 
   return (
     <>
@@ -846,7 +850,20 @@ function TableDetail({
 
       {/* Acciones primarias en footer */}
       <div className="border-border/60 space-y-2 border-t p-3">
-        {canPedir && (
+        {/* Acción primaria: el "siguiente paso natural" según estado.
+            ocupada → Cargar pedido (default). pidio_cuenta → Cobrar mesa. */}
+        {status === "pidio_cuenta" && canShowCuenta && (
+          <Button
+            className="h-11 w-full font-semibold"
+            onClick={() =>
+              (window.location.href = `/${slug}/mozo/mesa/${table.id}/cobrar`)
+            }
+          >
+            <ClipboardList className="size-4" />
+            Cobrar mesa
+          </Button>
+        )}
+        {status !== "pidio_cuenta" && canPedir && (
           <Button
             className="h-11 w-full font-semibold"
             onClick={() =>
@@ -855,6 +872,29 @@ function TableDetail({
           >
             <ClipboardList className="size-4" />
             Cargar pedido
+          </Button>
+        )}
+        {/* Acción secundaria contextual */}
+        {status === "pidio_cuenta" && canPedir && (
+          <Button
+            variant="outline"
+            className="h-11 w-full font-semibold"
+            onClick={() =>
+              (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
+            }
+          >
+            Volver a pedir
+          </Button>
+        )}
+        {status !== "pidio_cuenta" && canShowCuenta && (
+          <Button
+            variant="outline"
+            className="h-11 w-full font-semibold"
+            onClick={() =>
+              (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
+            }
+          >
+            Pedir cuenta
           </Button>
         )}
         {canWalkIn && (

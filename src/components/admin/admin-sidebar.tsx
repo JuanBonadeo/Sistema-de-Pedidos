@@ -799,6 +799,42 @@ function UserMenu({
       : `/${slug}/admin/login`;
   };
 
+  // base-ui's Menu.Trigger genera un id via useId que se desincroniza entre
+  // server y client, causando hydration mismatch. Evitamos el SSR del menú
+  // pintando un placeholder visualmente idéntico hasta que se monte.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) {
+    return (
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-2.5 rounded-xl p-1.5",
+          expanded ? "w-full" : "",
+        )}
+        aria-hidden
+      >
+        <span
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-full",
+            "bg-zinc-900 text-zinc-50 text-[0.7rem] font-semibold",
+            "ring-1 ring-zinc-900/10",
+          )}
+        >
+          {initials}
+        </span>
+        {expanded && (
+          <div className="min-w-0 flex-1 text-left">
+            <p className="truncate text-xs font-semibold text-zinc-900">
+              {displayName}
+            </p>
+            <p className="truncate text-[0.65rem] text-zinc-500">{userEmail}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <Menu.Root>
       <Menu.Trigger

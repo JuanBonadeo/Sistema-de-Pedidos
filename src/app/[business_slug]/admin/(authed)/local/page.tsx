@@ -11,6 +11,7 @@ import { ensureAdminAccess } from "@/lib/admin/context";
 import { getFloorPlansForBusiness } from "@/lib/admin/floor-plan/queries";
 import { getActiveComandas, getStationsForLocal } from "@/lib/admin/local-query";
 import { getTodayOrders } from "@/lib/admin/orders-query";
+import { getActiveTurnos } from "@/lib/caja/queries";
 import { getMozosByBusiness } from "@/lib/mozo/queries";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { getBusiness } from "@/lib/tenant";
@@ -49,6 +50,7 @@ export default async function LocalEnVivoPage({
     { data: dineInOrders },
     { data: reservations },
     mozos,
+    cajaTurnos,
   ] = await Promise.all([
     getTodayOrders(business.id, business.timezone),
     getActiveComandas(business.id),
@@ -72,6 +74,7 @@ export default async function LocalEnVivoPage({
       .lt("starts_at", tomorrowStart.toISOString())
       .order("starts_at", { ascending: true }),
     getMozosByBusiness(business.id),
+    getActiveTurnos(business.id),
   ]);
 
   return (
@@ -94,6 +97,7 @@ export default async function LocalEnVivoPage({
         mozos={mozos}
         currentUserId={ctx.user.id}
         role={ctx.isPlatformAdmin ? "admin" : (ctx.role ?? "admin")}
+        cajaTurnos={cajaTurnos}
       />
     </PageShell>
   );

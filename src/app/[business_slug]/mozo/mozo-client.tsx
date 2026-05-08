@@ -423,6 +423,11 @@ export function MozoClient({
     (selectedStatus === "ocupada" ||
       selectedStatus === "esperando_pedido" ||
       selectedStatus === "esperando_cuenta");
+  const canShowCuentaButton =
+    !!selectedSync &&
+    (selectedStatus === "ocupada" ||
+      selectedStatus === "esperando_pedido" ||
+      selectedStatus === "esperando_cuenta");
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -575,6 +580,20 @@ export function MozoClient({
                   {selectedStatus === "esperando_cuenta"
                     ? "Volver a pedir"
                     : "Cargar pedido"}
+                </button>
+              )}
+              {canShowCuentaButton && (
+                <button
+                  disabled={loading}
+                  onClick={() =>
+                    router.push(
+                      `/${businessSlug}/mozo/mesa/${selectedSync.id}/cuenta`,
+                    )
+                  }
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-amber-50 text-base font-semibold text-amber-700 ring-1 ring-amber-200 transition active:scale-[0.98] disabled:opacity-60"
+                >
+                  <ClipboardList className="h-4 w-4" />
+                  {selectedStatus === "esperando_cuenta" ? "Cobrar mesa" : "Pedir cuenta"}
                 </button>
               )}
               {canShowTransferButton && (

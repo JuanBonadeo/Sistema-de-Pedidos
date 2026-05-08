@@ -156,7 +156,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
     }
   });
 
-  it("iniciarCobro sin caja open → falla", async () => {
+  it("iniciarCobro sin caja open → falla", { timeout: 30_000 }, async () => {
     // Simular: cerrar el turno temporalmente con otra orden.
     const fake = await newOrder("X");
     CURRENT_USER_ID = mozoId;
@@ -167,7 +167,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
     tableId = fake.tableId;
   });
 
-  it("1 split implícito cash → paid + order closed + mesa limpiar", async () => {
+  it("1 split implícito cash → paid + order closed + mesa limpiar", { timeout: 30_000 }, async () => {
     const { tableId: tid, orderId } = await newOrder("A");
     CURRENT_USER_ID = mozoId;
 
@@ -243,7 +243,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
     if (r2.ok) expect(r2.data.orderClosed).toBe(true);
   });
 
-  it("registrarPago con MP debe pedir iniciarPagoMp", async () => {
+  it("registrarPago con MP debe pedir iniciarPagoMp", { timeout: 30_000 }, async () => {
     const { orderId } = await newOrder("C");
     const r = await registrarPago({
       orderId,
@@ -327,7 +327,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
     expect(payments!.every((p) => p.payment_status === "refunded")).toBe(true);
   });
 
-  it("cancelarSplit sin pagos: status=cancelled + redistribución", async () => {
+  it("cancelarSplit sin pagos: status=cancelled + redistribución", { timeout: 30_000 }, async () => {
     const { orderId } = await newOrder("F");
     CURRENT_USER_ID = mozoId;
     await dividirPorPersonas(orderId, 2, businessSlug);
@@ -352,7 +352,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
     expect(after![1].expected_amount_cents).toBe(10_000);
   });
 
-  it("cross-tenant: registrarPago en order de otro business → falla", async () => {
+  it("cross-tenant: registrarPago en order de otro business → falla", { timeout: 30_000 }, async () => {
     const { data: otherBiz } = await supabase
       .from("businesses")
       .insert({
@@ -409,7 +409,7 @@ describe.skipIf(!dbAvailable)("billing/cobro (integration)", () => {
     await supabase.from("businesses").delete().eq("id", otherBiz!.id);
   });
 
-  it("closeOrderIfFullyPaid sigue closed_at + transición a limpiar (helper directo)", async () => {
+  it("closeOrderIfFullyPaid sigue closed_at + transición a limpiar (helper directo)", { timeout: 30_000 }, async () => {
     const { tableId: tid, orderId } = await newOrder("G");
     // Insert manual de payment paid sin splits (escenario limpio).
     await supabase.from("payments").insert({

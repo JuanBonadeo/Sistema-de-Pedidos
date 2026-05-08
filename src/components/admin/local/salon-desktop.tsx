@@ -21,16 +21,9 @@ import { WalkInModal } from "@/components/mozo/walk-in-modal";
 import { Button } from "@/components/ui/button";
 import type { BusinessRole } from "@/lib/admin/context";
 import type { FloorPlanWithTables } from "@/lib/admin/floor-plan/queries";
-import {
-  anularMesa,
-  updateTableOperationalStatus,
-} from "@/lib/mozo/actions";
+import { anularMesa } from "@/lib/mozo/actions";
 import type { MozoMember } from "@/lib/mozo/queries";
-import {
-  ALL_OPERATIONAL_STATUSES,
-  canTransition,
-  type OperationalStatus,
-} from "@/lib/mozo/state-machine";
+import { type OperationalStatus } from "@/lib/mozo/state-machine";
 import { canAssignMozo, canTransitionMesa } from "@/lib/permissions/can";
 import type { FloorTable } from "@/lib/reservations/types";
 import { cn } from "@/lib/utils";
@@ -231,17 +224,6 @@ export function SalonDesktop({
   }, [mozos]);
 
   // ── Acciones server ──
-  const handleStatusChange = useCallback(
-    (tableId: string, status: OperationalStatus) => {
-      startTransition(async () => {
-        const r = await updateTableOperationalStatus(tableId, status, slug);
-        if (!r.ok) toast.error(r.error);
-        else router.refresh();
-      });
-    },
-    [slug, router],
-  );
-
   const handleAnular = useCallback(() => {
     if (!anularPrompt) return;
     const reason = anularReason.trim();
@@ -365,7 +347,6 @@ export function SalonDesktop({
               slug={slug}
               pending={pending}
               onClose={() => setSelectedId(null)}
-              onStatusChange={(s) => handleStatusChange(selected.id, s)}
               onWalkIn={() => setWalkInTableId(selected.id)}
               onTransfer={() => setTransferTableId(selected.id)}
               onAnular={() =>
@@ -709,7 +690,6 @@ function TableDetail({
   slug,
   pending,
   onClose,
-  onStatusChange,
   onWalkIn,
   onTransfer,
   onAnular,
@@ -723,7 +703,6 @@ function TableDetail({
   slug: string;
   pending: boolean;
   onClose: () => void;
-  onStatusChange: (s: OperationalStatus) => void;
   onWalkIn: () => void;
   onTransfer: () => void;
   onAnular: () => void;
@@ -731,13 +710,6 @@ function TableDetail({
   const status = (table.operational_status ?? "libre") as OperationalStatus;
   const c = STATUS_COLORS[status];
   const minutes = minutesSince(table.opened_at);
-
-  const allowedTransitions = ALL_OPERATIONAL_STATUSES.filter(
-    (s) =>
-      s !== status &&
-      canTransition(status, s) &&
-      canTransitionMesa(role, status, s),
-  );
 
   const canWalkIn = status === "libre";
   const canTransfer =
@@ -840,36 +812,6 @@ function TableDetail({
           </div>
         )}
 
-        {/* Transiciones de estado rápidas */}
-        {allowedTransitions.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wide">
-              Cambiar estado
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {allowedTransitions.map((s) => {
-                const cs = STATUS_COLORS[s];
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => onStatusChange(s)}
-                    disabled={pending}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 transition active:scale-[0.97] disabled:opacity-50",
-                      cs.bg,
-                      cs.text,
-                      "ring-zinc-200 hover:ring-zinc-300",
-                    )}
-                  >
-                    <span className={cn("h-1.5 w-1.5 rounded-full", cs.dot)} />
-                    {STATUS_LABEL[s]}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Acciones primarias en footer */}

@@ -28,15 +28,10 @@ import { WalkInModal } from "@/components/mozo/walk-in-modal";
 import {
   anularMesa,
   assignMozoToTable,
-  updateTableOperationalStatus,
   volverAPedir,
 } from "@/lib/mozo/actions";
 import type { MozoMember } from "@/lib/mozo/queries";
-import {
-  ALL_OPERATIONAL_STATUSES,
-  canTransition,
-  type OperationalStatus,
-} from "@/lib/mozo/state-machine";
+import { type OperationalStatus } from "@/lib/mozo/state-machine";
 import { markAllRead, markRead } from "@/lib/notifications/actions";
 import type { Notification } from "@/lib/notifications/queries";
 import { canAssignMozo, canTransitionMesa } from "@/lib/permissions/can";
@@ -322,45 +317,6 @@ export function MozoClient({
 
 
   // ── Handlers ──
-  const handleStatusChange = useCallback(
-    async (tableId: string, newStatus: OperationalStatus) => {
-      setLoading(true);
-      const prevSnapshot = localTables;
-      setLocalTables((prev) =>
-        prev.map((t) =>
-          t.id === tableId
-            ? {
-                ...t,
-                operational_status: newStatus,
-                opened_at:
-                  newStatus === "ocupada"
-                    ? (t.opened_at ?? new Date().toISOString())
-                    : newStatus === "libre"
-                      ? null
-                      : t.opened_at,
-              }
-            : t,
-        ),
-      );
-      setSelected((prev) =>
-        prev?.id === tableId ? { ...prev, operational_status: newStatus } : prev,
-      );
-      const result = await updateTableOperationalStatus(
-        tableId,
-        newStatus,
-        businessSlug,
-      );
-      setLoading(false);
-      if (!result.ok) {
-        toast.error(result.error);
-        setLocalTables(prevSnapshot);
-        return;
-      }
-      router.refresh();
-    },
-    [businessSlug, router, localTables],
-  );
-
   const handleAssignMozo = useCallback(
     async (tableId: string, mozoId: string | null) => {
       setLoading(true);
@@ -418,15 +374,6 @@ export function MozoClient({
     : null;
   const selectedStatus = (selectedSync?.operational_status ??
     "libre") as OperationalStatus;
-
-  const allowedTransitions = selectedSync
-    ? ALL_OPERATIONAL_STATUSES.filter(
-        (s) =>
-          s !== selectedStatus &&
-          canTransition(selectedStatus, s) &&
-          canTransitionMesa(role, selectedStatus, s),
-      )
-    : [];
 
   const canShowWalkInButton = !!selectedSync && selectedStatus === "libre";
   const canShowTransferButton =
@@ -778,30 +725,6 @@ export function MozoClient({
                 </div>
               )}
             </div>
-
-            {/* Cambiar estado */}
-            {allowedTransitions.length > 0 && (
-              <div>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Cambiar estado
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {allowedTransitions.map((status) => (
-                    <button
-                      key={status}
-                      disabled={loading}
-                      onClick={() => handleStatusChange(selectedSync.id, status)}
-                      className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-zinc-50 px-3 text-sm font-semibold text-zinc-900 ring-1 ring-zinc-200 transition active:scale-[0.97] active:bg-zinc-100 disabled:opacity-50"
-                    >
-                      <span
-                        className={`h-2 w-2 rounded-full ${STATUS_DOT[status]}`}
-                      />
-                      {STATUS_LABEL[status]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </TableDrawer>

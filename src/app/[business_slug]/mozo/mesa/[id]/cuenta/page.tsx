@@ -59,7 +59,7 @@ export default async function CuentaPage({
               <ArrowLeft className="h-5 w-5" />
             </button>
           </Link>
-          <h1 className="font-semibold">Mesa {tableLabel}</h1>
+          <h1 className="font-semibold">{tableLabel}</h1>
         </header>
         <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-4">
           <ClipboardList className="h-10 w-10 text-muted-foreground" />

@@ -165,7 +165,7 @@ export function CuentaClient({
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-              Mesa {tableLabel}
+              {tableLabel}
             </p>
             <h1 className="text-base font-semibold tracking-tight text-zinc-900">
               Cuenta

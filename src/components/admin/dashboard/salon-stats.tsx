@@ -113,7 +113,7 @@ export function SalonStatsSection({ data }: { data: SalonStats }) {
                 className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 text-sm"
               >
                 <span className="font-medium text-zinc-900">
-                  Mesa {t.tableLabel}
+                  {t.tableLabel}
                   <span className="ml-1 text-xs text-zinc-500">
                     · {t.seats} sillas
                   </span>

@@ -79,7 +79,7 @@ export function WalkInModal({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="font-heading text-lg font-bold leading-tight">
-              Walk-in · Mesa {tableLabel}
+              Walk-in · {tableLabel}
             </h3>
             <p className="mt-0.5 text-sm text-zinc-500">
               Solo la cantidad es obligatoria. Si dejás teléfono, entra al CRM.

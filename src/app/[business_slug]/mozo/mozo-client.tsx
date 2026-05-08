@@ -518,7 +518,9 @@ export function MozoClient({
         title={
           selectedSync ? (
             <span className="flex items-center gap-2">
-              <span>Mesa {selectedSync.label}</span>
+              <span className="text-2xl font-extrabold leading-none tracking-tight">
+                {selectedSync.label}
+              </span>
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_PILL[selectedStatus]}`}
               >
@@ -1296,7 +1298,7 @@ function ActiveTableCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-heading text-2xl font-extrabold leading-none tracking-tight text-zinc-900">
-              Mesa {table.label}
+              {table.label}
             </span>
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_PILL[status]}`}

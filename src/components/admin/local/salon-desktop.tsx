@@ -448,7 +448,7 @@ export function SalonDesktop({
           >
             <div className="flex items-start justify-between gap-3">
               <h3 className="text-base font-bold text-zinc-900">
-                Anular Mesa {anularPrompt.label}
+                Anular {anularPrompt.label}
               </h3>
               <button
                 onClick={() => {
@@ -791,10 +791,10 @@ function TableDetail({
       {/* Header limpio: Mesa N · estado · tiempo · avatar mozo · close. */}
       <header className="border-border/60 flex items-center gap-3 border-b px-4 py-3">
         <div className="min-w-0 flex-1">
-          <h3 className="text-foreground text-xl font-bold tracking-tight">
-            Mesa {table.label}
+          <h3 className="text-foreground text-2xl font-extrabold leading-none tracking-tight">
+            {table.label}
           </h3>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
@@ -811,18 +811,14 @@ function TableDetail({
                 {tiempoLabel}
               </span>
             )}
+            {mozoName && (
+              <span className="inline-flex max-w-[180px] items-center gap-1 truncate rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
+                <UserPlus className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate">{mozoName}</span>
+              </span>
+            )}
           </div>
         </div>
-        {/* Avatar mozo a la derecha (compacto). Tooltip con el nombre. */}
-        {mozoName && (
-          <div
-            className="flex size-9 flex-shrink-0 items-center justify-center rounded-full bg-zinc-900 text-[0.65rem] font-bold text-white ring-2 ring-white shadow-sm"
-            title={`Mozo: ${mozoName}`}
-            aria-label={`Mozo: ${mozoName}`}
-          >
-            {initialsFromName(mozoName)}
-          </div>
-        )}
         <button
           type="button"
           onClick={onClose}

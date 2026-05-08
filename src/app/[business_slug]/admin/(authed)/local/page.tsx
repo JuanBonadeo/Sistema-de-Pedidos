@@ -57,13 +57,14 @@ export default async function LocalEnVivoPage({
     getActiveComandas(business.id),
     getStationsForLocal(business.id),
     getFloorPlansForBusiness(business.id),
+    // Mismo criterio que en /mozo: solo orders **abiertas** de mesa. Una
+    // por mesa por el partial unique. Las cerradas ya no son "actuales".
     service
       .from("orders")
       .select("id, order_number, table_id, total_cents, created_at, status")
       .eq("business_id", business.id)
       .eq("delivery_type", "dine_in")
-      .neq("status", "cancelled")
-      .gte("created_at", todayStart.toISOString()),
+      .eq("lifecycle_status", "open"),
     service
       .from("reservations")
       .select(

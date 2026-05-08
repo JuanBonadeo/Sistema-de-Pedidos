@@ -51,8 +51,10 @@ export default async function MozoPage({
       .lt("starts_at", tomorrowStart.toISOString())
       .order("starts_at", { ascending: true }),
 
-    // Órdenes dine_in activas de hoy. Traemos customer_name + items para
-    // mostrar quién se sentó y un resumen rápido en la card / drawer.
+    // Órdenes dine_in **abiertas** (la "open" actual de cada mesa). Una por
+    // mesa garantizada por el partial unique `orders_one_open_per_table`.
+    // Si una mesa ya cobró y arrancó una nueva, solo nos importa la nueva.
+    // Traemos customer_name + items para alimentar card y drawer.
     service
       .from("orders")
       .select(
@@ -60,8 +62,7 @@ export default async function MozoPage({
       )
       .eq("business_id", business.id)
       .eq("delivery_type", "dine_in")
-      .neq("status", "cancelled")
-      .gte("created_at", todayStart.toISOString()),
+      .eq("lifecycle_status", "open"),
 
     getMozosByBusiness(business.id),
 

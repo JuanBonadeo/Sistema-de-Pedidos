@@ -874,68 +874,85 @@ function TableDetail({
             - ocupada CON items → Pedir cuenta (flujo natural).
             - ocupada SIN items → Cargar pedido (acaba de sentarse). */}
         {(() => {
+          // Mismo estilo que el drawer del mozo: h-14 rounded-2xl
+          // emerald-600 con shadow. button HTML, no Button shadcn.
+          const primaryClass =
+            "flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-base font-semibold text-white shadow-sm transition active:scale-[0.98] disabled:opacity-60";
           if (canWalkIn) {
             return (
-              <Button
+              <button
+                type="button"
                 onClick={onWalkIn}
                 disabled={pending}
-                className="h-11 w-full font-semibold"
+                className={primaryClass}
               >
-                <UserPlus className="size-4" />
+                <UserPlus className="h-5 w-5" />
                 Sentar walk-in
-              </Button>
+              </button>
             );
           }
           if (status === "pidio_cuenta" && canShowCuenta) {
             return (
-              <Button
-                className="h-11 w-full font-semibold"
+              <button
+                type="button"
+                disabled={pending}
+                className={primaryClass}
                 onClick={() =>
                   (window.location.href = `/${slug}/mozo/mesa/${table.id}/cobrar`)
                 }
               >
-                <Receipt className="size-4" />
+                <Receipt className="h-5 w-5" />
                 Cobrar mesa
-              </Button>
+              </button>
             );
           }
           if (hasItems && canShowCuenta) {
             return (
-              <Button
-                className="h-11 w-full font-semibold"
+              <button
+                type="button"
+                disabled={pending}
+                className={primaryClass}
                 onClick={() =>
                   (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
                 }
               >
-                <Receipt className="size-4" />
+                <Receipt className="h-5 w-5" />
                 Pedir cuenta
-              </Button>
+              </button>
             );
           }
           if (canPedir) {
             return (
-              <Button
-                className="h-11 w-full font-semibold"
+              <button
+                type="button"
+                disabled={pending}
+                className={primaryClass}
                 onClick={() =>
                   (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
                 }
               >
-                <ClipboardList className="size-4" />
+                <ClipboardList className="h-5 w-5" />
                 Cargar pedido
-              </Button>
+              </button>
             );
           }
           return null;
         })()}
 
-        {/* Secundarios en grid 2-cols, con identidad visual propia */}
+        {/* Secundarios en grid 2-cols. Mismo estilo que el drawer mozo:
+            rounded-xl h-10 text-sm font-semibold, tonos pastel por acción.
+            Anular entra al grid (no separado abajo). */}
         {(() => {
           const showVolverAPedir = status === "pidio_cuenta" && canPedir;
           const showCargarMas = status === "ocupada" && hasItems && canPedir;
           const showPedirCuentaSec =
             status === "ocupada" && !hasItems && canShowCuenta;
           const hasAny =
-            canTransfer || showVolverAPedir || showCargarMas || showPedirCuentaSec;
+            canTransfer ||
+            canAnular ||
+            showVolverAPedir ||
+            showCargarMas ||
+            showPedirCuentaSec;
           if (!hasAny) return null;
           return (
             <div className="grid grid-cols-2 gap-2">
@@ -945,9 +962,10 @@ function TableDetail({
                   onClick={() =>
                     (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
                   }
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-zinc-100 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-95"
+                  disabled={pending}
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-zinc-100 px-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 active:scale-[0.97] disabled:opacity-60"
                 >
-                  <ClipboardList className="size-3.5" />
+                  <ClipboardList className="h-3.5 w-3.5" />
                   Volver a pedir
                 </button>
               )}
@@ -957,9 +975,10 @@ function TableDetail({
                   onClick={() =>
                     (window.location.href = `/${slug}/mozo/mesa/${table.id}/pedir`)
                   }
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-emerald-50 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100 active:scale-95"
+                  disabled={pending}
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-50 px-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100 active:scale-[0.97] disabled:opacity-60"
                 >
-                  <ClipboardList className="size-3.5" />
+                  <ClipboardList className="h-3.5 w-3.5" />
                   Cargar más
                 </button>
               )}
@@ -969,9 +988,10 @@ function TableDetail({
                   onClick={() =>
                     (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
                   }
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-amber-50 text-xs font-semibold text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100 active:scale-95"
+                  disabled={pending}
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-amber-50 px-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100 active:scale-[0.97] disabled:opacity-60"
                 >
-                  <Receipt className="size-3.5" />
+                  <Receipt className="h-3.5 w-3.5" />
                   Pedir cuenta
                 </button>
               )}
@@ -980,28 +1000,26 @@ function TableDetail({
                   type="button"
                   onClick={onTransfer}
                   disabled={pending}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-sky-50 text-xs font-semibold text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100 active:scale-95 disabled:opacity-50"
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-sky-50 px-3 text-sm font-semibold text-sky-800 ring-1 ring-sky-200 transition hover:bg-sky-100 active:scale-[0.97] disabled:opacity-60"
                 >
-                  <ArrowLeftRight className="size-3.5" />
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
                   Transferir
+                </button>
+              )}
+              {canAnular && (
+                <button
+                  type="button"
+                  onClick={onAnular}
+                  disabled={pending}
+                  className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-rose-50/40 px-3 text-sm font-semibold text-rose-700 ring-1 ring-rose-200 transition hover:bg-rose-50 active:scale-[0.97] disabled:opacity-60"
+                >
+                  <Ban className="h-3.5 w-3.5" />
+                  Anular
                 </button>
               )}
             </div>
           );
         })()}
-
-        {/* Destructiva al final: rojo, separada visualmente */}
-        {canAnular && (
-          <button
-            type="button"
-            onClick={onAnular}
-            disabled={pending}
-            className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-200 bg-rose-50/40 transition hover:bg-rose-50 disabled:opacity-50"
-          >
-            <Ban className="size-3.5" />
-            Anular mesa
-          </button>
-        )}
       </div>
     </>
   );

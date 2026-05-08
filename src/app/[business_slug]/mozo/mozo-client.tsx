@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeftRight,
   Ban,
@@ -181,6 +181,7 @@ export function MozoClient({
   initialUnreadCount,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   // Default tab: "Mis mesas" para el mozo (su día a día). Encargado/admin
   // arrancan en "Salón" (vista global). Platform admin = admin acá.
   const [activeTab, setActiveTab] = useState<MozoTab>(
@@ -241,6 +242,19 @@ export function MozoClient({
   );
   const [localTables, setLocalTables] = useState<FloorTable[]>(tables);
   useEffect(() => setLocalTables(tables), [tables]);
+
+  // Deep-link: si llegamos con `?openTable=<id>` (típicamente desde /pedir
+  // tras enviar comanda), abrimos el drawer de esa mesa y limpiamos el
+  // param de la URL para no reabrirlo en navegaciones siguientes.
+  useEffect(() => {
+    const tableId = searchParams.get("openTable");
+    if (!tableId) return;
+    const t = tables.find((x) => x.id === tableId);
+    if (!t) return;
+    setSelected(t);
+    router.replace(`/${businessSlug}/mozo`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, tables]);
 
   // Polling cada 10 s
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -72,28 +73,33 @@ export default async function MozoPage({
   ]);
 
   return (
-    <MozoClient
-      businessSlug={business_slug}
-      businessName={business.name}
-      businessId={business.id}
-      floorPlans={floorPlans}
-      reservations={(reservations ?? []) as ReservationForMozo[]}
-      activeOrders={(activeOrders ?? []).map((o) => ({
-        id: o.id as string,
-        order_number: o.order_number as number,
-        table_id: o.table_id as string | null,
-        delivery_type: o.delivery_type as string,
-        total_cents: Number(o.total_cents),
-        created_at: o.created_at as string,
-        status: o.status as string,
-        customer_name: (o as { customer_name: string | null }).customer_name,
-        items: ((o as { order_items?: Array<{ product_name: string; quantity: number; cancelled_at: string | null }> }).order_items ?? []),
-      }))}
-      mozos={mozos}
-      currentUserId={ctx.user.id}
-      role={ctx.role}
-      initialNotifications={notifications}
-      initialUnreadCount={unreadCount}
-    />
+    // Suspense boundary requerido por Next 15 para useSearchParams() en
+    // el cliente. El children del Suspense ya tiene los datos pre-fetched,
+    // así que el fallback sólo aparece en navegaciones rápidas — corto.
+    <Suspense fallback={null}>
+      <MozoClient
+        businessSlug={business_slug}
+        businessName={business.name}
+        businessId={business.id}
+        floorPlans={floorPlans}
+        reservations={(reservations ?? []) as ReservationForMozo[]}
+        activeOrders={(activeOrders ?? []).map((o) => ({
+          id: o.id as string,
+          order_number: o.order_number as number,
+          table_id: o.table_id as string | null,
+          delivery_type: o.delivery_type as string,
+          total_cents: Number(o.total_cents),
+          created_at: o.created_at as string,
+          status: o.status as string,
+          customer_name: (o as { customer_name: string | null }).customer_name,
+          items: ((o as { order_items?: Array<{ product_name: string; quantity: number; cancelled_at: string | null }> }).order_items ?? []),
+        }))}
+        mozos={mozos}
+        currentUserId={ctx.user.id}
+        role={ctx.role}
+        initialNotifications={notifications}
+        initialUnreadCount={unreadCount}
+      />
+    </Suspense>
   );
 }

@@ -434,8 +434,10 @@ export function MozoPedirClient({
         `Enviado · ${r.data.comanda_ids.length} ${r.data.comanda_ids.length === 1 ? "comanda" : "comandas"}`,
       );
       setCart([]);
-      router.refresh();
-      if (existingComandas.length === 0) setStep("catalogo");
+      // Volvemos a /mozo con el drawer de la mesa abierto para que el mozo
+      // vea el resumen del pedido recién enviado y siga a "Pedir cuenta" o
+      // cargar más items.
+      router.push(`/${slug}/mozo?openTable=${table.id}`);
     });
   };
 

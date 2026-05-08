@@ -194,6 +194,166 @@ export type Database = {
         }
         Relationships: []
       }
+      caja_movimientos: {
+        Row: {
+          amount_cents: number
+          business_id: string
+          caja_turno_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          reason: string | null
+        }
+        Insert: {
+          amount_cents: number
+          business_id: string
+          caja_turno_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind: string
+          reason?: string | null
+        }
+        Update: {
+          amount_cents?: number
+          business_id?: string
+          caja_turno_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "caja_movimientos_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "caja_movimientos_caja_turno_id_fkey"
+            columns: ["caja_turno_id"]
+            isOneToOne: false
+            referencedRelation: "caja_turnos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "caja_movimientos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      caja_turnos: {
+        Row: {
+          business_id: string
+          caja_id: string
+          closed_at: string | null
+          closing_cash_cents: number | null
+          closing_notes: string | null
+          created_at: string
+          difference_cents: number | null
+          encargado_id: string
+          expected_cash_cents: number | null
+          id: string
+          opened_at: string
+          opening_cash_cents: number
+          status: string
+        }
+        Insert: {
+          business_id: string
+          caja_id: string
+          closed_at?: string | null
+          closing_cash_cents?: number | null
+          closing_notes?: string | null
+          created_at?: string
+          difference_cents?: number | null
+          encargado_id: string
+          expected_cash_cents?: number | null
+          id?: string
+          opened_at?: string
+          opening_cash_cents: number
+          status?: string
+        }
+        Update: {
+          business_id?: string
+          caja_id?: string
+          closed_at?: string | null
+          closing_cash_cents?: number | null
+          closing_notes?: string | null
+          created_at?: string
+          difference_cents?: number | null
+          encargado_id?: string
+          expected_cash_cents?: number | null
+          id?: string
+          opened_at?: string
+          opening_cash_cents?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "caja_turnos_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "caja_turnos_caja_id_fkey"
+            columns: ["caja_id"]
+            isOneToOne: false
+            referencedRelation: "cajas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "caja_turnos_encargado_id_fkey"
+            columns: ["encargado_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cajas: {
+        Row: {
+          business_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cajas_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_messages: {
         Row: {
           campaign_id: string
@@ -1096,6 +1256,90 @@ export type Database = {
           },
         ]
       }
+      order_split_items: {
+        Row: {
+          order_item_id: string
+          split_id: string
+        }
+        Insert: {
+          order_item_id: string
+          split_id: string
+        }
+        Update: {
+          order_item_id?: string
+          split_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_split_items_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_split_items_split_id_fkey"
+            columns: ["split_id"]
+            isOneToOne: false
+            referencedRelation: "order_splits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_splits: {
+        Row: {
+          business_id: string
+          created_at: string
+          expected_amount_cents: number
+          id: string
+          label: string | null
+          order_id: string
+          paid_amount_cents: number
+          split_index: number
+          split_mode: string
+          status: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          expected_amount_cents: number
+          id?: string
+          label?: string | null
+          order_id: string
+          paid_amount_cents?: number
+          split_index: number
+          split_mode: string
+          status?: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          expected_amount_cents?: number
+          id?: string
+          label?: string | null
+          order_id?: string
+          paid_amount_cents?: number
+          split_index?: number
+          split_mode?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_splits_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_splits_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_status_history: {
         Row: {
           changed_by: string | null
@@ -1143,6 +1387,7 @@ export type Database = {
           business_id: string
           cancelled_at: string | null
           cancelled_reason: string | null
+          closed_at: string | null
           created_at: string
           customer_id: string | null
           customer_name: string
@@ -1154,6 +1399,7 @@ export type Database = {
           delivery_notes: string | null
           delivery_type: string
           discount_cents: number
+          discount_reason: string | null
           id: string
           lifecycle_status: string
           mozo_id: string | null
@@ -1167,13 +1413,16 @@ export type Database = {
           status: string
           subtotal_cents: number
           table_id: string | null
+          tip_cents: number
           total_cents: number
+          total_paid_cents: number
           updated_at: string
         }
         Insert: {
           business_id: string
           cancelled_at?: string | null
           cancelled_reason?: string | null
+          closed_at?: string | null
           created_at?: string
           customer_id?: string | null
           customer_name: string
@@ -1185,6 +1434,7 @@ export type Database = {
           delivery_notes?: string | null
           delivery_type: string
           discount_cents?: number
+          discount_reason?: string | null
           id?: string
           lifecycle_status?: string
           mozo_id?: string | null
@@ -1198,13 +1448,16 @@ export type Database = {
           status?: string
           subtotal_cents: number
           table_id?: string | null
+          tip_cents?: number
           total_cents: number
+          total_paid_cents?: number
           updated_at?: string
         }
         Update: {
           business_id?: string
           cancelled_at?: string | null
           cancelled_reason?: string | null
+          closed_at?: string | null
           created_at?: string
           customer_id?: string | null
           customer_name?: string
@@ -1216,6 +1469,7 @@ export type Database = {
           delivery_notes?: string | null
           delivery_type?: string
           discount_cents?: number
+          discount_reason?: string | null
           id?: string
           lifecycle_status?: string
           mozo_id?: string | null
@@ -1229,7 +1483,9 @@ export type Database = {
           status?: string
           subtotal_cents?: number
           table_id?: string | null
+          tip_cents?: number
           total_cents?: number
+          total_paid_cents?: number
           updated_at?: string
         }
         Relationships: [
@@ -1266,6 +1522,115 @@ export type Database = {
             columns: ["table_id"]
             isOneToOne: false
             referencedRelation: "tables"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount_cents: number
+          attributed_mozo_id: string | null
+          business_id: string
+          caja_turno_id: string
+          card_brand: string | null
+          created_at: string
+          id: string
+          last_four: string | null
+          method: string
+          mp_payment_id: string | null
+          mp_preference_id: string | null
+          notes: string | null
+          operated_by: string | null
+          order_id: string
+          payment_status: string
+          refunded_at: string | null
+          refunded_reason: string | null
+          split_id: string | null
+          tip_cents: number
+        }
+        Insert: {
+          amount_cents: number
+          attributed_mozo_id?: string | null
+          business_id: string
+          caja_turno_id: string
+          card_brand?: string | null
+          created_at?: string
+          id?: string
+          last_four?: string | null
+          method: string
+          mp_payment_id?: string | null
+          mp_preference_id?: string | null
+          notes?: string | null
+          operated_by?: string | null
+          order_id: string
+          payment_status?: string
+          refunded_at?: string | null
+          refunded_reason?: string | null
+          split_id?: string | null
+          tip_cents?: number
+        }
+        Update: {
+          amount_cents?: number
+          attributed_mozo_id?: string | null
+          business_id?: string
+          caja_turno_id?: string
+          card_brand?: string | null
+          created_at?: string
+          id?: string
+          last_four?: string | null
+          method?: string
+          mp_payment_id?: string | null
+          mp_preference_id?: string | null
+          notes?: string | null
+          operated_by?: string | null
+          order_id?: string
+          payment_status?: string
+          refunded_at?: string | null
+          refunded_reason?: string | null
+          split_id?: string | null
+          tip_cents?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_attributed_mozo_id_fkey"
+            columns: ["attributed_mozo_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_caja_turno_fk"
+            columns: ["caja_turno_id"]
+            isOneToOne: false
+            referencedRelation: "caja_turnos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_operated_by_fkey"
+            columns: ["operated_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_split_id_fkey"
+            columns: ["split_id"]
+            isOneToOne: false
+            referencedRelation: "order_splits"
             referencedColumns: ["id"]
           },
         ]

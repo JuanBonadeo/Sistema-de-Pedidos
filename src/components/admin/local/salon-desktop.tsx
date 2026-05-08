@@ -86,17 +86,23 @@ function minutesSince(iso: string | null | undefined): number | null {
 }
 
 /**
- * Tiempo legible en jerga AR: "ahora", "5 min", "1h 20", "2h".
+ * Tiempo legible en jerga AR: "ahora", "5 min", "1h 20", "2h", "3 d".
  * Pensado para mostrar "hace cuánto que la mesa está abierta".
+ *
+ * Por encima de 24h pasamos a días — una mesa abierta hace 197h muestra
+ * "8 d", no "197h 21".
  */
 function formatRelativeTime(minutes: number | null): string | null {
   if (minutes === null) return null;
   if (minutes < 1) return "ahora";
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (rest === 0) return `${hours}h`;
-  return `${hours}h ${rest}`;
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest === 0 ? `${hours} h` : `${hours}h ${rest}`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} d`;
 }
 
 function formatMoney(cents: number): string {
@@ -323,22 +329,25 @@ export function SalonDesktop({
 
       {/* ── Layout split: plano + sidebar ── */}
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
-        {/* Floor plan */}
-        <div className="bg-card ring-border/60 min-h-0 overflow-hidden rounded-2xl ring-1">
-          {plan ? (
-            <FloorPlanViewer
-              plan={plan}
-              tables={tables}
-              extras={extras}
-              onTableClick={(t) => setSelectedId(t.id)}
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center p-12 text-center">
-              <p className="text-muted-foreground text-sm">
-                No hay salones cargados.
-              </p>
-            </div>
-          )}
+        {/* Columna del plano: viewer arriba + stats al pie */}
+        <div className="flex min-h-0 flex-col gap-3">
+          <div className="bg-card ring-border/60 min-h-0 flex-1 overflow-hidden rounded-2xl ring-1">
+            {plan ? (
+              <FloorPlanViewer
+                plan={plan}
+                tables={tables}
+                extras={extras}
+                onTableClick={(t) => setSelectedId(t.id)}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center p-12 text-center">
+                <p className="text-muted-foreground text-sm">
+                  No hay salones cargados.
+                </p>
+              </div>
+            )}
+          </div>
+          <SalonStats stats={stats} total={allActiveTables.length} />
         </div>
 
         {/* Panel lateral */}
@@ -373,9 +382,6 @@ export function SalonDesktop({
           )}
         </aside>
       </div>
-
-      {/* ── Stats abajo (globales, todos los salones) ── */}
-      <SalonStats stats={stats} total={allActiveTables.length} />
 
       {/* ── Modales ── */}
       {walkInTableId && (
@@ -589,123 +595,220 @@ function ActiveTablesList({
   mozoNameById: Map<string, string>;
   onSelect: (id: string) => void;
 }) {
-  // Orden: pidio_cuenta primero (urgente), después ocupadas, después libres.
-  const priority: Record<OperationalStatus, number> = {
-    pidio_cuenta: 0,
-    ocupada: 1,
-    libre: 2,
-  };
-  const sorted = tables.slice().sort((a, b) => {
-    const pa = priority[(a.operational_status ?? "libre") as OperationalStatus];
-    const pb = priority[(b.operational_status ?? "libre") as OperationalStatus];
-    if (pa !== pb) return pa - pb;
+  // Agrupamos por estado para que el encargado vea: primero urgentes
+  // (pidio_cuenta), después ocupadas, después libres con reserva próxima
+  // y por último libres simples. Dentro de cada grupo, por label.
+  const groups = useMemo(() => {
+    const sorted = tables.slice().sort((a, b) => a.label.localeCompare(b.label));
+    return {
+      pidio_cuenta: sorted.filter(
+        (t) => (t.operational_status ?? "libre") === "pidio_cuenta",
+      ),
+      ocupada: sorted.filter(
+        (t) => (t.operational_status ?? "libre") === "ocupada",
+      ),
+      libre: sorted.filter(
+        (t) => (t.operational_status ?? "libre") === "libre",
+      ),
+    };
+  }, [tables]);
+
+  // Libres con reserva próxima (próximas 2h) van al tope del grupo libre.
+  const ahora = Date.now();
+  const dosHoras = 2 * 60 * 60 * 1000;
+  const libresOrdenadas = groups.libre.slice().sort((a, b) => {
+    const ra = reservationByTable[a.id];
+    const rb = reservationByTable[b.id];
+    const aProxima =
+      ra && new Date(ra.starts_at).getTime() - ahora < dosHoras;
+    const bProxima =
+      rb && new Date(rb.starts_at).getTime() - ahora < dosHoras;
+    if (aProxima && !bProxima) return -1;
+    if (!aProxima && bProxima) return 1;
     return a.label.localeCompare(b.label);
   });
+
+  const renderGroup = (
+    title: string,
+    items: typeof tables,
+    tone: OperationalStatus,
+  ) => {
+    if (items.length === 0) return null;
+    return (
+      <section className="space-y-1.5">
+        <h4 className="px-4 pt-3 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+          {title} · {items.length}
+        </h4>
+        <ul>
+          {items.map((t) => (
+            <ActiveTableRow
+              key={t.id}
+              table={t}
+              order={orderByTable[t.id]}
+              reservation={reservationByTable[t.id]}
+              mozoName={t.mozo_id ? mozoNameById.get(t.mozo_id) : null}
+              minutes={minutesSince(t.opened_at)}
+              tone={tone}
+              onSelect={onSelect}
+            />
+          ))}
+        </ul>
+      </section>
+    );
+  };
+
+  const totalActivas = groups.pidio_cuenta.length + groups.ocupada.length;
 
   return (
     <>
       <header className="border-border/60 flex items-center justify-between border-b px-4 py-3">
-        <h3 className="text-foreground text-sm font-bold tracking-tight">
-          Mesas
-        </h3>
-        <span className="text-muted-foreground text-xs">
-          Tocá una para ver detalle
+        <div>
+          <h3 className="text-foreground text-sm font-bold tracking-tight">
+            Mesas
+          </h3>
+          <p className="text-muted-foreground text-[11px]">
+            {totalActivas} {totalActivas === 1 ? "activa" : "activas"} · {tables.length} totales
+          </p>
+        </div>
+        <span className="text-muted-foreground text-[11px]">
+          Tocá para ver
         </span>
       </header>
-      <ul className="flex-1 divide-y divide-zinc-100 overflow-y-auto">
-        {sorted.length === 0 && (
-          <li className="text-muted-foreground p-6 text-center text-sm">
+      <div className="flex-1 overflow-y-auto pb-3">
+        {tables.length === 0 ? (
+          <p className="text-muted-foreground p-6 text-center text-sm">
             Sin mesas en el plano
-          </li>
+          </p>
+        ) : (
+          <>
+            {renderGroup("Pidió la cuenta", groups.pidio_cuenta, "pidio_cuenta")}
+            {renderGroup("Ocupadas", groups.ocupada, "ocupada")}
+            {renderGroup("Libres", libresOrdenadas, "libre")}
+          </>
         )}
-        {sorted.map((t) => {
-          const status = (t.operational_status ?? "libre") as OperationalStatus;
-          const c = STATUS_COLORS[status];
-          const order = orderByTable[t.id];
-          const reservation = reservationByTable[t.id];
-          const mozoName = t.mozo_id ? mozoNameById.get(t.mozo_id) : null;
-          const minutes = minutesSince(t.opened_at);
-
-          return (
-            <li key={t.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(t.id)}
-                className="hover:bg-muted/40 flex w-full items-start gap-3 px-4 py-2.5 text-left transition"
-              >
-                <span
-                  className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg font-bold text-sm",
-                    c.bg,
-                    c.text,
-                  )}
-                >
-                  {t.label}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className={cn("h-1.5 w-1.5 rounded-full", c.dot)} />
-                    <span className={cn("text-[11px] font-semibold", c.text)}>
-                      {STATUS_LABEL[status]}
-                    </span>
-                    {minutes !== null && (
-                      <span className="text-muted-foreground text-[11px] tabular-nums">
-                        · {formatRelativeTime(minutes)}
-                      </span>
-                    )}
-                  </div>
-                  {/* Nombre del comensal: prefiere reserva, cae a snapshot
-                      de la order si no es placeholder. */}
-                  {(() => {
-                    const name = reservation?.customer_name ??
-                      (order?.customer_name &&
-                      !["Mesa", "Walk-in", "-"].includes(
-                        order.customer_name.trim(),
-                      )
-                        ? order.customer_name
-                        : null);
-                    if (!name) return null;
-                    return (
-                      <p className="truncate text-xs font-semibold text-zinc-800">
-                        {name}
-                        {reservation && (
-                          <span className="ml-1 text-[11px] font-normal text-zinc-500 tabular-nums">
-                            · {reservation.party_size}p
-                          </span>
-                        )}
-                      </p>
-                    );
-                  })()}
-                  {order && (
-                    <p className="text-muted-foreground text-[11px] tabular-nums">
-                      #{order.order_number} ·{" "}
-                      <span className="font-semibold text-zinc-700">
-                        {formatMoney(order.total_cents)}
-                      </span>
-                      {order.items.filter((it) => it.cancelled_at === null).length >
-                        0 && (
-                        <span className="ml-1 text-zinc-400">
-                          ·{" "}
-                          {order.items
-                            .filter((it) => it.cancelled_at === null)
-                            .reduce((a, it) => a + it.quantity, 0)}{" "}
-                          items
-                        </span>
-                      )}
-                    </p>
-                  )}
-                  {mozoName && (
-                    <p className="text-muted-foreground/80 truncate text-[11px]">
-                      Mozo: {mozoName}
-                    </p>
-                  )}
-                </div>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      </div>
     </>
+  );
+}
+
+// ─── Una fila de la lista lateral ──────────────────────────────────────────
+
+function ActiveTableRow({
+  table,
+  order,
+  reservation,
+  mozoName,
+  minutes,
+  tone,
+  onSelect,
+}: {
+  table: FloorTable;
+  order: SalonOrderRef | undefined;
+  reservation: SalonReservationRef | undefined;
+  mozoName: string | null | undefined;
+  minutes: number | null;
+  tone: OperationalStatus;
+  onSelect: (id: string) => void;
+}) {
+  // Color del border-left según estado.
+  const borderClass: Record<OperationalStatus, string> = {
+    libre: "border-l-zinc-200",
+    ocupada: "border-l-emerald-500",
+    pidio_cuenta: "border-l-amber-500",
+  };
+  const tiempo = formatRelativeTime(minutes);
+  const partyName =
+    reservation?.customer_name ??
+    (order?.customer_name &&
+    !["Mesa", "Walk-in", "-"].includes(order.customer_name.trim())
+      ? order.customer_name
+      : null);
+  const activeItemsCount = order
+    ? order.items
+        .filter((it) => it.cancelled_at === null)
+        .reduce((a, it) => a + it.quantity, 0)
+    : 0;
+
+  // Reserva próxima sobre mesa libre.
+  const ahora = Date.now();
+  const reservaProxima =
+    tone === "libre" &&
+    reservation &&
+    new Date(reservation.starts_at).getTime() - ahora < 2 * 60 * 60 * 1000;
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onSelect(table.id)}
+        className={cn(
+          "block w-full border-l-[3px] px-4 py-3 text-left transition hover:bg-zinc-50",
+          borderClass[tone],
+        )}
+      >
+        {/* Línea 1: label + tiempo a la derecha */}
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="font-heading truncate text-base font-bold tracking-tight text-zinc-900">
+            {table.label}
+          </span>
+          {tiempo && (
+            <span
+              className={cn(
+                "shrink-0 text-[11px] tabular-nums",
+                tone === "pidio_cuenta"
+                  ? "font-semibold text-amber-700"
+                  : "text-zinc-500",
+              )}
+            >
+              {tiempo}
+            </span>
+          )}
+        </div>
+
+        {/* Línea 2: nombre del comensal (si hay) */}
+        {partyName && (
+          <p className="mt-0.5 truncate text-xs font-medium text-zinc-700">
+            {partyName}
+            {reservation && (
+              <span className="ml-1 text-[11px] font-normal text-zinc-500 tabular-nums">
+                · {reservation.party_size}p
+              </span>
+            )}
+          </p>
+        )}
+
+        {/* Línea 3: order info (si hay) */}
+        {order && (
+          <p className="mt-0.5 text-[11px] text-zinc-500">
+            <span className="font-semibold tabular-nums text-zinc-700">
+              {formatMoney(order.total_cents)}
+            </span>
+            {activeItemsCount > 0 && (
+              <span className="text-zinc-400">
+                {" · "}
+                {activeItemsCount} {activeItemsCount === 1 ? "item" : "items"}
+              </span>
+            )}
+          </p>
+        )}
+
+        {/* Línea 4: reserva próxima sobre mesa libre */}
+        {reservaProxima && reservation && (
+          <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+            <Clock className="size-2.5" />
+            {formatTime(reservation.starts_at)} · {reservation.party_size}p
+          </p>
+        )}
+
+        {/* Línea 5: mozo asignado, chip más liviano */}
+        {mozoName && (
+          <p className="mt-1 inline-flex max-w-full items-center gap-1 truncate rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600">
+            <UserPlus className="size-2.5 flex-shrink-0" />
+            <span className="truncate">{mozoName}</span>
+          </p>
+        )}
+      </button>
+    </li>
   );
 }
 

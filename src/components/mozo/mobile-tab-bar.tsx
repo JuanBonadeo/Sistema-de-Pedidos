@@ -18,8 +18,8 @@ type TabDef = {
 };
 
 const TABS: TabDef[] = [
-  { id: "salon", label: "Salón", Icon: LayoutGrid },
   { id: "mesas", label: "Mis mesas", Icon: ListChecks },
+  { id: "salon", label: "Salón", Icon: LayoutGrid },
   { id: "avisos", label: "Avisos", Icon: Bell },
   { id: "yo", label: "Yo", Icon: User },
 ];

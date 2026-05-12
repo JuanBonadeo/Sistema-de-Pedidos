@@ -295,28 +295,18 @@ export function OrdersRealtimeBoard({
     [orders],
   );
 
-  const activeCount = orders.filter(
-    (o) => o.status !== "delivered" && o.status !== "cancelled",
-  ).length;
-
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold tabular-nums tracking-tight">
-            {activeCount}
-          </span>
-          <span className="text-muted-foreground text-sm">
-            pedido{activeCount === 1 ? "" : "s"} en curso
-          </span>
-        </div>
-        {!soundUnlocked && (
+      {/* El contador total queda en la pill del tab; acá solo el toggle de
+          sonido cuando hace falta. */}
+      {!soundUnlocked && (
+        <div className="flex items-center justify-end gap-3">
           <Button size="sm" variant="outline" onClick={unlockSound}>
             <Bell className="size-4" />
             Activar sonido
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {COLUMNS.map((col) => {

@@ -6,12 +6,14 @@ import type {
   SalonOrderRef,
   SalonReservationRef,
 } from "@/components/admin/local/salon-desktop";
-import { PageHeader, PageShell } from "@/components/admin/shell/page-shell";
 import { ensureAdminAccess } from "@/lib/admin/context";
 import { getFloorPlansForBusiness } from "@/lib/admin/floor-plan/queries";
 import { getActiveComandas, getStationsForLocal } from "@/lib/admin/local-query";
 import { getTodayOrders } from "@/lib/admin/orders-query";
-import { getActiveTurnos, getTurnosCerradosHoy } from "@/lib/caja/queries";
+import {
+  getActiveTurnos,
+  getCajasForBusiness,
+} from "@/lib/caja/queries";
 import { getMozosByBusiness } from "@/lib/mozo/queries";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { getBusiness } from "@/lib/tenant";
@@ -51,7 +53,7 @@ export default async function LocalEnVivoPage({
     { data: reservations },
     mozos,
     cajaTurnos,
-    cajaCerradosHoy,
+    cajas,
   ] = await Promise.all([
     getTodayOrders(business.id, business.timezone),
     getActiveComandas(business.id),
@@ -81,16 +83,14 @@ export default async function LocalEnVivoPage({
       .order("starts_at", { ascending: true }),
     getMozosByBusiness(business.id),
     getActiveTurnos(business.id),
-    getTurnosCerradosHoy(business.id),
+    getCajasForBusiness(business.id),
   ]);
 
+  // /admin/local toma full viewport (overlay sobre el sidebar) — sin
+  // PageShell/PageHeader: el header con tabs ya vive dentro de LocalShell
+  // y el título/subtítulo sumaban ruido a una pantalla densa.
   return (
-    <PageShell width="wide">
-      <PageHeader
-        eyebrow="Operación en vivo"
-        title="Local en vivo"
-        description="Pedidos online, comandas de cocina y salón en una sola pantalla. Se actualiza en vivo."
-      />
+    <>
       <LocalShell
         slug={business_slug}
         businessId={business.id}
@@ -171,9 +171,9 @@ export default async function LocalEnVivoPage({
         currentUserId={ctx.user.id}
         role={ctx.isPlatformAdmin ? "admin" : (ctx.role ?? "admin")}
         cajaTurnos={cajaTurnos}
-        cajaCerradosHoy={cajaCerradosHoy}
+        cajas={cajas}
       />
-    </PageShell>
+    </>
   );
 }
 

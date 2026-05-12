@@ -50,5 +50,11 @@ export async function signIn(input: unknown): Promise<ActionResult<never>> {
     return actionError("No tenés acceso a este negocio.");
   }
 
+  // Los mozos operan desde /mozo (Mis mesas), no desde /admin (que está
+  // pensado para admin y encargado). Encargado y admin van al panel.
+  const role = (membership as { role: string }).role;
+  if (role === "mozo") {
+    redirect(`/${business_slug}/mozo`);
+  }
   redirect(`/${business_slug}/admin`);
 }

@@ -382,7 +382,7 @@ export async function registrarPago(
   }
 
   revalidatePath(`/${input.slug}/mozo`);
-  revalidatePath(`/${input.slug}/caja`);
+  revalidatePath(`/${input.slug}/admin/local`);
   return actionOk({ payment, splitDone, orderClosed });
 }
 

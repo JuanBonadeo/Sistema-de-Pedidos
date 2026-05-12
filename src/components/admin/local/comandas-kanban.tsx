@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChefHat, Clock, Package, Truck, UtensilsCrossed } from "lucide-react";
+import { ChefHat, Check, Package, Play, Truck, UserPlus, UtensilsCrossed } from "lucide-react";
+import { toast } from "sonner";
 
+import {
+  advanceComandaStatus,
+  marcarComandaEntregada,
+} from "@/lib/comandas/actions";
 import type { LocalComanda, LocalStation } from "@/lib/admin/local-query";
 import type { ComandaStatus } from "@/lib/comandas/types";
+import type { MozoMember } from "@/lib/mozo/queries";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 // ─── Paleta de sectores (sort_order → color) ────────────────────────────────
@@ -37,6 +43,9 @@ type Column = {
   ring: string;
   countBg: string;
   countText: string;
+  /** Color del botón de acción de la card. Matchea el estado actual de la
+   *  comanda (no el próximo) para que la card lea como un bloque coherente. */
+  buttonClass: string;
   emptyHint: string;
 };
 
@@ -48,6 +57,7 @@ const COLUMNS: Column[] = [
     ring: "ring-amber-500/30",
     countBg: "bg-amber-50",
     countText: "text-amber-800",
+    buttonClass: "bg-amber-500 hover:bg-amber-600 text-white",
     emptyHint: "Sin comandas pendientes",
   },
   {
@@ -57,6 +67,7 @@ const COLUMNS: Column[] = [
     ring: "ring-sky-500/30",
     countBg: "bg-sky-50",
     countText: "text-sky-800",
+    buttonClass: "bg-sky-500 hover:bg-sky-600 text-white",
     emptyHint: "Cocina libre",
   },
   {
@@ -66,6 +77,7 @@ const COLUMNS: Column[] = [
     ring: "ring-emerald-500/30",
     countBg: "bg-emerald-50",
     countText: "text-emerald-800",
+    buttonClass: "bg-emerald-500 hover:bg-emerald-600 text-white",
     emptyHint: "Aún no se entregó nada",
   },
 ];
@@ -81,12 +93,20 @@ function useElapsedMinutes(iso: string): number {
   return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
 }
 
-function formatElapsed(min: number): string {
-  if (min < 1) return "ahora";
-  if (min < 60) return `${min}m`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m === 0 ? `${h}h` : `${h}h${m}m`;
+/**
+ * Mismo formato que el salón ("ahora", "5 min", "1h 20", "2h", "3 d") para
+ * que el encargado lea el mismo lenguaje de tiempos en todas las tabs.
+ */
+function formatRelativeTime(minutes: number): string {
+  if (minutes < 1) return "ahora";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest === 0 ? `${hours} h` : `${hours}h ${rest}`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} d`;
 }
 
 function elapsedTone(min: number, terminal: boolean): string {
@@ -109,16 +129,54 @@ export function ComandasKanban({
   businessId,
   initialComandas,
   stations,
+  mozos,
 }: {
   slug: string;
   businessId: string;
   initialComandas: LocalComanda[];
   stations: LocalStation[];
+  mozos: MozoMember[];
 }) {
-  void slug;
   const router = useRouter();
   const [comandas, setComandas] = useState<LocalComanda[]>(initialComandas);
   useEffect(() => setComandas(initialComandas), [initialComandas]);
+
+  // Mutaciones de estado en la card. Optimistic con rollback en error.
+  // Realtime trae el cambio igualmente, pero el optimistic evita el flash.
+  const [isPending, startTransition] = useTransition();
+
+  const onEmpezar = (id: string) => {
+    const prev = comandas;
+    setComandas((cs) =>
+      cs.map((c) => (c.id === id ? { ...c, status: "en_preparacion" } : c)),
+    );
+    startTransition(async () => {
+      const res = await advanceComandaStatus(id, slug);
+      if (!res.ok) {
+        setComandas(prev);
+        toast.error(res.error);
+      }
+    });
+  };
+
+  const onEntregar = (id: string) => {
+    const prev = comandas;
+    const nowIso = new Date().toISOString();
+    setComandas((cs) =>
+      cs.map((c) =>
+        c.id === id
+          ? { ...c, status: "entregado", delivered_at: nowIso }
+          : c,
+      ),
+    );
+    startTransition(async () => {
+      const res = await marcarComandaEntregada(id, slug);
+      if (!res.ok) {
+        setComandas(prev);
+        toast.error(res.error);
+      }
+    });
+  };
 
   // ── Realtime sobre `comandas` ──
   const businessIdRef = useRef(businessId);
@@ -162,6 +220,15 @@ export function ComandasKanban({
     };
   }, [router]);
 
+  // Resolución de nombre del mozo → mismo patrón que SalonDesktop.
+  const mozoNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const x of mozos) {
+      if (x.full_name) m.set(x.user_id, x.full_name);
+    }
+    return m;
+  }, [mozos]);
+
   // Mapas derivados.
   const stationStyleById = useMemo(() => {
     const out = new Map<string, (typeof SECTOR_PALETTE)[number]>();
@@ -195,23 +262,8 @@ export function ComandasKanban({
     return groups;
   }, [comandas]);
 
-  const activeCount =
-    (byColumn.pendiente?.length ?? 0) + (byColumn.en_preparacion?.length ?? 0);
-
   return (
     <div className="flex flex-col gap-5">
-      {/* ── Header con contador total ── */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold tabular-nums tracking-tight">
-            {activeCount}
-          </span>
-          <span className="text-muted-foreground text-sm">
-            comanda{activeCount === 1 ? "" : "s"} activa{activeCount === 1 ? "" : "s"}
-          </span>
-        </div>
-      </div>
-
       {/* ── Stats de saturación por sector ── */}
       <SectorStatsBar
         stations={stations}
@@ -249,6 +301,11 @@ export function ComandasKanban({
                     comanda={c}
                     stationStyle={stationStyleById.get(c.station_id) ?? FALLBACK}
                     columnRing={col.ring}
+                    buttonClass={col.buttonClass}
+                    mozoName={c.mozo_id ? (mozoNameById.get(c.mozo_id) ?? null) : null}
+                    onEmpezar={onEmpezar}
+                    onEntregar={onEntregar}
+                    isPending={isPending}
                   />
                 ))}
                 {items.length === 0 && (
@@ -325,10 +382,20 @@ function ComandaCard({
   comanda,
   stationStyle,
   columnRing,
+  buttonClass,
+  mozoName,
+  onEmpezar,
+  onEntregar,
+  isPending,
 }: {
   comanda: LocalComanda;
   stationStyle: (typeof SECTOR_PALETTE)[number];
   columnRing: string;
+  buttonClass: string;
+  mozoName: string | null;
+  onEmpezar: (id: string) => void;
+  onEntregar: (id: string) => void;
+  isPending: boolean;
 }) {
   const elapsed = useElapsedMinutes(comanda.emitted_at);
   const isTerminal = comanda.status === "entregado";
@@ -361,7 +428,7 @@ function ComandaCard({
           <span
             className={`text-xs font-medium tabular-nums ${elapsedTone(elapsed, isTerminal)}`}
           >
-            {formatElapsed(elapsed)}
+            {formatRelativeTime(elapsed)}
           </span>
         </div>
         <ChannelIcon
@@ -369,6 +436,15 @@ function ComandaCard({
           aria-label={comanda.delivery_type}
         />
       </header>
+
+      {/* Mozo asignado — solo dine-in con mozo. Mismo chip que en el salón
+          para que el encargado mapee comanda → mozo de un vistazo. */}
+      {mozoName && (
+        <p className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-700 self-start">
+          <UserPlus className="size-2.5 flex-shrink-0" />
+          <span className="truncate">{mozoName}</span>
+        </p>
+      )}
 
       {/* Sector + tanda + nº pedido */}
       <div className="flex items-center justify-between gap-2 text-[11px]">
@@ -432,15 +508,35 @@ function ComandaCard({
         ))}
       </ul>
 
-      {/* Footer: tiempo grande con tono según urgencia */}
-      <div className="flex items-center justify-end pt-0.5 text-xs">
-        <span
-          className={`inline-flex items-center gap-1 ${elapsedTone(elapsed, isTerminal)}`}
-        >
-          <Clock className="size-3" />
-          {formatElapsed(elapsed)}
-        </span>
-      </div>
+      {/* Footer: acción primaria. El tiempo va arriba (no se duplica abajo).
+          Las entregadas (terminal) no tienen botón. El color matchea el
+          estado actual de la card (no el próximo). */}
+      {!isTerminal && (
+        <div className="pt-1">
+          {comanda.status === "pendiente" && (
+            <button
+              type="button"
+              onClick={() => onEmpezar(comanda.id)}
+              disabled={isPending}
+              className={`inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition active:translate-y-px disabled:opacity-50 ${buttonClass}`}
+            >
+              <Play className="size-3.5" strokeWidth={2.5} />
+              Empezar
+            </button>
+          )}
+          {comanda.status === "en_preparacion" && (
+            <button
+              type="button"
+              onClick={() => onEntregar(comanda.id)}
+              disabled={isPending}
+              className={`inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition active:translate-y-px disabled:opacity-50 ${buttonClass}`}
+            >
+              <Check className="size-3.5" strokeWidth={2.5} />
+              Entregar
+            </button>
+          )}
+        </div>
+      )}
     </article>
   );
 }

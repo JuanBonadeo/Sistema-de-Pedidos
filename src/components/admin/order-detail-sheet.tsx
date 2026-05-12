@@ -78,6 +78,22 @@ const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
   on_the_way: "delivered",
 };
 
+/**
+ * Mismo formato que el salón / kanban / cards ("ahora", "5 min", "1h 20",
+ * "3 d"). Unifica el lenguaje de tiempos en todo el admin del local.
+ */
+function formatRelativeTime(minutes: number): string {
+  if (minutes < 1) return "ahora";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest === 0 ? `${hours} h` : `${hours}h ${rest}`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} d`;
+}
+
 export function OrderDetailSheet({
   open,
   onOpenChange,
@@ -242,7 +258,7 @@ export function OrderDetailSheet({
               </h2>
               <span className="text-muted-foreground text-sm tabular-nums">
                 · {formatInTimeZone(order.created_at, timezone, "HH:mm")} ·{" "}
-                hace {elapsedMin} min
+                hace {formatRelativeTime(elapsedMin)}
               </span>
             </div>
             <p className="text-foreground mt-1 text-base font-semibold">

@@ -73,6 +73,15 @@ export function canOpenCajaTurno(role: BusinessRole): boolean {
   return role === "admin" || role === "encargado";
 }
 
+/**
+ * Gestionar el catálogo de cajas físicas: crear, renombrar, deshabilitar.
+ * Solo el admin del negocio. El encargado puede ABRIR turnos pero no
+ * configurar qué cajas existen.
+ */
+export function canManageCajas(role: BusinessRole): boolean {
+  return role === "admin";
+}
+
 export function canCloseCajaTurno(role: BusinessRole): boolean {
   return role === "admin" || role === "encargado";
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  ArmchairIcon,
   ArrowLeftRight,
   Ban,
   Banknote,
@@ -26,11 +27,20 @@ import { OrderSummaryCard } from "@/components/mozo/order-summary-card";
 import { TableDrawer } from "@/components/mozo/table-drawer";
 import { TransferTableModal } from "@/components/mozo/transfer-table-modal";
 import { WalkInModal } from "@/components/mozo/walk-in-modal";
+import { signOut } from "@/lib/auth/sign-out";
 import { anularMesa, volverAPedir } from "@/lib/mozo/actions";
 import type { MozoMember } from "@/lib/mozo/queries";
 import { type OperationalStatus } from "@/lib/mozo/state-machine";
+import { NotificationsToastHost } from "@/components/notifications/notifications-toast-host";
+import { useNotificationsRealtime } from "@/components/notifications/use-notifications-realtime";
 import { markAllRead, markRead } from "@/lib/notifications/actions";
+import { isMockNotificationId } from "@/lib/notifications/mocks";
 import type { Notification } from "@/lib/notifications/queries";
+import {
+  NOTI_TONE_STYLES,
+  formatNotificationTime,
+  viewForNotification,
+} from "@/lib/notifications/view";
 import { canAssignMozo, canTransitionMesa } from "@/lib/permissions/can";
 import type { FloorPlanWithTables } from "@/lib/admin/floor-plan/queries";
 import type { FloorTable } from "@/lib/reservations/types";
@@ -139,43 +149,9 @@ function initialsFromName(name: string | null | undefined): string {
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "??";
 }
 
-function relativeTime(iso: string): string {
-  const diffMin = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (diffMin < 1) return "ahora";
-  if (diffMin < 60) return `hace ${diffMin}m`;
-  const h = Math.floor(diffMin / 60);
-  if (h < 24) return `hace ${h}h`;
-  return `hace ${Math.floor(h / 24)}d`;
-}
-
-function describeNotif(n: Notification): { title: string; body: string } {
-  if (n.type === "mesa.transferred") {
-    const p = n.payload as {
-      tableLabel?: string;
-      fromName?: string | null;
-      toName?: string | null;
-      reason?: string | null;
-    };
-    return {
-      title: `Mesa ${p.tableLabel ?? "?"} transferida`,
-      body: [
-        p.fromName ? `de ${p.fromName}` : null,
-        p.toName ? `a ${p.toName}` : null,
-        p.reason ? `· ${p.reason}` : null,
-      ]
-        .filter(Boolean)
-        .join(" "),
-    };
-  }
-  if (n.type === "mesa.cancelled") {
-    const p = n.payload as { tableLabel?: string; reason?: string };
-    return {
-      title: `Mesa ${p.tableLabel ?? "?"} anulada`,
-      body: p.reason ?? "",
-    };
-  }
-  return { title: n.type, body: "" };
-}
+// relativeTime + describeNotif viven en `lib/notifications/view.ts`
+// (`formatNotificationTime` + `viewForNotification`) — compartidos con
+// el drawer admin para mantener el lenguaje visual uniforme.
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -245,15 +221,22 @@ export function MozoClient({
     }
   };
 
-  // Tablas del salón activo. localTables guarda el optimistic update interno
-  // (las acciones de mozo lo mutan en mem antes del refresh).
-  const tables = useMemo(
-    () =>
-      floorPlans.find((p) => p.plan.id === activePlanId)?.tables ?? [],
-    [floorPlans, activePlanId],
+  // Mesas del negocio. Antes esto era SOLO las del plan activo, lo que
+  // rompía "Mis mesas" cuando el mozo tenía asignaciones en distintos
+  // floor plans (Salón + Terraza). Ahora guardamos TODAS y filtramos por
+  // plan únicamente cuando rendereamos el plano del salón.
+  const allTables = useMemo(
+    () => floorPlans.flatMap((p) => p.tables),
+    [floorPlans],
   );
-  const [localTables, setLocalTables] = useState<FloorTable[]>(tables);
-  useEffect(() => setLocalTables(tables), [tables]);
+  const [localTables, setLocalTables] = useState<FloorTable[]>(allTables);
+  useEffect(() => setLocalTables(allTables), [allTables]);
+
+  // Subset para el plano del salón activo (lo usa SalonSection).
+  const activePlanTables = useMemo(
+    () => localTables.filter((t) => t.floor_plan_id === activePlanId),
+    [localTables, activePlanId],
+  );
 
   // Deep-link: si llegamos con `?openTable=<id>` (típicamente desde /pedir
   // tras enviar comanda), abrimos el drawer de esa mesa y limpiamos el
@@ -261,12 +244,12 @@ export function MozoClient({
   useEffect(() => {
     const tableId = searchParams.get("openTable");
     if (!tableId) return;
-    const t = tables.find((x) => x.id === tableId);
+    const t = allTables.find((x) => x.id === tableId);
     if (!t) return;
     setSelected(t);
     router.replace(`/${businessSlug}/mozo`, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, tables]);
+  }, [searchParams, allTables]);
 
   // Polling cada 10 s
   useEffect(() => {
@@ -362,20 +345,49 @@ export function MozoClient({
     router.refresh();
   }, [anularPrompt, anularReason, businessSlug, router]);
 
+  // Realtime + toasts iOS para notificaciones del mozo. La fuente de verdad
+  // sigue siendo el server (revalidatePath en markRead/markAllRead), el
+  // hook hidrata en cliente y dispara toasts ante INSERTs nuevos.
+  const {
+    notifications: liveNotifications,
+    unreadCount: liveUnreadCount,
+    markReadLocally,
+    markAllReadLocally,
+  } = useNotificationsRealtime({
+    initialNotifications,
+    initialUnreadCount,
+    businessId,
+    userId: currentUserId,
+    role,
+  });
+
   const handleNotifClick = useCallback(
     async (n: Notification) => {
-      if (!n.read_at) {
-        await markRead(n.id, businessSlug);
-        router.refresh();
+      if (n.read_at) return;
+      if (isMockNotificationId(n.id)) {
+        markReadLocally(n.id);
+        return;
       }
+      await markRead(n.id, businessSlug);
+      router.refresh();
     },
-    [businessSlug, router],
+    [businessSlug, router, markReadLocally],
   );
 
   const handleMarkAllRead = useCallback(async () => {
+    markAllReadLocally();
+    const hasReal = liveNotifications.some((n) => !isMockNotificationId(n.id));
+    if (!hasReal) return;
     const r = await markAllRead(businessSlug);
     if (r.ok) router.refresh();
-  }, [businessSlug, router]);
+  }, [businessSlug, router, liveNotifications, markAllReadLocally]);
+
+  const handleToastClick = useCallback((n: Notification) => {
+    // Tocar el toast lleva al tab Avisos. La nav del mozo gestiona la
+    // marcación de leído cuando ahí toque la card.
+    void n;
+    setActiveTab("avisos");
+  }, []);
 
   // ── Drawer / sheet ──
   const selectedSync = selected
@@ -467,7 +479,7 @@ export function MozoClient({
               )}
             </div>
             <SalonSection
-              tables={localTables}
+              tables={activePlanTables}
               reservationByTable={reservationByTable}
               orderByTable={orderByTable}
               mozoNameById={mozoNameById}
@@ -487,8 +499,8 @@ export function MozoClient({
         )}
         {activeTab === "avisos" && (
           <AvisosSection
-            notifications={initialNotifications}
-            unreadCount={initialUnreadCount}
+            notifications={liveNotifications}
+            unreadCount={liveUnreadCount}
             onItemClick={handleNotifClick}
             onMarkAllRead={handleMarkAllRead}
           />
@@ -507,9 +519,12 @@ export function MozoClient({
       <MobileTabBar
         active={activeTab}
         onChange={setActiveTab}
-        unreadCount={initialUnreadCount}
+        unreadCount={liveUnreadCount}
         myActiveCount={myTables.length}
       />
+
+      {/* Toasts iOS-style. Dispara desde realtime vía el hook arriba. */}
+      <NotificationsToastHost onToastClick={handleToastClick} />
 
       {/* Drawer de mesa */}
       <TableDrawer
@@ -754,8 +769,30 @@ export function MozoClient({
               <OrderSummaryCard
                 order={orderByTable[selectedSync.id]!}
                 slug={businessSlug}
+                hideComandasIfAllDelivered={selectedStatus === "pidio_cuenta"}
               />
             )}
+
+            {/* Empty state: mesa libre sin reserva. Llena el body con info
+                útil en vez de quedar un hueco grande entre header y footer. */}
+            {selectedStatus === "libre" &&
+              !reservationByTable[selectedSync.id] &&
+              !orderByTable[selectedSync.id] && (
+                <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/60 px-6 py-10 text-center">
+                  <div className="flex size-12 items-center justify-center rounded-full bg-white ring-1 ring-zinc-200">
+                    <ArmchairIcon className="size-5 text-zinc-400" />
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-zinc-900">
+                    Mesa disponible
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {selectedSync.seats} {selectedSync.seats === 1 ? "silla" : "sillas"}
+                  </p>
+                  <p className="mt-3 max-w-[18rem] text-xs text-zinc-500">
+                    Tocá <span className="font-semibold text-zinc-700">Sentar walk-in</span> para abrir la mesa con un comensal que llegó sin reserva.
+                  </p>
+                </div>
+              )}
           </div>
         )}
       </TableDrawer>
@@ -1029,7 +1066,7 @@ function SalonSection({
       ) : filtered.length === 0 ? (
         <div className="rounded-2xl bg-white p-10 text-center ring-1 ring-zinc-200">
           <p className="text-sm text-zinc-500">
-            No hay mesas en estado "{FILTER_LABEL[filter]}" ahora.
+            No hay mesas en estado “{FILTER_LABEL[filter]}” ahora.
           </p>
         </div>
       ) : (
@@ -1442,7 +1479,9 @@ function AvisosSection({
       )}
       <ul className="space-y-2">
         {notifications.map((n) => {
-          const { title, body } = describeNotif(n);
+          const view = viewForNotification(n);
+          const Icon = view.icon;
+          const tone = NOTI_TONE_STYLES[view.tone];
           const unread = !n.read_at;
           return (
             <li key={n.id}>
@@ -1450,25 +1489,39 @@ function AvisosSection({
                 type="button"
                 onClick={() => onItemClick(n)}
                 className={`flex w-full items-start gap-3 rounded-2xl p-4 text-left ring-1 transition active:scale-[0.99] ${
-                  unread
-                    ? "bg-sky-50/60 ring-sky-200"
-                    : "bg-white ring-zinc-200"
+                  unread ? "bg-white ring-zinc-200" : "bg-zinc-50/60 ring-zinc-200/70"
                 }`}
               >
                 <span
-                  className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${
-                    unread ? "bg-sky-500" : "bg-zinc-300"
-                  }`}
-                />
+                  className={`mt-0.5 inline-flex size-9 flex-shrink-0 items-center justify-center rounded-full ring-1 ${tone.iconBg} ${tone.iconText} ${tone.ring}`}
+                >
+                  <Icon className="size-4" />
+                </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-zinc-900">{title}</p>
-                  {body && (
-                    <p className="mt-0.5 text-sm text-zinc-600">{body}</p>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p
+                      className={`truncate text-sm ${unread ? "font-semibold text-zinc-900" : "font-medium text-zinc-600"}`}
+                    >
+                      {view.title}
+                    </p>
+                    <span className="shrink-0 text-[11px] tabular-nums text-zinc-400">
+                      {formatNotificationTime(n.created_at)}
+                    </span>
+                  </div>
+                  {view.body && (
+                    <p
+                      className={`mt-0.5 text-xs ${unread ? "text-zinc-600" : "text-zinc-500"}`}
+                    >
+                      {view.body}
+                    </p>
                   )}
-                  <p className="mt-1 text-xs text-zinc-400">
-                    {relativeTime(n.created_at)}
-                  </p>
                 </div>
+                {unread && (
+                  <span
+                    aria-hidden
+                    className="mt-2 size-2 flex-shrink-0 rounded-full bg-rose-500"
+                  />
+                )}
               </button>
             </li>
           );
@@ -1491,6 +1544,28 @@ function YoSection({
   initials: string;
   myActiveCount: number;
 }) {
+  const [signingOut, startSignOut] = useTransition();
+  const handleSignOut = () => {
+    startSignOut(async () => {
+      try {
+        await signOut(slug);
+      } catch (err) {
+        // Next.js usa throw para los redirects de server actions — relanzar
+        // para que Next lo procese y navegue.
+        if (
+          err instanceof Error &&
+          "digest" in err &&
+          typeof err.digest === "string" &&
+          err.digest.startsWith("NEXT_REDIRECT")
+        ) {
+          throw err;
+        }
+        console.error("signOut", err);
+        toast.error("No pudimos cerrar la sesión.");
+      }
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* Perfil */}
@@ -1605,26 +1680,36 @@ function YoSection({
 
       {/* Acciones */}
       <section className="rounded-3xl bg-white ring-1 ring-zinc-200">
-        <a
-          href={`/${slug}/admin`}
-          className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 transition active:bg-zinc-50"
-        >
-          <span className="inline-flex items-center gap-3 text-base font-medium text-zinc-900">
-            <Settings className="h-5 w-5 text-zinc-500" />
-            Ir al panel admin
-          </span>
-          <span className="text-zinc-400">›</span>
-        </a>
-        <a
-          href={`/${slug}/admin/login`}
-          className="flex items-center justify-between px-5 py-4 transition active:bg-zinc-50"
+        {/* "Ir al panel admin" solo para admin/encargado — el mozo no tiene
+            acceso al panel (lo bloquea el layout authed). */}
+        {role !== "mozo" && (
+          <a
+            href={`/${slug}/admin`}
+            className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 transition active:bg-zinc-50"
+          >
+            <span className="inline-flex items-center gap-3 text-base font-medium text-zinc-900">
+              <Settings className="h-5 w-5 text-zinc-500" />
+              Ir al panel admin
+            </span>
+            <span className="text-zinc-400">›</span>
+          </a>
+        )}
+        {/* Cerrar sesión: server action via onClick. El <a> al /admin/login
+            de antes solo navegaba y la página de login auto-redirige si hay
+            sesión activa → loop infinito. Acá invalidamos la sesión y después
+            el redirect del server action lleva al login. */}
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={signingOut}
+          className="flex w-full items-center justify-between px-5 py-4 text-left transition active:bg-zinc-50 disabled:opacity-50"
         >
           <span className="inline-flex items-center gap-3 text-base font-medium text-red-600">
             <LogOut className="h-5 w-5" />
-            Cerrar sesión
+            {signingOut ? "Cerrando…" : "Cerrar sesión"}
           </span>
           <span className="text-zinc-400">›</span>
-        </a>
+        </button>
       </section>
     </div>
   );

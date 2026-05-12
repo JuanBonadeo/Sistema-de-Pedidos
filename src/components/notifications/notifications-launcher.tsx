@@ -1,0 +1,112 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+import {
+  NotificationsBell,
+  NotificationsDrawer,
+} from "@/components/notifications/notifications-drawer";
+import { NotificationsToastHost } from "@/components/notifications/notifications-toast-host";
+import { useNotificationsRealtime } from "@/components/notifications/use-notifications-realtime";
+import { markAllRead, markRead } from "@/lib/notifications/actions";
+import { isMockNotificationId } from "@/lib/notifications/mocks";
+import type { Notification } from "@/lib/notifications/queries";
+
+/**
+ * Mount global: campana + drawer + toasts iOS.
+ *
+ * El hook `useNotificationsRealtime` mantiene la lista en cliente, dispara
+ * toasts ante INSERTs y expone helpers para marcar leído localmente
+ * (necesarios para los mocks de fallback, que no existen en DB).
+ */
+export function NotificationsLauncher({
+  notifications: initialNotifications,
+  unreadCount: initialUnreadCount,
+  businessSlug,
+  businessId,
+  userId,
+  role,
+  variant = "default",
+}: {
+  notifications: Notification[];
+  unreadCount: number;
+  businessSlug: string;
+  businessId: string;
+  userId: string;
+  role: string;
+  variant?: "default" | "ghost";
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  const {
+    notifications,
+    unreadCount,
+    markReadLocally,
+    markAllReadLocally,
+  } = useNotificationsRealtime({
+    initialNotifications,
+    initialUnreadCount,
+    businessId,
+    userId,
+    role,
+  });
+
+  const markOne = async (n: Notification) => {
+    if (n.read_at) return;
+    if (isMockNotificationId(n.id)) {
+      markReadLocally(n.id);
+      return;
+    }
+    // Server: revalidatePath fuerza al hook a re-syncear desde el snapshot.
+    await markRead(n.id, businessSlug);
+  };
+
+  const markAll = async () => {
+    // Optimistic local update (cubre mocks y mejora UX para reales).
+    markAllReadLocally();
+    const hasReal = notifications.some((n) => !isMockNotificationId(n.id));
+    if (hasReal) {
+      await markAllRead(businessSlug);
+    }
+  };
+
+  const handleItemClick = async (n: Notification) => {
+    await markOne(n);
+    setOpen(false);
+    // Deep-link según tipo. Mantener sincronizado con `viewForNotification`.
+    if (n.type === "order.pending") {
+      router.push(`/${businessSlug}/admin/local?tab=pedidos`);
+      return;
+    }
+    router.refresh();
+  };
+
+  const handleToastClick = (n: Notification) => {
+    void markOne(n);
+    if (n.type === "order.pending") {
+      router.push(`/${businessSlug}/admin/local?tab=pedidos`);
+      return;
+    }
+    setOpen(true);
+  };
+
+  return (
+    <>
+      <NotificationsBell
+        unreadCount={unreadCount}
+        variant={variant}
+        onClick={() => setOpen(true)}
+      />
+      <NotificationsDrawer
+        open={open}
+        onOpenChange={setOpen}
+        notifications={notifications}
+        onItemClick={handleItemClick}
+        onMarkAllRead={markAll}
+      />
+      <NotificationsToastHost onToastClick={handleToastClick} />
+    </>
+  );
+}

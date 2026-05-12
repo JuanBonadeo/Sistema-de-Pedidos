@@ -48,15 +48,17 @@ export default async function CobrarPage({
 
   const init = await iniciarCobro(cuenta.order.id, business_slug);
   if (!init.ok) {
+    // Caso típico: no hay caja abierta. El mozo no abre la caja (lo hace
+    // el encargado/admin), así que solo le ofrecemos volver al salón.
     return (
       <div className="min-h-screen bg-background p-4 flex flex-col items-center justify-center text-center gap-4">
         <p className="text-lg font-semibold">No se puede cobrar</p>
         <p className="text-sm text-muted-foreground max-w-sm">{init.error}</p>
         <a
-          href={`/${business_slug}/caja`}
+          href={`/${business_slug}/mozo`}
           className="text-primary underline text-sm"
         >
-          Ir a caja →
+          ← Volver al salón
         </a>
       </div>
     );

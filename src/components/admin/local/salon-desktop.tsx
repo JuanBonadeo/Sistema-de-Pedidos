@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import type { BusinessRole } from "@/lib/admin/context";
 import type { FloorPlanWithTables } from "@/lib/admin/floor-plan/queries";
 import { anularMesa } from "@/lib/mozo/actions";
+import { initialsFromName, mozoColor } from "@/lib/mozo/colors";
 import type { MozoMember } from "@/lib/mozo/queries";
 import { type OperationalStatus } from "@/lib/mozo/state-machine";
 import { canTransitionMesa } from "@/lib/permissions/can";
@@ -140,11 +141,6 @@ export function SalonDesktop({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-
-  // Al entrar a la tab Salón, colapsamos el sidebar para ganar viewport.
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent("admin-sidebar-collapse"));
-  }, []);
 
   // Polling 10s. `tables` no está en realtime (DT-004).
   useEffect(() => {
@@ -288,6 +284,7 @@ export function SalonDesktop({
         order?: { order_number: number; total_cents: number; delivery_type: string };
         minutesOpen?: number;
         mozoInitial?: string;
+        mozoColor?: string;
       }
     > = {};
     for (const t of activeTables) {
@@ -310,11 +307,32 @@ export function SalonDesktop({
             }
           : undefined,
         minutesOpen: t.opened_at ? (minutesSince(t.opened_at) ?? undefined) : undefined,
-        mozoInitial: mozoName ? mozoName.charAt(0).toUpperCase() : undefined,
+        mozoInitial: mozoName ? initialsFromName(mozoName) : undefined,
+        mozoColor: t.mozo_id ? mozoColor(t.mozo_id) : undefined,
       };
     }
     return out;
   }, [activeTables, orderByTable, reservationByTable, mozoNameById]);
+
+  // Mozos visibles en este salón (con su conteo de mesas asignadas). Usado
+  // por la leyenda debajo del plano para que el encargado mapee color → mozo
+  // de un vistazo sin necesidad de las iniciales.
+  const mozosEnSalon = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of activeTables) {
+      if (t.mozo_id) counts.set(t.mozo_id, (counts.get(t.mozo_id) ?? 0) + 1);
+    }
+    const sinAsignar = activeTables.filter((t) => !t.mozo_id).length;
+    const entries = Array.from(counts.entries())
+      .map(([id, count]) => ({
+        id,
+        name: mozoNameById.get(id) ?? "Mozo",
+        color: mozoColor(id),
+        count,
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    return { entries, sinAsignar };
+  }, [activeTables, mozoNameById]);
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -347,6 +365,10 @@ export function SalonDesktop({
               </div>
             )}
           </div>
+          <MozosLegend
+            entries={mozosEnSalon.entries}
+            sinAsignar={mozosEnSalon.sinAsignar}
+          />
           <SalonStats stats={stats} total={allActiveTables.length} />
         </div>
 
@@ -576,6 +598,47 @@ function SalonStats({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ─── Leyenda de mozos (color → nombre), compacta ────────────────────────────
+
+function MozosLegend({
+  entries,
+  sinAsignar,
+}: {
+  entries: { id: string; name: string; color: string; count: number }[];
+  sinAsignar: number;
+}) {
+  if (entries.length === 0 && sinAsignar === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-1">
+      {entries.map((m) => (
+        <span
+          key={m.id}
+          className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-700"
+          title={`${m.name} · ${m.count} mesa${m.count === 1 ? "" : "s"}`}
+        >
+          <span
+            aria-hidden
+            className="size-2.5 shrink-0 rounded-full"
+            style={{ background: m.color }}
+          />
+          <span className="truncate max-w-[10rem]">{m.name}</span>
+          <span className="tabular-nums text-zinc-400">{m.count}</span>
+        </span>
+      ))}
+      {sinAsignar > 0 && (
+        <span
+          className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-500"
+          title={`${sinAsignar} mesa${sinAsignar === 1 ? "" : "s"} sin mozo`}
+        >
+          <span aria-hidden className="size-2.5 shrink-0 rounded-full bg-zinc-300" />
+          Sin asignar
+          <span className="tabular-nums text-zinc-400">{sinAsignar}</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -841,6 +904,7 @@ function TableDetail({
   onTransfer: () => void;
   onAnular: () => void;
 }) {
+  const router = useRouter();
   const status = (table.operational_status ?? "libre") as OperationalStatus;
   const c = STATUS_COLORS[status];
   const minutes = minutesSince(table.opened_at);
@@ -953,12 +1017,41 @@ function TableDetail({
         )}
         {reservation?.notes && (
           <p className="-mt-1 px-1 text-xs italic text-zinc-600">
-            "{reservation.notes}"
+            “{reservation.notes}”
           </p>
         )}
 
-        {/* Orden + comandas con estado */}
-        {order && <OrderSummaryCard order={order} slug={slug} />}
+        {/* Orden + comandas con estado. Si pidió cuenta y cocina ya
+            entregó todo, el bloque comandas no aporta — se oculta. */}
+        {order && (
+          <OrderSummaryCard
+            order={order}
+            slug={slug}
+            hideComandasIfAllDelivered={status === "pidio_cuenta"}
+          />
+        )}
+
+        {/* Empty state: mesa libre sin reserva. En vez de dejar un hueco
+            grande entre header y footer, ponemos info útil + hint a la
+            acción primaria. */}
+        {status === "libre" && !reservation && !order && (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/60 px-6 py-10 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-white ring-1 ring-zinc-200">
+              <Users className="size-5 text-zinc-400" />
+            </div>
+            <p className="mt-3 text-sm font-semibold text-zinc-900">
+              Mesa disponible
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {table.seats} {table.seats === 1 ? "silla" : "sillas"}
+            </p>
+            <p className="mt-3 max-w-[18rem] text-xs text-zinc-500">
+              Tocá{" "}
+              <span className="font-semibold text-zinc-700">Sentar walk-in</span>{" "}
+              para abrir la mesa con un comensal que llegó sin reserva.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Footer: jerarquía clara — primario grande, secundarios en grid,
@@ -994,7 +1087,7 @@ function TableDetail({
                 disabled={pending}
                 className={primaryClass}
                 onClick={() =>
-                  (window.location.href = `/${slug}/mozo/mesa/${table.id}/cobrar`)
+                  router.push(`/${slug}/admin/mesa/${table.id}/cobrar`)
                 }
               >
                 <Receipt className="h-5 w-5" />
@@ -1009,11 +1102,11 @@ function TableDetail({
                 disabled={pending}
                 className={primaryClass}
                 onClick={() =>
-                  (window.location.href = `/${slug}/mozo/mesa/${table.id}/cuenta`)
+                  router.push(`/${slug}/admin/mesa/${table.id}/cobrar`)
                 }
               >
                 <Receipt className="h-5 w-5" />
-                Pedir cuenta
+                Cobrar mesa
               </button>
             );
           }

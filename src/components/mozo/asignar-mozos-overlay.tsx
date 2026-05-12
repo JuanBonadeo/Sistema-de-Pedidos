@@ -7,11 +7,12 @@ import { toast } from "sonner";
 
 import { assignMozoToTable } from "@/lib/mozo/actions";
 import type { FloorPlanWithTables } from "@/lib/admin/floor-plan/queries";
+import { initialsFromName, mozoColor } from "@/lib/mozo/colors";
 import type { MozoMember } from "@/lib/mozo/queries";
 import type { FloorTable } from "@/lib/reservations/types";
 import { cn } from "@/lib/utils";
 
-import { FloorPlanViewer, type TableExtra } from "./floor-plan-viewer";
+import { type TableExtra } from "./floor-plan-viewer";
 
 type Props = {
   open: boolean;
@@ -298,29 +299,6 @@ export function AsignarMozosOverlay({
       </div>
     </div>
   );
-}
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-/**
- * Color HSL determinístico por user_id. Usa el golden ratio para distribuir
- * los hues — colores consecutivos quedan visualmente distantes.
- */
-function mozoColor(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = (hash * 31 + userId.charCodeAt(i)) | 0;
-  }
-  const golden = 0.618033988749895;
-  const hue = Math.floor((((hash >>> 0) * golden) % 1) * 360);
-  return `hsl(${hue}, 65%, 50%)`;
-}
-
-function initialsFromName(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 0 || parts[0] === "") return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
 // ── Custom viewer con teñido por mozo ─────────────────────────────

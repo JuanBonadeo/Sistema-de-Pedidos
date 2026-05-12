@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { ensureMozoAccess } from "@/lib/mozo/auth";
-import { getTurnoLiveStats } from "@/lib/caja/queries";
+import {
+  getMovimientosByTurno,
+  getPaymentsByTurno,
+  getTurnoLiveStats,
+} from "@/lib/caja/queries";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 
 // Endpoint de polling para stats vivos de un turno. El cliente lo llama cada
@@ -42,6 +46,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const stats = await getTurnoLiveStats(turnoId, businessId);
-  return NextResponse.json({ stats });
+  // Stats + movimientos + payments en un solo fetch para no duplicar polling.
+  // La card del turno los mezcla en una lista cronológica unificada.
+  const [stats, movimientos, payments] = await Promise.all([
+    getTurnoLiveStats(turnoId, businessId),
+    getMovimientosByTurno(turnoId, businessId),
+    getPaymentsByTurno(turnoId, businessId),
+  ]);
+  return NextResponse.json({ stats, movimientos, payments });
 }

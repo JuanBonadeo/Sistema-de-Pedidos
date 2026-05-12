@@ -1,9 +1,11 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { BrandStyle } from "@/components/admin/shell/brand-style";
+import { NotificationsLauncher } from "@/components/notifications/notifications-launcher";
 import { canManageBusiness, ensureAdminAccess } from "@/lib/admin/context";
 import { getPendingOrderCount } from "@/lib/admin/orders-query";
+import { countUnread, listForUser } from "@/lib/notifications/queries";
 import { getBusiness, getBusinessSettings } from "@/lib/tenant";
 
 export default async function AdminAuthedLayout({
@@ -17,11 +19,39 @@ export default async function AdminAuthedLayout({
   const business = await getBusiness(business_slug);
   if (!business) notFound();
 
-  const [ctx, pendingCount] = await Promise.all([
-    ensureAdminAccess(business.id, business_slug),
-    getPendingOrderCount(business.id, business.timezone),
-  ]);
+  const ctx = await ensureAdminAccess(business.id, business_slug);
+
+  // Hard gate: el mozo NO entra al panel admin. Su superficie es /mozo
+  // (Mis mesas). Cubre todas las páginas bajo /admin/(authed)/* con un
+  // único redirect — más simple que repetirlo en cada page. El platform
+  // admin pasa siempre, aunque no tenga rol asignado.
+  if (!ctx.isPlatformAdmin && ctx.role === "mozo") {
+    redirect(`/${business_slug}/mozo`);
+  }
+
+  const pendingCount = await getPendingOrderCount(
+    business.id,
+    business.timezone,
+  );
   const settings = getBusinessSettings(business);
+
+  // Notificaciones globales para el layout admin. Para platform admin sin
+  // membership usamos "admin" como rol nominal para la suscripción —
+  // visualmente el bell + mocks de fallback se renderizan igual.
+  const notiRole = ctx.role ?? "admin";
+  const [notifications, unreadCount] = await Promise.all([
+    listForUser({
+      userId: ctx.user.id,
+      businessId: business.id,
+      role: notiRole,
+      limit: 20,
+    }),
+    countUnread({
+      userId: ctx.user.id,
+      businessId: business.id,
+      role: notiRole,
+    }),
+  ]);
 
   return (
     <div
@@ -43,6 +73,17 @@ export default async function AdminAuthedLayout({
         canManageBusiness={canManageBusiness(ctx)}
         initialPendingCount={pendingCount}
         isActive={business.is_active ?? true}
+        notificationsLauncher={
+          <NotificationsLauncher
+            notifications={notifications}
+            unreadCount={unreadCount}
+            businessSlug={business_slug}
+            businessId={business.id}
+            userId={ctx.user.id}
+            role={notiRole}
+            variant="ghost"
+          />
+        }
       />
       <div className="min-w-0 flex-1">{children}</div>
     </div>

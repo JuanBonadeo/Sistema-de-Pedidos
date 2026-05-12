@@ -38,7 +38,12 @@ export default async function AdminLoginPage({
         .eq("user_id", user.id)
         .maybeSingle();
       if (membership && !membership.disabled_at) {
-        redirect(`/${business_slug}/admin`);
+        // Mozos van a /mozo (su pantalla operativa). El resto al panel.
+        const target =
+          membership.role === "mozo"
+            ? `/${business_slug}/mozo`
+            : `/${business_slug}/admin`;
+        redirect(target);
       }
     }
   }

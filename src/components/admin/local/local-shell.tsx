@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Users } from "lucide-react";
 
@@ -13,7 +13,7 @@ import type { LocalComanda, LocalStation } from "@/lib/admin/local-query";
 import type { AdminOrder } from "@/lib/admin/orders-query";
 import type { BusinessRole } from "@/lib/admin/context";
 import type { FloorPlanWithTables } from "@/lib/admin/floor-plan/queries";
-import type { ActiveTurnoView } from "@/lib/caja/types";
+import type { ActiveTurnoView, Caja } from "@/lib/caja/types";
 import type { MozoMember } from "@/lib/mozo/queries";
 import { canAssignMozo } from "@/lib/permissions/can";
 import { cn } from "@/lib/utils";
@@ -38,7 +38,7 @@ function TabsInner({
   currentUserId,
   role,
   cajaTurnos,
-  cajaCerradosHoy,
+  cajas,
 }: {
   slug: string;
   businessId: string;
@@ -53,20 +53,29 @@ function TabsInner({
   currentUserId: string;
   role: BusinessRole;
   cajaTurnos: ActiveTurnoView[];
-  cajaCerradosHoy: ActiveTurnoView[];
+  cajas: Caja[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const raw = searchParams.get("tab");
-  const active: Tab = isTab(raw) ? raw : "pedidos";
+  // Default = "salon" porque es la pantalla principal del operativo en local.
+  // El parámetro de URL se omite solo cuando estás en la default (salón).
+  const active: Tab = isTab(raw) ? raw : "salon";
 
   const setTab = (next: Tab) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (next === "pedidos") params.delete("tab");
+    if (next === "salon") params.delete("tab");
     else params.set("tab", next);
     const qs = params.toString();
     router.replace(qs ? `?${qs}` : `?`, { scroll: false });
   };
+
+  // Como todo /admin/local ahora es fullscreen, colapsamos el sidebar al
+  // entrar a la pantalla (no solo al activar la tab Salón). Antes este
+  // dispatch vivía dentro de SalonDesktop.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("admin-sidebar-collapse"));
+  }, []);
 
   // Modo "Distribuir mozos": vivido en el shell para que el botón quede
   // alineado con las tabs en el header (en vez de dentro del SalonDesktop).
@@ -89,13 +98,18 @@ function TabsInner({
     const comandasActivas = initialComandas.filter(
       (c) => c.status !== "entregado",
     ).length;
+    // Salón: mesas que NO están libres (ocupada + pidio_cuenta). Refleja
+    // cuántas mesas requieren atención del encargado.
+    const salonOcupadas = allActiveTables.filter(
+      (t) => (t.operational_status ?? "libre") !== "libre",
+    ).length;
     return {
       pedidos: pedidosNuevos,
       comandas: comandasActivas,
-      salon: 0,
+      salon: salonOcupadas,
       caja: cajaTurnos.length,
     };
-  }, [initialOrders, initialComandas, cajaTurnos.length]);
+  }, [initialOrders, initialComandas, allActiveTables, cajaTurnos.length]);
 
   const tabsBar = (
     <nav
@@ -103,11 +117,11 @@ function TabsInner({
       className="inline-flex rounded-2xl bg-white p-1 ring-1 ring-zinc-200/70"
     >
       <TabButton
-        active={active === "pedidos"}
-        onClick={() => setTab("pedidos")}
-        count={counts.pedidos}
+        active={active === "salon"}
+        onClick={() => setTab("salon")}
+        count={counts.salon}
       >
-        Pedidos online
+        {floorPlans.length > 1 ? "Salones" : "Salón"}
       </TabButton>
       <TabButton
         active={active === "comandas"}
@@ -117,11 +131,11 @@ function TabsInner({
         Comandas
       </TabButton>
       <TabButton
-        active={active === "salon"}
-        onClick={() => setTab("salon")}
-        count={counts.salon}
+        active={active === "pedidos"}
+        onClick={() => setTab("pedidos")}
+        count={counts.pedidos}
       >
-        Salón
+        Pedidos online
       </TabButton>
       <TabButton
         active={active === "caja"}
@@ -133,30 +147,32 @@ function TabsInner({
     </nav>
   );
 
-  // Tab Salón rompe el container del page para usar todo el viewport.
-  // Se posiciona absolutamente con offset del sidebar collapsed (72px).
-  // El SalonDesktop dispara `admin-sidebar-collapse` al mount para asegurar
-  // el ancho mínimo del sidebar.
-  if (active === "salon") {
-    return (
-      <div
-        className="fixed inset-0 z-30 flex flex-col bg-zinc-50 transition-[left] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
-        style={{ left: "var(--admin-sidebar-width, 72px)" }}
-      >
-        <div className="border-border/60 flex items-center justify-between gap-3 border-b bg-white/95 px-4 py-3 backdrop-blur">
-          {tabsBar}
-          {canAssignMozo(role) && (
-            <button
-              type="button"
-              onClick={() => setDistribuirOpen(true)}
-              className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full bg-zinc-900 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
-            >
-              <Users className="size-3.5" />
-              Distribuir mozos
-            </button>
-          )}
-        </div>
-        <div className="flex-1 overflow-auto p-4">
+  // Todas las tabs comparten layout fullscreen con header fijo (tabs +
+  // acciones). Antes solo Salón era fullscreen; las otras quedaban dentro
+  // del PageShell y se sentían apretadas. Ahora la pantalla "Local en vivo"
+  // es una sola superficie densa, sin título redundante.
+  return (
+    <div
+      className="fixed inset-0 z-30 flex flex-col bg-zinc-50 transition-[left] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+      style={{ left: "var(--admin-sidebar-width, 72px)" }}
+    >
+      <div className="border-border/60 flex items-center justify-between gap-3 border-b bg-white/95 px-4 py-3 backdrop-blur">
+        {tabsBar}
+        {/* Notificaciones viven en el layout global (admin layout). Acá solo
+            quedan acciones específicas de la pantalla. */}
+        {active === "salon" && canAssignMozo(role) && (
+          <button
+            type="button"
+            onClick={() => setDistribuirOpen(true)}
+            className="mr-12 inline-flex flex-shrink-0 items-center gap-1.5 rounded-full bg-zinc-900 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
+          >
+            <Users className="size-3.5" />
+            Distribuir mozos
+          </button>
+        )}
+      </div>
+      <div className="flex-1 overflow-auto p-4">
+        {active === "salon" && (
           <SalonDesktop
             slug={slug}
             businessId={businessId}
@@ -167,27 +183,7 @@ function TabsInner({
             currentUserId={currentUserId}
             role={role}
           />
-        </div>
-
-        {/* Modo "pintura" — overlay vive acá para alinear el trigger con
-            las tabs y poder cerrarlo desde cualquier botón del shell. */}
-        <AsignarMozosOverlay
-          open={distribuirOpen}
-          onClose={() => setDistribuirOpen(false)}
-          slug={slug}
-          floorPlans={floorPlans}
-          mozos={mozos}
-          tables={allActiveTables}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <>
-      {tabsBar}
-
-      <div>
+        )}
         {active === "pedidos" && (
           <OrdersRealtimeBoard
             businessId={businessId}
@@ -202,17 +198,29 @@ function TabsInner({
             businessId={businessId}
             initialComandas={initialComandas}
             stations={stations}
+            mozos={mozos}
           />
         )}
         {active === "caja" && (
           <CajaAdminBoard
             slug={slug}
             initialTurnos={cajaTurnos}
-            cerradosHoy={cajaCerradosHoy}
+            cajas={cajas}
           />
         )}
       </div>
-    </>
+
+      {/* Modo "pintura" — overlay vive acá para alinear el trigger con
+          las tabs y poder cerrarlo desde cualquier botón del shell. */}
+      <AsignarMozosOverlay
+        open={distribuirOpen}
+        onClose={() => setDistribuirOpen(false)}
+        slug={slug}
+        floorPlans={floorPlans}
+        mozos={mozos}
+        tables={allActiveTables}
+      />
+    </div>
   );
 }
 
@@ -266,7 +274,7 @@ export function LocalShell(props: {
   currentUserId: string;
   role: BusinessRole;
   cajaTurnos: ActiveTurnoView[];
-  cajaCerradosHoy: ActiveTurnoView[];
+  cajas: Caja[];
 }) {
   return (
     <Suspense fallback={null}>

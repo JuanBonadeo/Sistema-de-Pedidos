@@ -36,12 +36,20 @@ function useElapsedMinutes(iso: string): number {
   return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
 }
 
-function formatElapsed(min: number): string {
-  if (min < 1) return "ahora";
-  if (min < 60) return `${min}m`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m === 0 ? `${h}h` : `${h}h${m}m`;
+/**
+ * Mismo formato que el salón ("ahora", "5 min", "1h 20", "2h", "3 d") para
+ * unificar el lenguaje de tiempos en todas las tabs del Local en vivo.
+ */
+function formatElapsed(minutes: number): string {
+  if (minutes < 1) return "ahora";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest === 0 ? `${hours} h` : `${hours}h ${rest}`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} d`;
 }
 
 function elapsedTone(min: number, isTerminal: boolean): string {

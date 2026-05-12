@@ -1,11 +1,14 @@
 "use client";
 
-import { useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Receipt } from "lucide-react";
+import { Check, ChefHat, Play, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
-import { marcarComandaEntregada } from "@/lib/comandas/actions";
+import {
+  advanceComandaStatus,
+  marcarComandaEntregada,
+} from "@/lib/comandas/actions";
 import { formatCurrency } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
@@ -39,16 +42,30 @@ export type OrderSummaryData = {
 export function OrderSummaryCard({
   order,
   slug,
+  /** Cuando true, si TODAS las comandas están entregadas, el bloque entero
+   *  de comandas se omite — útil para mesas que pidieron la cuenta, donde
+   *  cocina ya no tiene nada pendiente y la lista ocupa espacio sin valor.
+   *  Default false (siempre se ve el bloque mientras haya comandas). */
+  hideComandasIfAllDelivered = false,
 }: {
   order: OrderSummaryData;
   slug: string;
+  hideComandasIfAllDelivered?: boolean;
 }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
   const active = order.items.filter((it) => it.cancelled_at === null);
   const cancelled = order.items.filter((it) => it.cancelled_at !== null);
   const totalQty = active.reduce((acc, it) => acc + it.quantity, 0);
+
+  const handleEmpezar = (comandaId: string) => {
+    startTransition(async () => {
+      const r = await advanceComandaStatus(comandaId, slug);
+      if (!r.ok) toast.error(r.error);
+      else router.refresh();
+    });
+  };
 
   const handleMarcarEntregada = (comandaId: string) => {
     startTransition(async () => {
@@ -60,6 +77,20 @@ export function OrderSummaryCard({
       }
     });
   };
+
+  // Cantidad de activas (no entregadas) para el header.
+  const activeComandasCount = order.comandas.filter(
+    (c) => c.status !== "entregado",
+  ).length;
+
+  // Si la mesa pidió cuenta Y cocina ya entregó todo, el bloque comandas
+  // no aporta — lo escondemos para que la card sea más limpia.
+  const allComandasDelivered =
+    order.comandas.length > 0 &&
+    order.comandas.every((c) => c.status === "entregado");
+  const showComandas =
+    order.comandas.length > 0 &&
+    !(hideComandasIfAllDelivered && allComandasDelivered);
 
   return (
     <div className="space-y-3">
@@ -114,13 +145,20 @@ export function OrderSummaryCard({
       </div>
 
       {/* Comandas por sector con su estado */}
-      {order.comandas.length > 0 && (
+      {showComandas && (
         <div className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-            Cocina · {order.comandas.length}{" "}
-            {order.comandas.length === 1 ? "comanda" : "comandas"}
-          </p>
-          <ul className="mt-2 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+              <ChefHat className="size-3" strokeWidth={2} />
+              Comandas
+            </p>
+            <p className="text-[10px] font-semibold tabular-nums text-zinc-500">
+              {activeComandasCount > 0
+                ? `${activeComandasCount} activa${activeComandasCount === 1 ? "" : "s"} · ${order.comandas.length} total`
+                : `${order.comandas.length} entregada${order.comandas.length === 1 ? "" : "s"}`}
+            </p>
+          </div>
+          <ul className="mt-3 space-y-2">
             {order.comandas
               .slice()
               .sort((a, b) =>
@@ -132,6 +170,8 @@ export function OrderSummaryCard({
                 <ComandaRow
                   key={c.id}
                   comanda={c}
+                  isPending={isPending}
+                  onEmpezar={() => handleEmpezar(c.id)}
                   onMarcarEntregada={() => handleMarcarEntregada(c.id)}
                 />
               ))}
@@ -142,87 +182,165 @@ export function OrderSummaryCard({
   );
 }
 
+function useElapsedMinutes(iso: string | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!iso) return;
+    const i = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(i);
+  }, [iso]);
+  if (!iso) return 0;
+  return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
+}
+
+function formatElapsed(min: number): string {
+  if (min < 1) return "ahora";
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m === 0 ? `${h}h` : `${h}h${m}m`;
+}
+
 function ComandaRow({
   comanda,
+  isPending,
+  onEmpezar,
   onMarcarEntregada,
 }: {
   comanda: ComandaSummary;
+  isPending: boolean;
+  onEmpezar: () => void;
   onMarcarEntregada: () => void;
 }) {
+  // Cuánto hace que está en su estado actual. Para entregadas usamos
+  // delivered_at; para el resto, emitted_at (cuánto hace que viene esperando).
+  const referenceIso =
+    comanda.status === "entregado" ? comanda.delivered_at : comanda.emitted_at;
+  const elapsed = useElapsedMinutes(referenceIso);
+  const isUrgent = comanda.status !== "entregado" && elapsed >= 15;
+  const isLate = comanda.status !== "entregado" && elapsed >= 8 && elapsed < 15;
+
   const statusLabel: Record<ComandaSummary["status"], string> = {
     pendiente: "Pendiente",
     en_preparacion: "En preparación",
     entregado: "Entregada",
   };
   const statusClass: Record<ComandaSummary["status"], string> = {
-    pendiente: "bg-zinc-100 text-zinc-700",
+    pendiente: "bg-amber-100 text-amber-800",
     en_preparacion: "bg-sky-100 text-sky-800",
     entregado: "bg-emerald-100 text-emerald-800",
   };
   const dotClass: Record<ComandaSummary["status"], string> = {
-    pendiente: "bg-zinc-400",
+    pendiente: "bg-amber-500",
     en_preparacion: "bg-sky-500",
     entregado: "bg-emerald-500",
   };
-  const itemsLine =
-    comanda.items.length === 0
-      ? null
-      : comanda.items
-          .slice(0, 4)
-          .map((it) => `${it.quantity}× ${it.product_name}`)
-          .join(" · ");
-  const hasMore = comanda.items.length > 4;
-
-  // Solo se puede entregar desde en_preparacion (cocina ya la recibió).
-  const canDeliver = comanda.status === "en_preparacion";
 
   return (
-    <li className="rounded-xl bg-zinc-50 px-3 py-2">
-      <div className="flex items-center gap-2.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-semibold text-zinc-900">
-              {comanda.station_name}
-            </span>
-            <span className="text-[11px] text-zinc-500 tabular-nums">
-              · Tanda {comanda.batch}
-            </span>
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                statusClass[comanda.status],
-              )}
-            >
-              <span
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  dotClass[comanda.status],
-                )}
-              />
-              {statusLabel[comanda.status]}
-            </span>
-          </div>
-          {itemsLine && (
-            <p className="mt-0.5 truncate text-[11px] text-zinc-600">
-              {itemsLine}
-              {hasMore && (
-                <span className="ml-1 text-zinc-400">
-                  +{comanda.items.length - 4} más
-                </span>
-              )}
-            </p>
-          )}
+    <li
+      className={cn(
+        "overflow-hidden rounded-xl ring-1 transition",
+        comanda.status === "entregado"
+          ? "bg-zinc-50 ring-zinc-200"
+          : "bg-white ring-zinc-200",
+        isUrgent && "ring-rose-300",
+        isLate && "ring-amber-300",
+      )}
+    >
+      {/* Row 1: sector + tanda + tiempo */}
+      <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              dotClass[comanda.status],
+            )}
+          />
+          <span className="truncate text-sm font-bold text-zinc-900">
+            {comanda.station_name}
+          </span>
+          <span className="shrink-0 text-[11px] font-medium text-zinc-500 tabular-nums">
+            Tanda {comanda.batch}
+          </span>
         </div>
-        {canDeliver && (
+        <span
+          className={cn(
+            "shrink-0 text-[11px] font-semibold tabular-nums",
+            isUrgent ? "text-rose-700" : isLate ? "text-amber-700" : "text-zinc-500",
+          )}
+        >
+          {formatElapsed(elapsed)}
+          {comanda.status === "entregado" && " atrás"}
+        </span>
+      </div>
+
+      {/* Row 2: items */}
+      {comanda.items.length > 0 && (
+        <ul
+          className={cn(
+            "mt-2 space-y-0.5 px-3 pb-2 text-xs",
+            comanda.status === "entregado" ? "text-zinc-500" : "text-zinc-700",
+          )}
+        >
+          {comanda.items.slice(0, 4).map((it, i) => (
+            <li
+              key={`${comanda.id}-${i}`}
+              className="flex items-baseline gap-1.5"
+            >
+              <span className="shrink-0 font-semibold tabular-nums text-zinc-500">
+                {it.quantity}×
+              </span>
+              <span className="truncate font-medium">{it.product_name}</span>
+            </li>
+          ))}
+          {comanda.items.length > 4 && (
+            <li className="text-zinc-400">+{comanda.items.length - 4} más</li>
+          )}
+        </ul>
+      )}
+
+      {/* Row 3: chip de estado + acción primaria */}
+      <div
+        className={cn(
+          "flex items-center justify-between gap-2 border-t px-3 py-2",
+          comanda.status === "entregado"
+            ? "border-zinc-200/70 bg-zinc-50"
+            : "border-zinc-100 bg-zinc-50/50",
+        )}
+      >
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+            statusClass[comanda.status],
+          )}
+        >
+          <span className={cn("size-1.5 rounded-full", dotClass[comanda.status])} />
+          {statusLabel[comanda.status]}
+        </span>
+
+        {comanda.status === "pendiente" && (
+          <button
+            type="button"
+            onClick={onEmpezar}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-sky-700 active:translate-y-px disabled:opacity-50"
+          >
+            <Play className="size-3.5" strokeWidth={2.5} />
+            Empezar
+          </button>
+        )}
+        {comanda.status === "en_preparacion" && (
           <button
             type="button"
             onClick={onMarcarEntregada}
-            className="flex-shrink-0 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition active:scale-95 hover:bg-emerald-700"
+            disabled={isPending}
+            className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-700 active:translate-y-px disabled:opacity-50"
           >
-            <Check className="h-3.5 w-3.5" />
+            <Check className="size-3.5" strokeWidth={2.5} />
             Entregar
           </button>
         )}
+        {/* entregado: sin botón, solo el chip */}
       </div>
     </li>
   );

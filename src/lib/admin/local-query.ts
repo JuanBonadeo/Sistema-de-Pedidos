@@ -36,6 +36,9 @@ export type LocalComanda = {
   delivery_type: string;
   table_label: string | null;
   customer_name: string | null;
+  /** Mozo asignado a la order (solo dine_in). El nombre se resuelve en
+   *  cliente desde la lista de mozos del business. */
+  mozo_id: string | null;
   items: LocalComandaItem[];
 };
 
@@ -68,7 +71,7 @@ export async function getActiveComandas(
     id, order_id, station_id, batch, status, emitted_at, delivered_at,
     stations!inner ( name ),
     orders!inner (
-      id, business_id, order_number, delivery_type, customer_name,
+      id, business_id, order_number, delivery_type, customer_name, mozo_id,
       tables!orders_table_id_fkey ( label )
     ),
     comanda_items (
@@ -120,6 +123,7 @@ export async function getActiveComandas(
       order_number: number;
       delivery_type: string;
       customer_name: string;
+      mozo_id: string | null;
       tables: { label: string } | null;
     };
     comanda_items: {
@@ -150,6 +154,7 @@ export async function getActiveComandas(
     delivery_type: c.orders.delivery_type,
     table_label: c.orders.tables?.label ?? null,
     customer_name: c.orders.customer_name,
+    mozo_id: c.orders.mozo_id,
     items: (c.comanda_items ?? [])
       .map((ci) => ci.order_items)
       .filter((it): it is NonNullable<typeof it> => Boolean(it))

@@ -191,6 +191,111 @@ export async function getMovimientosByTurno(
 }
 
 /**
+ * Payments paid del turno con la info que le interesa al staff: mesa
+ * (si es dine_in), mozo atribuido, cliente, método, monto + propina.
+ *
+ * Usado por la tab Caja para listar cada cobro como un movimiento más
+ * dentro de la lista cronológica del turno (junto a sangrías e ingresos).
+ *
+ * Cross-tenant: filtra por `business_id` del turno antes de leer.
+ */
+export type TurnoPayment = {
+  id: string;
+  method: PaymentMethod;
+  amount_cents: number;
+  tip_cents: number;
+  created_at: string;
+  order_id: string;
+  order_number: number;
+  delivery_type: string;
+  table_label: string | null;
+  customer_name: string | null;
+  attributed_mozo_name: string | null;
+};
+
+export async function getPaymentsByTurno(
+  turnoId: string,
+  businessId: string,
+): Promise<TurnoPayment[]> {
+  const turno = await getTurnoById(turnoId, businessId);
+  if (!turno) return [];
+  const service = createSupabaseServiceClient();
+
+  // Trae payments + order (mesa label, customer_name, delivery_type, mozo).
+  // Solo "paid" — los pending/refunded no son ingresos reales.
+  const { data } = await service
+    .from("payments")
+    .select(
+      "id, method, amount_cents, tip_cents, created_at, attributed_mozo_id, order_id, orders!inner(order_number, delivery_type, customer_name, table_id, tables!orders_table_id_fkey(label))",
+    )
+    .eq("caja_turno_id", turnoId)
+    .eq("payment_status", "paid")
+    .order("created_at", { ascending: true });
+
+  type Row = {
+    id: string;
+    method: PaymentMethod;
+    amount_cents: number;
+    tip_cents: number;
+    created_at: string;
+    attributed_mozo_id: string | null;
+    order_id: string;
+    orders: {
+      order_number: number;
+      delivery_type: string;
+      customer_name: string | null;
+      table_id: string | null;
+      tables: { label: string } | { label: string }[] | null;
+    } | {
+      order_number: number;
+      delivery_type: string;
+      customer_name: string | null;
+      table_id: string | null;
+      tables: { label: string } | { label: string }[] | null;
+    }[] | null;
+  };
+  const rows = (data ?? []) as unknown as Row[];
+
+  // Resolver nombres de mozos en una sola query (evita N+1).
+  const mozoIds = Array.from(
+    new Set(rows.map((r) => r.attributed_mozo_id).filter((x): x is string => !!x)),
+  );
+  const mozoNameById = new Map<string, string>();
+  if (mozoIds.length > 0) {
+    const { data: bu } = await service
+      .from("business_users")
+      .select("user_id, full_name")
+      .eq("business_id", businessId)
+      .in("user_id", mozoIds);
+    for (const m of (bu ?? []) as { user_id: string; full_name: string | null }[]) {
+      if (m.full_name) mozoNameById.set(m.user_id, m.full_name);
+    }
+  }
+
+  return rows.map((r) => {
+    const ord = Array.isArray(r.orders) ? r.orders[0] : r.orders;
+    const tbl = ord?.tables
+      ? Array.isArray(ord.tables) ? ord.tables[0] : ord.tables
+      : null;
+    return {
+      id: r.id,
+      method: r.method,
+      amount_cents: Number(r.amount_cents),
+      tip_cents: Number(r.tip_cents),
+      created_at: r.created_at,
+      order_id: r.order_id,
+      order_number: ord?.order_number ?? 0,
+      delivery_type: ord?.delivery_type ?? "",
+      table_label: tbl?.label ?? null,
+      customer_name: ord?.customer_name ?? null,
+      attributed_mozo_name: r.attributed_mozo_id
+        ? mozoNameById.get(r.attributed_mozo_id) ?? null
+        : null,
+    };
+  });
+}
+
+/**
  * Stats vivos del turno (calculadas on-the-fly, sin cache).
  *
  * Cross-tenant: chequea business_id del turno antes de leer payments.

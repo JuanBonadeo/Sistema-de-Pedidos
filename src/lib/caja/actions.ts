@@ -11,6 +11,7 @@ import {
   canAssignMozo,
   canCloseCajaTurno,
   canMakeSangria,
+  canManageCajas,
   canOpenCajaTurno,
 } from "@/lib/permissions/can";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -74,8 +75,8 @@ export async function crearCaja(
   if (!ctxResult.ok) return ctxResult;
   const ctx = ctxResult.data;
 
-  if (!canOpenCajaTurno(ctx.role)) {
-    return actionError("Solo encargado o admin pueden crear cajas.");
+  if (!canManageCajas(ctx.role)) {
+    return actionError("Solo admin puede configurar cajas.");
   }
   const trimmed = name.trim();
   if (trimmed === "") return actionError("La caja necesita un nombre.");
@@ -99,7 +100,56 @@ export async function crearCaja(
     return actionError(`No se pudo crear la caja: ${error.message}`);
   }
 
-  revalidatePath(`/${businessSlug}/caja`);
+  revalidatePath(`/${businessSlug}/admin/cajas`);
+  revalidatePath(`/${businessSlug}/admin/local`);
+  return actionOk({
+    id: (data as { id: string }).id,
+    name: (data as { name: string }).name,
+  });
+}
+
+/**
+ * Renombrar una caja existente. Admin only. Único por business (FK 23505).
+ */
+export async function renombrarCaja(
+  cajaId: string,
+  newName: string,
+  businessSlug: string,
+): Promise<ActionResult<{ id: string; name: string }>> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  const ctx = ctxResult.data;
+
+  if (!canManageCajas(ctx.role)) {
+    return actionError("Solo admin puede configurar cajas.");
+  }
+  const trimmed = newName.trim();
+  if (trimmed === "") return actionError("La caja necesita un nombre.");
+  if (trimmed.length > 60) return actionError("Nombre demasiado largo.");
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  const caja = await loadCajaForBusiness(service, cajaId, business.id);
+  if (!caja) return actionError("Caja no encontrada.");
+
+  const { data, error } = await service
+    .from("cajas")
+    .update({ name: trimmed })
+    .eq("id", cajaId)
+    .select("id, name")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      return actionError("Ya existe una caja con ese nombre.");
+    }
+    return actionError(`No se pudo renombrar la caja: ${error.message}`);
+  }
+
+  revalidatePath(`/${businessSlug}/admin/cajas`);
   revalidatePath(`/${businessSlug}/admin/local`);
   return actionOk({
     id: (data as { id: string }).id,
@@ -124,8 +174,8 @@ export async function setCajaActive(
   if (!ctxResult.ok) return ctxResult;
   const ctx = ctxResult.data;
 
-  if (!canOpenCajaTurno(ctx.role)) {
-    return actionError("Solo encargado o admin pueden modificar cajas.");
+  if (!canManageCajas(ctx.role)) {
+    return actionError("Solo admin puede configurar cajas.");
   }
 
   const service = createSupabaseServiceClient() as unknown as GenericClient;
@@ -153,11 +203,86 @@ export async function setCajaActive(
     .eq("id", cajaId);
   if (error) return actionError(`No se pudo actualizar la caja: ${error.message}`);
 
-  revalidatePath(`/${businessSlug}/caja`);
+  revalidatePath(`/${businessSlug}/admin/cajas`);
+  revalidatePath(`/${businessSlug}/admin/local`);
   return actionOk(undefined);
 }
 
 // ── Apertura ───────────────────────────────────────────────────
+
+/**
+ * Apertura simple para el flujo conversacional "Abrir caja". Pensado para
+ * el 95% de locales con UNA sola caja física: no obliga al usuario a saber
+ * que "caja" (config) y "turno" (sesión) son cosas distintas. Si no hay
+ * cajas configuradas, crea silenciosamente una llamada "Caja Principal" y
+ * le abre turno. Si hay varias activas, usa la primera por sort_order.
+ *
+ * Para multi-caja real, `abrirTurno(cajaId, ...)` sigue disponible.
+ */
+export async function abrirCajaConDefault(
+  opening_cash_cents: number,
+  businessSlug: string,
+): Promise<ActionResult<{ turno: CajaTurno }>> {
+  const business = await getBusiness(businessSlug);
+  if (!business) return actionError("Negocio no encontrado.");
+
+  const ctxResult = await requireMozoActionContext(business.id);
+  if (!ctxResult.ok) return ctxResult;
+  if (!canOpenCajaTurno(ctxResult.data.role)) {
+    return actionError("Solo encargado o admin pueden abrir la caja.");
+  }
+  if (opening_cash_cents < 0) {
+    return actionError("El monto inicial no puede ser negativo.");
+  }
+
+  const service = createSupabaseServiceClient() as unknown as GenericClient;
+
+  // Buscar primera caja activa
+  const { data: existing } = await service
+    .from("cajas")
+    .select("id, name")
+    .eq("business_id", business.id)
+    .eq("is_active", true)
+    .order("sort_order")
+    .limit(1)
+    .maybeSingle();
+
+  let cajaId: string;
+  if (existing) {
+    cajaId = (existing as { id: string }).id;
+  } else {
+    // Auto-crear "Caja Principal" — primera vez del local.
+    const { data: created, error: createErr } = await service
+      .from("cajas")
+      .insert({
+        business_id: business.id,
+        name: "Caja Principal",
+        is_active: true,
+        sort_order: 0,
+      })
+      .select("id")
+      .single();
+    if (createErr || !created) {
+      if (createErr?.code === "23505") {
+        // Carrera: alguien la creó entre el SELECT y el INSERT. Releemos.
+        const { data: retry } = await service
+          .from("cajas")
+          .select("id")
+          .eq("business_id", business.id)
+          .eq("name", "Caja Principal")
+          .maybeSingle();
+        if (!retry) return actionError("No se pudo crear la caja.");
+        cajaId = (retry as { id: string }).id;
+      } else {
+        return actionError(`No se pudo crear la caja: ${createErr?.message ?? "desconocido"}`);
+      }
+    } else {
+      cajaId = (created as { id: string }).id;
+    }
+  }
+
+  return abrirTurno(cajaId, opening_cash_cents, businessSlug);
+}
 
 export async function abrirTurno(
   cajaId: string,
@@ -217,7 +342,6 @@ export async function abrirTurno(
     created_by: ctx.userId,
   });
 
-  revalidatePath(`/${businessSlug}/caja`);
   revalidatePath(`/${businessSlug}/admin/local`);
   return actionOk({ turno });
 }
@@ -295,7 +419,6 @@ export async function cerrarTurno(
     created_by: ctx.userId,
   });
 
-  revalidatePath(`/${businessSlug}/caja`);
   revalidatePath(`/${businessSlug}/admin/local`);
   return actionOk({ turno: updated as CajaTurno });
 }
@@ -341,7 +464,7 @@ export async function registrarSangria(
   });
   if (error) return actionError(`No se pudo registrar la sangría: ${error.message}`);
 
-  revalidatePath(`/${businessSlug}/caja`);
+  revalidatePath(`/${businessSlug}/admin/local`);
   return actionOk(undefined);
 }
 
@@ -381,7 +504,7 @@ export async function registrarIngreso(
   });
   if (error) return actionError(`No se pudo registrar el ingreso: ${error.message}`);
 
-  revalidatePath(`/${businessSlug}/caja`);
+  revalidatePath(`/${businessSlug}/admin/local`);
   return actionOk(undefined);
 }
 

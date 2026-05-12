@@ -8,11 +8,7 @@ import { Menu } from "@base-ui/react/menu";
 import {
   ArrowLeft,
   BarChart3,
-  Bell,
-  BellOff,
   CalendarDays,
-  ChevronsLeft,
-  ChevronsRight,
   History,
   LayoutDashboard,
   LayoutGrid,
@@ -24,6 +20,7 @@ import {
   ShoppingBag,
   Tag,
   Users,
+  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -123,6 +120,12 @@ function buildNav(slug: string, showBusinessTools: boolean): NavItem[] {
   if (showBusinessTools) {
     items.push(
       {
+        href: `${adminBase}/cajas`,
+        label: "Cajas",
+        icon: <Wallet className="size-5" strokeWidth={1.75} />,
+        match: (p) => p.startsWith(`${adminBase}/cajas`),
+      },
+      {
         href: `${adminBase}/empleados`,
         label: "Empleados",
         icon: <Users className="size-5" strokeWidth={1.75} />,
@@ -141,51 +144,10 @@ function buildNav(slug: string, showBusinessTools: boolean): NavItem[] {
   return items;
 }
 
-// ─── Sound helpers ───────────────────────────────────────────────────────────
+// ─── Dimensiones ────────────────────────────────────────────────────────────
 
-function soundStorageKey(businessId: string) {
-  return `adminSound_${businessId}`;
-}
-
-function getSoundEnabled(businessId: string): boolean | null {
-  try {
-    const v = localStorage.getItem(soundStorageKey(businessId));
-    if (v === "true") return true;
-    if (v === "false") return false;
-    return null; // never set
-  } catch {
-    return null;
-  }
-}
-
-function setSoundEnabled(businessId: string, enabled: boolean) {
-  try {
-    localStorage.setItem(soundStorageKey(businessId), String(enabled));
-  } catch {
-    // ignore
-  }
-}
-
-function playBeep() {
-  try {
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    gain.gain.value = 0.25;
-    osc.start();
-    osc.stop(ctx.currentTime + 0.18);
-    osc.addEventListener("ended", () => ctx.close());
-  } catch {
-    // ignore
-  }
-}
-
-// ─── Storage key ─────────────────────────────────────────────────────────────
-
-const STORAGE_KEY = "adminSidebarExpanded";
+const COLLAPSED_WIDTH = 72;
+const EXPANDED_WIDTH = 256;
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
@@ -199,7 +161,8 @@ export function AdminSidebar({
   isPlatformAdmin = false,
   canManageBusiness = false,
   initialPendingCount = 0,
-  isActive = true,
+  isActive: _isActive = true,
+  notificationsLauncher = null,
 }: {
   slug: string;
   businessId: string;
@@ -211,79 +174,34 @@ export function AdminSidebar({
   canManageBusiness?: boolean;
   initialPendingCount?: number;
   isActive?: boolean;
+  /** Slot opcional: el layout pasa el <NotificationsLauncher> ya cableado
+   *  (con realtime + drawer + toasts) y la sidebar lo renderiza en su
+   *  header, siempre visible. */
+  notificationsLauncher?: React.ReactNode;
 }) {
+  void _isActive;
   const pathname = usePathname();
   const items = buildNav(slug, canManageBusiness);
 
-  // ── Sidebar expanded / collapsed ──────────────────────────────────────────
+  // ── Sidebar expanded / collapsed (hover-driven) ───────────────────────────
   const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(STORAGE_KEY) === "true") setExpanded(true);
-    } catch {
-      // ignore
-    }
-  }, []);
 
-  const toggle = () => {
-    setExpanded((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(STORAGE_KEY, String(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  };
-
-  // Eventos externos para forzar colapsado/expandido. Hoy usado por la tab
-  // Salón de `/admin/local` para ganar todo el viewport.
-  useEffect(() => {
-    const onCollapse = () => {
-      setExpanded(false);
-      try {
-        localStorage.setItem(STORAGE_KEY, "false");
-      } catch {
-        // ignore
-      }
-    };
-    window.addEventListener("admin-sidebar-collapse", onCollapse);
-    return () =>
-      window.removeEventListener("admin-sidebar-collapse", onCollapse);
-  }, []);
-
-  // Publicamos el ancho del sidebar como CSS var para que overlays externos
-  // (ej: la tab Salón de `/admin/local` que ocupa todo el viewport) puedan
-  // ofsetear su `left` en sincronía con el toggle. Sin esto, al expandir el
-  // sidebar el overlay quedaba con el ancho viejo y el sidebar lo tapaba.
+  // El sidebar siempre ocupa COLLAPSED_WIDTH en el flujo: la versión expandida
+  // se renderiza absoluta encima del contenido para no empujarlo al hacer hover.
+  // Mantenemos `--admin-sidebar-width` igual al ancho colapsado para que los
+  // overlays externos (ej: tab Salón de /admin/local) sigan calibrando su left.
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--admin-sidebar-width",
-      expanded ? "256px" : "72px",
+      `${COLLAPSED_WIDTH}px`,
     );
-  }, [expanded]);
+  }, []);
 
   // ── Pending order badge ───────────────────────────────────────────────────
   const [pendingCount, setPendingCount] = useState(initialPendingCount);
 
-  // ── Sound preference ──────────────────────────────────────────────────────
-  // null = never set (show prompt); true/false = user chose
-  const [soundEnabled, setSoundEnabledState] = useState<boolean | null>(null);
-  useEffect(() => {
-    setSoundEnabledState(getSoundEnabled(businessId));
-  }, [businessId]);
-
-  const handleToggleSound = () => {
-    const next = soundEnabled === true ? false : true;
-    setSoundEnabledState(next);
-    setSoundEnabled(businessId, next);
-  };
-
   // ── Realtime subscription ─────────────────────────────────────────────────
   const businessIdRef = useRef(businessId);
-  const soundRef = useRef(soundEnabled);
-  useEffect(() => { soundRef.current = soundEnabled; }, [soundEnabled]);
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -308,7 +226,6 @@ export function AdminSidebar({
               `🔔 Pedido #${newOrder.order_number ?? "—"} — ${newOrder.customer_name ?? "cliente"}`,
               { duration: 6000 },
             );
-            if (soundRef.current === true) playBeep();
           } else if (payload.eventType === "UPDATE") {
             const newStatus = (payload.new as { status?: string }).status ?? "";
             const isTerminal =
@@ -346,244 +263,133 @@ export function AdminSidebar({
 
   return (
     <aside
-      className={cn(
-        "sticky top-0 z-30 flex h-screen shrink-0 flex-col",
-        "border-r border-zinc-200/70 bg-zinc-50/80 backdrop-blur-xl",
-        "transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
-        expanded ? "w-64" : "w-[72px]",
-      )}
+      aria-label="Navegación admin"
+      onMouseEnter={() => setExpanded(true)}
+      onMouseLeave={() => setExpanded(false)}
+      style={{ width: COLLAPSED_WIDTH }}
+      className="sticky top-0 z-40 h-screen shrink-0"
     >
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <header
-        className={cn(
-          "flex gap-2 p-3",
-          expanded ? "flex-row items-center" : "flex-col items-center",
-        )}
-      >
-        <BusinessMark
-          slug={slug}
-          name={businessName}
-          logoUrl={businessLogoUrl}
-        />
-        {expanded && (
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold tracking-tight text-zinc-900">
-              {businessName}
-            </p>
-            <p className="truncate text-[0.65rem] font-medium uppercase tracking-[0.14em] text-zinc-500">
-              Panel admin
-            </p>
-          </div>
-        )}
-        <ToggleButton expanded={expanded} onClick={toggle} />
-      </header>
-
-      {/* ── Status dot (open/closed, read-only — toggle lives in the dashboard) */}
+      {/* Panel absoluto: queda anclado a la izquierda y crece sobre el contenido
+          al hacer hover, sin alterar el layout. */}
       <div
+        style={{ width: expanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH }}
         className={cn(
-          "px-3 pb-2",
-          expanded ? "flex" : "flex justify-center",
+          "absolute inset-y-0 left-0 flex flex-col overflow-hidden",
+          "border-r border-zinc-200/70 bg-zinc-50/95 backdrop-blur-xl",
+          "shadow-[0_8px_30px_-12px_rgba(0,0,0,0.12)]",
+          "transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
         )}
       >
-        <StatusDot isOpen={isActive} expanded={expanded} />
-      </div>
-
-      <div className="mx-3 h-px bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
-
-      {/* ── Nav ─────────────────────────────────────────────────────────── */}
-      <nav
-        aria-label="Navegación principal"
-        className={cn(
-          "flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden py-3",
-          expanded ? "px-3" : "items-center px-0",
-        )}
-      >
-        {primary.map((item) => (
-          <NavIcon
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            icon={item.icon}
-            active={item.match(pathname)}
-            expanded={expanded}
-            badge={item.label === "Local en vivo" && pendingCount > 0 ? pendingCount : undefined}
-          />
-        ))}
-
-        {secondary.length > 0 && (
-          <>
+        {/* ── Header ──────────────────────────────────────────────────────── */}
+        <header className="flex flex-col items-stretch gap-2 px-3 pt-3 pb-2">
+          <div className="flex flex-row items-center gap-2">
+            <BusinessMark
+              slug={slug}
+              name={businessName}
+              logoUrl={businessLogoUrl}
+            />
             <div
               className={cn(
-                "my-2 h-px bg-zinc-200/70",
-                expanded ? "" : "w-8 self-center",
+                "min-w-0 flex-1 overflow-hidden transition-opacity duration-200",
+                expanded ? "opacity-100 delay-100" : "pointer-events-none opacity-0",
               )}
+              aria-hidden={!expanded}
+            >
+              <p className="truncate text-sm font-semibold tracking-tight text-zinc-900">
+                {businessName}
+              </p>
+              <p className="truncate text-[0.65rem] font-medium uppercase tracking-[0.14em] text-zinc-500">
+                Panel admin
+              </p>
+            </div>
+          </div>
+          {/* Notificaciones — siempre en el header, fácil de encontrar. */}
+          {notificationsLauncher && (
+            <div
+              className={cn(
+                "flex",
+                expanded ? "justify-end pr-1" : "justify-center",
+              )}
+            >
+              {notificationsLauncher}
+            </div>
+          )}
+        </header>
+
+        {/* ── Nav ─────────────────────────────────────────────────────────── */}
+        <nav
+          aria-label="Navegación principal"
+          className={cn(
+            "flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden pt-1 pb-3",
+            expanded ? "px-3" : "items-center px-0",
+          )}
+        >
+          {primary.map((item) => (
+            <NavIcon
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={item.icon}
+              active={item.match(pathname)}
+              expanded={expanded}
+              badge={item.label === "Local en vivo" && pendingCount > 0 ? pendingCount : undefined}
             />
-            {secondary.map((item) => (
+          ))}
+
+          {secondary.length > 0 && (
+            <>
+              <div
+                className={cn(
+                  "my-2 h-px bg-zinc-200/70",
+                  expanded ? "" : "w-8 self-center",
+                )}
+              />
+              {secondary.map((item) => (
+                <NavIcon
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  icon={item.icon}
+                  active={item.match(pathname)}
+                  expanded={expanded}
+                />
+              ))}
+            </>
+          )}
+
+          {isPlatformAdmin && (
+            <>
+              <div
+                className={cn(
+                  "my-2 h-px bg-zinc-200/70",
+                  expanded ? "" : "w-8 self-center",
+                )}
+              />
               <NavIcon
-                key={item.href}
-                href={item.href}
-                label={item.label}
-                icon={item.icon}
-                active={item.match(pathname)}
+                href="/"
+                label="Plataforma"
+                icon={<ArrowLeft className="size-5" strokeWidth={1.75} />}
+                active={false}
                 expanded={expanded}
               />
-            ))}
-          </>
-        )}
+            </>
+          )}
+        </nav>
 
-        {isPlatformAdmin && (
-          <>
-            <div
-              className={cn(
-                "my-2 h-px bg-zinc-200/70",
-                expanded ? "" : "w-8 self-center",
-              )}
-            />
-            <NavIcon
-              href="/"
-              label="Plataforma"
-              icon={<ArrowLeft className="size-5" strokeWidth={1.75} />}
-              active={false}
-              expanded={expanded}
-            />
-          </>
-        )}
-      </nav>
+        <div className="mx-3 h-px bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
 
-      <div className="mx-3 h-px bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
-
-      {/* ── Footer: user + sound toggle ──────────────────────────────────── */}
-      <div
-        className={cn(
-          "p-3",
-          expanded ? "flex items-center gap-2" : "flex flex-col items-center gap-2",
-        )}
-      >
-        <UserMenu
-          slug={slug}
-          userEmail={userEmail}
-          userName={userName}
-          isPlatformAdmin={isPlatformAdmin}
-          expanded={expanded}
-        />
-        <SoundToggle
-          soundEnabled={soundEnabled}
-          expanded={expanded}
-          onToggle={handleToggleSound}
-        />
+        {/* ── Footer: user ─────────────────────────────────────────────────── */}
+        <div className="flex items-center p-3">
+          <UserMenu
+            slug={slug}
+            userEmail={userEmail}
+            userName={userName}
+            isPlatformAdmin={isPlatformAdmin}
+            expanded={expanded}
+          />
+        </div>
       </div>
     </aside>
-  );
-}
-
-// ─── Status dot (read-only indicator — toggle lives in the dashboard header) ──
-
-function StatusDot({
-  isOpen,
-  expanded,
-}: {
-  isOpen: boolean;
-  expanded: boolean;
-}) {
-  if (expanded) {
-    return (
-      <span
-        className={cn(
-          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.65rem] font-semibold",
-          isOpen
-            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/60"
-            : "bg-zinc-100 text-zinc-500 ring-1 ring-zinc-200",
-        )}
-      >
-        <span
-          className={cn(
-            "size-1.5 rounded-full",
-            isOpen ? "bg-emerald-500" : "bg-zinc-400",
-          )}
-        />
-        {isOpen ? "Abierto" : "Cerrado"}
-      </span>
-    );
-  }
-
-  return (
-    <div className="group relative flex justify-center">
-      <div
-        className="flex size-8 items-center justify-center rounded-xl"
-        title={isOpen ? "Abierto" : "Cerrado"}
-      >
-        <span
-          className={cn(
-            "size-2 rounded-full ring-2",
-            isOpen
-              ? "bg-emerald-500 ring-emerald-200"
-              : "bg-zinc-400 ring-zinc-200",
-          )}
-        />
-      </div>
-      <Tooltip label={isOpen ? "Abierto" : "Cerrado"} />
-    </div>
-  );
-}
-
-// ─── Sound toggle ─────────────────────────────────────────────────────────────
-
-function SoundToggle({
-  soundEnabled,
-  expanded,
-  onToggle,
-}: {
-  soundEnabled: boolean | null;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  // null = never configured → show neutral icon (no sound by default)
-  const isOn = soundEnabled === true;
-  const label = isOn ? "Silenciar alertas" : "Activar alertas sonoras";
-
-  if (expanded) {
-    return (
-      <button
-        type="button"
-        onClick={onToggle}
-        title={label}
-        className={cn(
-          "flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-[0.65rem] font-medium transition",
-          isOn
-            ? "text-zinc-600 hover:bg-zinc-200/50"
-            : "text-zinc-400 hover:bg-zinc-200/50 hover:text-zinc-600",
-        )}
-      >
-        {isOn ? (
-          <Bell className="size-3.5" />
-        ) : (
-          <BellOff className="size-3.5" />
-        )}
-        {isOn ? "Alertas on" : "Alertas off"}
-      </button>
-    );
-  }
-
-  return (
-    <div className="group relative flex justify-center">
-      <button
-        type="button"
-        onClick={onToggle}
-        title={label}
-        className={cn(
-          "flex size-8 items-center justify-center rounded-xl transition",
-          "hover:bg-zinc-200/40",
-          isOn ? "text-zinc-600" : "text-zinc-400",
-        )}
-      >
-        {isOn ? (
-          <Bell className="size-3.5" />
-        ) : (
-          <BellOff className="size-3.5" />
-        )}
-      </button>
-      <Tooltip label={label} />
-    </div>
   );
 }
 
@@ -632,35 +438,6 @@ function BusinessMark({
         <span className="text-xs font-bold tracking-tight">{initials}</span>
       )}
     </Link>
-  );
-}
-
-// ─── Sidebar expand/collapse button ─────────────────────────────────────────
-
-function ToggleButton({
-  expanded,
-  onClick,
-}: {
-  expanded: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={expanded ? "Colapsar menú" : "Expandir menú"}
-      title={expanded ? "Colapsar" : "Expandir"}
-      className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-lg",
-        "text-zinc-500 transition hover:bg-zinc-200/60 hover:text-zinc-900",
-      )}
-    >
-      {expanded ? (
-        <ChevronsLeft className="size-4" />
-      ) : (
-        <ChevronsRight className="size-4" />
-      )}
-    </button>
   );
 }
 

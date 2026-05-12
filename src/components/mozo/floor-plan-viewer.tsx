@@ -21,6 +21,8 @@ export type TableExtra = {
   };
   minutesOpen?: number;
   mozoInitial?: string;
+  /** HSL determinístico por user_id — pinta el badge con el color del mozo. */
+  mozoColor?: string;
 };
 
 type Props = {
@@ -185,22 +187,22 @@ function ViewerTable({
         </>
       )}
 
-      {/* Badge mozo asignado (esquina inferior derecha) — siempre que haya inicial */}
+      {/* Badge mozo asignado (esquina inferior derecha) — color del mozo */}
       {extra?.mozoInitial && (
         <>
           <circle
-            cx={table.width - 10}
-            cy={table.height - 10}
-            r={9}
-            fill="#0f172a"
+            cx={table.width - 11}
+            cy={table.height - 11}
+            r={11}
+            fill={extra.mozoColor ?? "#0f172a"}
             stroke="white"
             strokeWidth={1.5}
           />
           <text
-            x={table.width - 10}
-            y={table.height - 6}
+            x={table.width - 11}
+            y={table.height - 7.5}
             textAnchor="middle"
-            fontSize="9"
+            fontSize="9.5"
             fontWeight="700"
             fill="white"
             style={{ userSelect: "none", pointerEvents: "none" }}
